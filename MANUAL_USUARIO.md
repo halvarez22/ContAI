@@ -1,17 +1,17 @@
-# 📘 Manual de Usuario: contAI
+# 📘 Manual de Usuario: ContAI
 ## Sistema Contable Autónomo Universal
 
-¡Bienvenido a **contAI**! Este manual ha sido diseñado para ayudarte a entender cómo nuestra Inteligencia Artificial (IA) se convertirá en tu mejor aliada en el día a día contable. Olvídate de las tareas repetitivas y descubre cómo contAI automatiza la gestión de tu negocio.
+¡Bienvenido a **ContAI**! Este manual ha sido diseñado para ayudarte a entender cómo nuestra Inteligencia Artificial (IA) se convertirá en tu mejor aliada en el día a día contable. Olvídate de las tareas repetitivas y descubre cómo ContAI automatiza la gestión de tu negocio.
 
 ---
 
-### 1. ¿Qué es contAI?
-**contAI** es una plataforma contable inteligente que utiliza "Agentes de IA" para realizar tareas que antes tomaban horas en cuestión de segundos. La app no solo registra datos, sino que los **analiza, clasifica y audita** de forma autónoma, permitiéndote enfocarte en la toma de decisiones estratégicas.
+### 1. ¿Qué es ContAI?
+**ContAI** es una plataforma contable inteligente que utiliza "Agentes de IA" para realizar tareas que antes tomaban horas en cuestión de segundos. La app no solo registra datos, sino que los **analiza, clasifica y audita** de forma autónoma, permitiéndote enfocarte en la toma de decisiones estratégicas.
 
 ---
 
 ### 2. Conoce a tu Equipo de IA
-Dentro de contAI, tres especialistas digitales trabajan para ti las 24 horas:
+Dentro de ContAI, tres especialistas digitales trabajan para ti las 24 horas:
 
 *   🤖 **Agente Conciliador**: Compara automáticamente tus movimientos bancarios con tus registros internos. Si los montos y fechas coinciden, los marca como listos.
 *   🏷️ **Agente Clasificador**: Analiza cada gasto o ingreso y le asigna la cuenta contable correcta (ej. Viáticos, Nómina, Insumos) sin que tengas que hacerlo manualmente.
@@ -66,7 +66,7 @@ En la pestaña **"Transacciones"**, verás el listado de todos tus movimientos c
 ---
 
 ### 7. Seguridad y Bitácora (Audit Log)
-En contabilidad, la confianza es todo. Por eso, contAI incluye una **Bitácora de Auditoría Inmutable**.
+En contabilidad, la confianza es todo. Por eso, ContAI incluye una **Bitácora de Auditoría Inmutable**.
 *   Cada vez que alguien entra, sale o la IA toma una decisión, se genera un registro que **no se puede borrar ni modificar**.
 *   Cada registro tiene un "Sello Digital" (Hash) que garantiza que la información es verídica y no ha sido alterada.
 
@@ -86,4 +86,4 @@ Si trabajas de noche o prefieres una pantalla que canse menos la vista:
 *   **Mantén tu sesión segura**: Siempre cierra sesión al terminar si compartes equipo.
 
 ---
-**contAI** - *La contabilidad del futuro, hoy.*
+**ContAI** - *La contabilidad del futuro, hoy.*

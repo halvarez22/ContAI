@@ -237,7 +237,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `transacciones_contAI_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `transacciones_ContAI_${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -494,7 +494,7 @@ export default function App() {
             <ShieldCheck className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
           </div>
           <div className="space-y-2">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">contAI</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">ContAI</h1>
             <p className="text-gray-500 dark:text-gray-400">Sistema Contable Autónomo Universal</p>
           </div>
           <Button onClick={handleLogin} className="w-full py-3">
@@ -543,7 +543,7 @@ export default function App() {
               <ShieldCheck className="w-6 h-6 text-white" />
             </div>
             {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
-              <span className="font-bold text-xl text-gray-900 dark:text-white">contAI</span>
+              <span className="font-bold text-xl text-gray-900 dark:text-white">ContAI</span>
             )}
           </div>
           <button 
