@@ -60,6 +60,27 @@
         "configuracion": { "type": "object" }
       },
       "required": ["nombre", "plan", "activa"]
+    },
+    "RecurringTransaction": {
+      "title": "Recurring Transaction",
+      "description": "Templates for recurring financial transactions.",
+      "type": "object",
+      "properties": {
+        "organization_id": { "type": "string" },
+        "tipo": { "type": "string", "enum": ["ingreso", "egreso"] },
+        "monto": { "type": "number" },
+        "moneda": { "type": "string" },
+        "concepto": { "type": "string" },
+        "frecuencia": { "type": "string", "enum": ["diaria", "semanal", "mensual", "anual"] },
+        "proxima_ejecucion": { "type": "string", "format": "date-time" },
+        "condicion_fin": { "type": "string", "enum": ["nunca", "ocurrencias", "fecha"] },
+        "valor_fin": { "type": "string" },
+        "ocurrencias_completadas": { "type": "number" },
+        "activa": { "type": "boolean" },
+        "creado_en": { "type": "string", "format": "date-time" },
+        "usuario_id": { "type": "string" }
+      },
+      "required": ["organization_id", "tipo", "monto", "frecuencia", "proxima_ejecucion", "condicion_fin", "activa"]
     }
   },
   "firestore": {
@@ -70,6 +91,10 @@
     "transactions/{transactionId}": {
       "schema": "Transaction",
       "description": "Accounting transactions."
+    },
+    "recurring_transactions/{recurringId}": {
+      "schema": "RecurringTransaction",
+      "description": "Recurring transaction templates."
     },
     "audit_logs/{logId}": {
       "schema": "AuditLog",

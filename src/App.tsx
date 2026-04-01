@@ -32,7 +32,19 @@ import {
   Clock,
   ChevronRight,
   Menu,
-  X
+  X,
+  Download,
+  Repeat,
+  Eye,
+  Info,
+  Edit2,
+  Pause,
+  Play,
+  Trash2,
+  FileText,
+  PieChart,
+  Search,
+  Tag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './firebase';
@@ -89,7 +101,21 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [selectedTransaction, setSelectedTransaction] = useState<any>(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [monthlyReport, setMonthlyReport] = useState<any>(null);
+  const [selectedRecurring, setSelectedRecurring] = useState<any>(null);
+  const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
+  const [recurringTransactions, setRecurringTransactions] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [filterType, setFilterType] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterProvider, setFilterProvider] = useState('');
+  const [filterTag, setFilterTag] = useState('');
+  const [newTag, setNewTag] = useState('');
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -146,9 +172,15 @@ export default function App() {
       setAuditLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    const qRecurring = query(collection(db, 'recurring_transactions'), orderBy('creado_en', 'desc'));
+    const unsubRecurring = onSnapshot(qRecurring, (snapshot) => {
+      setRecurringTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => {
       unsubTransactions();
       unsubLogs();
+      unsubRecurring();
     };
   }, [user]);
 
@@ -179,15 +211,70 @@ export default function App() {
     }
   };
 
+  const exportToCSV = () => {
+    if (transactions.length === 0) return;
+
+    const headers = ['Fecha', 'Proveedor', 'Concepto', 'Tipo', 'Monto', 'Moneda', 'Estado', 'Cuenta', 'Confianza', 'Etiquetas'];
+    const rows = transactions.map(tx => [
+      formatDate(tx.fecha),
+      tx.proveedor || 'S/P',
+      tx.concepto,
+      tx.tipo,
+      tx.monto,
+      tx.moneda,
+      tx.status,
+      tx.account_name || 'Sin clasificar',
+      tx.confidence_score ? `${(tx.confidence_score * 100).toFixed(1)}%` : 'N/A',
+      tx.tags ? tx.tags.join('; ') : ''
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `transacciones_contAI_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const filteredTransactions = transactions.filter(tx => {
+    const matchesType = filterType === 'all' || tx.tipo === filterType;
+    const matchesStatus = filterStatus === 'all' || tx.status === filterStatus;
+    const matchesProvider = !filterProvider || 
+      (tx.proveedor && tx.proveedor.toLowerCase().includes(filterProvider.toLowerCase())) ||
+      (tx.concepto && tx.concepto.toLowerCase().includes(filterProvider.toLowerCase()));
+    
+    const matchesTag = !filterTag || (tx.tags && tx.tags.some((tag: string) => tag.toLowerCase().includes(filterTag.toLowerCase())));
+    
+    const txDate = new Date(tx.fecha);
+    const matchesStartDate = !filterStartDate || txDate >= new Date(filterStartDate);
+    const matchesEndDate = !filterEndDate || txDate <= new Date(filterEndDate + 'T23:59:59');
+
+    return matchesType && matchesStatus && matchesStartDate && matchesEndDate && matchesProvider && matchesTag;
+  });
+
   const addMockTransaction = async () => {
+    const proveedores = ['Amazon Business', 'Microsoft Azure', 'CFE', 'Papelería El Centro', 'Consultores Asociados', 'Telmex', 'Sams Club'];
+    const possibleTags = ['Urgente', 'Revisado', 'Deducible', 'Proyecto A', 'Proyecto B', 'Oficina', 'Software'];
+    const randomTags = Array.from({ length: Math.floor(Math.random() * 3) }, () => possibleTags[Math.floor(Math.random() * possibleTags.length)]);
+    
     const mockData = {
       organization_id: 'org_main',
       tipo: Math.random() > 0.5 ? 'ingreso' : 'egreso',
       monto: Math.floor(Math.random() * 10000) + 100,
       moneda: 'MXN',
       concepto: Math.random() > 0.5 ? 'Servicios de Consultoría' : 'Compra de Insumos Generales',
+      proveedor: proveedores[Math.floor(Math.random() * proveedores.length)],
       fecha: new Date().toISOString(),
       status: 'pendiente',
+      tags: [...new Set(randomTags)]
     };
 
     const docRef = await addDoc(collection(db, 'transactions'), {
@@ -206,6 +293,188 @@ export default function App() {
         account_name: decision.account_name,
         creado_en: serverTimestamp(),
       });
+    }
+  };
+
+  const addRecurringTransaction = () => {
+    setSelectedRecurring(null);
+    setIsRecurringModalOpen(true);
+  };
+
+  const editRecurringTransaction = (rec: any) => {
+    setSelectedRecurring(rec);
+    setIsRecurringModalOpen(true);
+  };
+
+  const toggleRecurringStatus = async (rec: any) => {
+    await setDoc(doc(db, 'recurring_transactions', rec.id), {
+      ...rec,
+      activa: !rec.activa,
+    });
+    logAuditEntry(rec.activa ? 'PAUSE_RECURRING' : 'RESUME_RECURRING', 'recurring_transactions', { id: rec.id });
+  };
+
+  const deleteRecurringTransaction = async (id: string) => {
+    // In a real app we might use deleteDoc, but here we'll just deactivate or log
+    // For this demo let's just deactivate
+    await setDoc(doc(db, 'recurring_transactions', id), {
+      activa: false,
+      deleted: true,
+    }, { merge: true });
+    logAuditEntry('DELETE_RECURRING', 'recurring_transactions', { id });
+  };
+
+  const saveRecurringTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const data = {
+      organization_id: 'org_main',
+      concepto: formData.get('concepto') as string,
+      monto: Number(formData.get('monto')),
+      tipo: formData.get('tipo') as string,
+      frecuencia: formData.get('frecuencia') as string,
+      proxima_ejecucion: formData.get('proxima_ejecucion') as string,
+      condicion_fin: formData.get('condicion_fin') as string,
+      activa: true,
+      usuario_id: user?.uid,
+      creado_en: serverTimestamp(),
+    };
+
+    if (selectedRecurring) {
+      await setDoc(doc(db, 'recurring_transactions', selectedRecurring.id), data);
+      logAuditEntry('UPDATE_RECURRING', 'recurring_transactions', { id: selectedRecurring.id });
+    } else {
+      await addDoc(collection(db, 'recurring_transactions'), data);
+      logAuditEntry('CREATE_RECURRING', 'recurring_transactions', data);
+    }
+
+    setIsRecurringModalOpen(false);
+    setSelectedRecurring(null);
+  };
+
+  const processRecurring = async () => {
+    setIsProcessing(true);
+    const now = new Date();
+    let processedCount = 0;
+
+    try {
+      for (const rec of recurringTransactions) {
+        if (!rec.activa) continue;
+        
+        const nextExec = new Date(rec.proxima_ejecucion);
+        if (nextExec <= now) {
+          // Create transaction
+          const txData = {
+            organization_id: rec.organization_id,
+            tipo: rec.tipo,
+            monto: rec.monto,
+            moneda: rec.moneda,
+            concepto: `${rec.concepto} (Ejecución ${new Date().toLocaleDateString()})`,
+            fecha: now.toISOString(),
+            status: 'conciliado', // Recurring are usually pre-approved
+            creado_en: serverTimestamp(),
+          };
+
+          await addDoc(collection(db, 'transactions'), txData);
+          
+          // Update next execution
+          let newNextExec = new Date(nextExec);
+          if (rec.frecuencia === 'diaria') newNextExec.setDate(newNextExec.getDate() + 1);
+          else if (rec.frecuencia === 'semanal') newNextExec.setDate(newNextExec.getDate() + 7);
+          else if (rec.frecuencia === 'mensual') newNextExec.setMonth(newNextExec.getMonth() + 1);
+          else if (rec.frecuencia === 'anual') newNextExec.setFullYear(newNextExec.getFullYear() + 1);
+
+          await setDoc(doc(db, 'recurring_transactions', rec.id), {
+            ...rec,
+            proxima_ejecucion: newNextExec.toISOString(),
+            ocurrencias_completadas: (rec.ocurrencias_completadas || 0) + 1,
+          });
+
+          processedCount++;
+        }
+      }
+      
+      if (processedCount > 0) {
+        logAuditEntry('PROCESS_RECURRING', 'system', { count: processedCount });
+      }
+    } catch (error) {
+      console.error('Error processing recurring:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const generateMonthlyReport = () => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const monthlyTransactions = transactions.filter(tx => {
+      const txDate = new Date(tx.fecha);
+      return txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear;
+    });
+
+    const summary = {
+      totalIncome: 0,
+      totalExpenses: 0,
+      netBalance: 0,
+      categories: {} as Record<string, { income: number; expense: number }>,
+      monthName: now.toLocaleString('es-MX', { month: 'long', year: 'numeric' })
+    };
+
+    monthlyTransactions.forEach(tx => {
+      const amount = Number(tx.monto);
+      const category = tx.account_name || 'Sin clasificar';
+
+      if (!summary.categories[category]) {
+        summary.categories[category] = { income: 0, expense: 0 };
+      }
+
+      if (tx.tipo === 'ingreso') {
+        summary.totalIncome += amount;
+        summary.categories[category].income += amount;
+      } else {
+        summary.totalExpenses += amount;
+        summary.categories[category].expense += amount;
+      }
+    });
+
+    summary.netBalance = summary.totalIncome - summary.totalExpenses;
+    setMonthlyReport(summary);
+    setIsReportModalOpen(true);
+    logAuditEntry('GENERATE_REPORT', 'system', { month: summary.monthName });
+  };
+
+  const approveTransaction = async (tx: any) => {
+    try {
+      await setDoc(doc(db, 'transactions', tx.id), {
+        ...tx,
+        status: 'conciliado',
+        aprobado_por: user?.email,
+        aprobado_en: serverTimestamp(),
+      });
+      
+      logAuditEntry('APPROVE_TRANSACTION', 'transactions', { id: tx.id, concepto: tx.concepto });
+      setSelectedTransaction(null);
+    } catch (error) {
+      console.error('Error approving transaction:', error);
+    }
+  };
+
+  const updateTransactionTags = async (txId: string, newTags: string[]) => {
+    try {
+      const tx = transactions.find(t => t.id === txId);
+      if (!tx) return;
+      
+      await setDoc(doc(db, 'transactions', txId), {
+        ...tx,
+        tags: newTags,
+        actualizado_en: serverTimestamp()
+      });
+      
+      logAuditEntry('UPDATE_TAGS', 'transactions', { id: txId, tags: newTags });
+    } catch (error) {
+      console.error('Error updating tags:', error);
     }
   };
 
@@ -289,6 +558,7 @@ export default function App() {
           {[
             { id: 'overview', icon: LayoutDashboard, label: 'Panel General' },
             { id: 'transactions', icon: Receipt, label: 'Transacciones' },
+            { id: 'recurring', icon: Repeat, label: 'Recurrentes' },
             { id: 'audit', icon: History, label: 'Bitácora' },
             { id: 'settings', icon: Settings, label: 'Configuración' },
           ].map((item) => (
@@ -347,6 +617,7 @@ export default function App() {
             <h2 className="text-sm lg:text-lg font-semibold text-gray-900 dark:text-white truncate max-w-[150px] sm:max-w-none">
               {activeTab === 'overview' && 'Panel General'}
               {activeTab === 'transactions' && 'Transacciones'}
+              {activeTab === 'recurring' && 'Transacciones Recurrentes'}
               {activeTab === 'audit' && 'Bitácora'}
               {activeTab === 'settings' && 'Configuración'}
             </h2>
@@ -478,11 +749,94 @@ export default function App() {
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h3 className="text-lg lg:text-xl font-bold text-gray-900 dark:text-white">Transacciones</h3>
-                  <Button onClick={addMockTransaction} disabled={isProcessing} className="w-full sm:w-auto">
-                    <Plus className="w-4 h-4" />
-                    Simular
-                  </Button>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <Button variant="secondary" onClick={generateMonthlyReport} className="flex-1 sm:flex-none">
+                      <FileText className="w-4 h-4" />
+                      Reporte Mensual
+                    </Button>
+                    <Button variant="secondary" onClick={exportToCSV} disabled={transactions.length === 0} className="flex-1 sm:flex-none">
+                      <Download className="w-4 h-4" />
+                      Exportar CSV
+                    </Button>
+                    <Button onClick={addMockTransaction} disabled={isProcessing} className="flex-1 sm:flex-none">
+                      <Plus className="w-4 h-4" />
+                      Simular
+                    </Button>
+                  </div>
                 </div>
+
+                {/* Filters */}
+                <Card className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Proveedor / Concepto</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input 
+                        type="text"
+                        placeholder="Buscar..."
+                        value={filterProvider}
+                        onChange={(e) => setFilterProvider(e.target.value)}
+                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Etiquetas</label>
+                    <div className="relative">
+                      <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input 
+                        type="text"
+                        placeholder="Filtrar por tag..."
+                        value={filterTag}
+                        onChange={(e) => setFilterTag(e.target.value)}
+                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tipo</label>
+                    <select 
+                      value={filterType}
+                      onChange={(e) => setFilterType(e.target.value)}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="all">Todos los tipos</option>
+                      <option value="ingreso">Ingresos</option>
+                      <option value="egreso">Egresos</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Estado</label>
+                    <select 
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="all">Todos los estados</option>
+                      <option value="conciliado">Conciliado</option>
+                      <option value="revisión">En Revisión</option>
+                      <option value="pendiente">Pendiente</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Desde</label>
+                    <input 
+                      type="date"
+                      value={filterStartDate}
+                      onChange={(e) => setFilterStartDate(e.target.value)}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Hasta</label>
+                    <input 
+                      type="date"
+                      value={filterEndDate}
+                      onChange={(e) => setFilterEndDate(e.target.value)}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </Card>
 
                 <Card>
                   <div className="overflow-x-auto">
@@ -490,26 +844,36 @@ export default function App() {
                       <thead>
                         <tr className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
                           <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Fecha</th>
-                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Concepto</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Proveedor / Concepto</th>
                           <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Monto</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Moneda</th>
                           <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Estado IA</th>
                           <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Cuenta</th>
                           <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Acciones</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                        {transactions.map((tx) => (
+                        {filteredTransactions.map((tx) => (
                           <tr key={tx.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
                             <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{formatDate(tx.fecha)}</td>
                             <td className="px-6 py-4">
-                              <p className="text-sm font-medium text-gray-900 dark:text-white">{tx.concepto}</p>
-                              <p className="text-xs text-gray-400 dark:text-gray-500">{tx.tipo === 'ingreso' ? 'Entrada' : 'Salida'}</p>
+                              <p className="text-sm font-bold text-gray-900 dark:text-white">{tx.proveedor || 'S/P'}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">{tx.concepto}</p>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {tx.tags?.map((tag: string) => (
+                                  <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-md border border-gray-200 dark:border-gray-700">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{tx.tipo === 'ingreso' ? 'Entrada' : 'Salida'}</p>
                             </td>
                             <td className="px-6 py-4">
                               <span className={cn('text-sm font-bold', tx.tipo === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
                                 {tx.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(tx.monto)}
                               </span>
                             </td>
+                            <td className="px-6 py-4 text-sm font-medium text-gray-600 dark:text-gray-400">{tx.moneda || 'MXN'}</td>
                             <td className="px-6 py-4">
                               <Badge variant={
                                 tx.status === 'conciliado' ? 'success' : 
@@ -524,9 +888,109 @@ export default function App() {
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{tx.account_name || 'Sin clasificar'}</td>
                             <td className="px-6 py-4">
-                              <Button variant="ghost" className="p-2">
-                                <ChevronRight className="w-4 h-4" />
+                              <Button 
+                                variant="ghost" 
+                                className="text-xs flex items-center gap-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+                                onClick={() => setSelectedTransaction(tx)}
+                              >
+                                <Eye className="w-4 h-4" />
+                                Ver Detalles
                               </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </motion.div>
+            )}
+
+            {activeTab === 'recurring' && (
+              <motion.div 
+                key="recurring"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <h3 className="text-lg lg:text-xl font-bold text-gray-900 dark:text-white">Programación de Recurrentes</h3>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <Button variant="secondary" onClick={processRecurring} disabled={isProcessing} className="flex-1 sm:flex-none">
+                      <BrainCircuit className="w-4 h-4" />
+                      Procesar Pendientes
+                    </Button>
+                    <Button onClick={addRecurringTransaction} disabled={isProcessing} className="flex-1 sm:flex-none">
+                      <Plus className="w-4 h-4" />
+                      Nueva Programación
+                    </Button>
+                  </div>
+                </div>
+
+                <Card>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Concepto</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Frecuencia</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Monto</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Próxima Ejecución</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Estado</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                        {recurringTransactions.filter(r => !r.deleted).map((rec) => (
+                          <tr key={rec.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">{rec.concepto}</p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500">{rec.tipo === 'ingreso' ? 'Ingreso' : 'Egreso'}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <Badge variant="info" className="capitalize">{rec.frecuencia}</Badge>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={cn('text-sm font-bold', rec.tipo === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
+                                {formatCurrency(rec.monto)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
+                              {formatDate(rec.proxima_ejecucion)}
+                            </td>
+                            <td className="px-6 py-4">
+                              <Badge variant={rec.activa ? 'success' : 'default'}>
+                                {rec.activa ? 'Activa' : 'Pausada'}
+                              </Badge>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <Button 
+                                  variant="ghost" 
+                                  className="p-2 text-gray-400 hover:text-indigo-600"
+                                  onClick={() => toggleRecurringStatus(rec)}
+                                  title={rec.activa ? 'Pausar' : 'Reanudar'}
+                                >
+                                  {rec.activa ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  className="p-2 text-gray-400 hover:text-indigo-600"
+                                  onClick={() => editRecurringTransaction(rec)}
+                                  title="Editar"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  className="p-2 text-gray-400 hover:text-red-600"
+                                  onClick={() => deleteRecurringTransaction(rec.id)}
+                                  title="Eliminar"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -649,6 +1113,531 @@ export default function App() {
               </div>
             </Card>
           </motion.div>
+        )}
+      </AnimatePresence>
+      {/* Monthly Report Modal */}
+      <AnimatePresence>
+        {isReportModalOpen && monthlyReport && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsReportModalOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-100 dark:border-gray-800"
+            >
+              <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
+                    <PieChart className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Reporte Mensual</h3>
+                    <p className="text-xs text-gray-500 capitalize">{monthlyReport.monthName}</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsReportModalOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
+                    <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1">Ingresos</p>
+                    <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{formatCurrency(monthlyReport.totalIncome)}</p>
+                  </div>
+                  <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800/50">
+                    <p className="text-[10px] font-bold text-red-600 dark:text-red-400 uppercase tracking-wider mb-1">Egresos</p>
+                    <p className="text-lg font-bold text-red-700 dark:text-red-300">{formatCurrency(monthlyReport.totalExpenses)}</p>
+                  </div>
+                  <div className={cn('p-4 rounded-xl border', 
+                    monthlyReport.netBalance >= 0 
+                      ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50' 
+                      : 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/50'
+                  )}>
+                    <p className={cn('text-[10px] font-bold uppercase tracking-wider mb-1',
+                      monthlyReport.netBalance >= 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-amber-600 dark:text-amber-400'
+                    )}>Balance Neto</p>
+                    <p className={cn('text-lg font-bold',
+                      monthlyReport.netBalance >= 0 ? 'text-indigo-700 dark:text-indigo-300' : 'text-amber-700 dark:text-amber-300'
+                    )}>{formatCurrency(monthlyReport.netBalance)}</p>
+                  </div>
+                </div>
+
+                {/* Category Breakdown */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-indigo-600" />
+                    Desglose por Categoría
+                  </h4>
+                  <div className="border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
+                          <th className="px-4 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Categoría</th>
+                          <th className="px-4 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Ingresos</th>
+                          <th className="px-4 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Egresos</th>
+                          <th className="px-4 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Neto</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                        {Object.entries(monthlyReport.categories).map(([name, values]: any) => (
+                          <tr key={name} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{name}</td>
+                            <td className="px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400 text-right">{formatCurrency(values.income)}</td>
+                            <td className="px-4 py-3 text-sm text-red-600 dark:text-red-400 text-right">{formatCurrency(values.expense)}</td>
+                            <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-white text-right">{formatCurrency(values.income - values.expense)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setIsReportModalOpen(false)}>
+                  Cerrar
+                </Button>
+                <Button className="flex-1" onClick={() => window.print()}>
+                  <Download className="w-4 h-4" />
+                  Descargar PDF
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Recurring Transaction Modal */}
+      <AnimatePresence>
+        {isRecurringModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsRecurringModalOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 dark:border-gray-800"
+            >
+              <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                  {selectedRecurring ? 'Editar Programación' : 'Nueva Programación Recurrente'}
+                </h3>
+                <button onClick={() => setIsRecurringModalOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <form onSubmit={saveRecurringTransaction} className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Concepto</label>
+                  <input 
+                    name="concepto" 
+                    required 
+                    defaultValue={selectedRecurring?.concepto}
+                    placeholder="Ej. Renta de Oficina"
+                    className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Monto</label>
+                    <input 
+                      name="monto" 
+                      type="number" 
+                      step="0.01" 
+                      required 
+                      defaultValue={selectedRecurring?.monto}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Tipo</label>
+                    <select 
+                      name="tipo" 
+                      defaultValue={selectedRecurring?.tipo || 'egreso'}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="ingreso">Ingreso</option>
+                      <option value="egreso">Egreso</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Frecuencia</label>
+                    <select 
+                      name="frecuencia" 
+                      defaultValue={selectedRecurring?.frecuencia || 'mensual'}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="diaria">Diaria</option>
+                      <option value="semanal">Semanal</option>
+                      <option value="mensual">Mensual</option>
+                      <option value="anual">Anual</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Próxima Ejecución</label>
+                    <input 
+                      name="proxima_ejecucion" 
+                      type="date" 
+                      required 
+                      defaultValue={selectedRecurring?.proxima_ejecucion?.split('T')[0] || new Date().toISOString().split('T')[0]}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Condición de Fin</label>
+                  <select 
+                    name="condicion_fin" 
+                    defaultValue={selectedRecurring?.condicion_fin || 'nunca'}
+                    className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="nunca">Nunca (Indefinido)</option>
+                    <option value="ocurrencias">Por número de ocurrencias</option>
+                    <option value="fecha">Hasta fecha específica</option>
+                  </select>
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <Button variant="secondary" type="button" className="flex-1" onClick={() => setIsRecurringModalOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" className="flex-1">
+                    {selectedRecurring ? 'Actualizar' : 'Crear'}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Transaction Details Modal */}
+      <AnimatePresence>
+        {selectedTransaction && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedTransaction(null)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100 dark:border-gray-800"
+            >
+              <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
+                    <Receipt className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Detalles de Transacción</h3>
+                </div>
+                <button 
+                  onClick={() => setSelectedTransaction(null)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+                {/* General Info */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Fecha</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{formatDate(selectedTransaction.fecha)}</p>
+                  </div>
+                  <div className="text-right space-y-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Monto</p>
+                    <p className={cn('text-lg font-bold', selectedTransaction.tipo === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
+                      {selectedTransaction.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(selectedTransaction.monto)}
+                    </p>
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Proveedor</p>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedTransaction.proveedor || 'Sin especificar'}</p>
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Concepto</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{selectedTransaction.concepto}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tipo</p>
+                    <Badge variant="default" className="capitalize">{selectedTransaction.tipo}</Badge>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Moneda</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{selectedTransaction.moneda || 'MXN'}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cuenta Contable</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{selectedTransaction.account_name || 'Sin clasificar'}</p>
+                  </div>
+                </div>
+
+                {/* Tags Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-gray-900 dark:text-white">
+                    <Tag className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider">Etiquetas</span>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTransaction.tags?.map((tag: string) => (
+                      <Badge key={tag} variant="default" className="flex items-center gap-1 pr-1">
+                        {tag}
+                        <button 
+                          onClick={() => {
+                            const updatedTags = selectedTransaction.tags.filter((t: string) => t !== tag);
+                            updateTransactionTags(selectedTransaction.id, updatedTags);
+                            setSelectedTransaction({...selectedTransaction, tags: updatedTags});
+                          }}
+                          className="hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full p-0.5"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                    {(!selectedTransaction.tags || selectedTransaction.tags.length === 0) && (
+                      <p className="text-xs text-gray-400 italic">Sin etiquetas</p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      placeholder="Nueva etiqueta..."
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newTag.trim()) {
+                          const updatedTags = [...(selectedTransaction.tags || []), newTag.trim()];
+                          updateTransactionTags(selectedTransaction.id, updatedTags);
+                          setSelectedTransaction({...selectedTransaction, tags: updatedTags});
+                          setNewTag('');
+                        }
+                      }}
+                      className="flex-1 bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <Button 
+                      variant="secondary" 
+                      className="py-1.5 px-3 text-xs"
+                      onClick={() => {
+                        if (newTag.trim()) {
+                          const updatedTags = [...(selectedTransaction.tags || []), newTag.trim()];
+                          updateTransactionTags(selectedTransaction.id, updatedTags);
+                          setSelectedTransaction({...selectedTransaction, tags: updatedTags});
+                          setNewTag('');
+                        }
+                      }}
+                    >
+                      Añadir
+                    </Button>
+                  </div>
+                </div>
+
+                {/* AI Agent Info */}
+                <div className="p-4 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100/50 dark:border-indigo-900/20 space-y-4">
+                  <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                    <BrainCircuit className="w-4 h-4" />
+                    <span className="text-xs font-bold uppercase tracking-wider">Análisis de Agente IA</span>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Decisión:</p>
+                      <Badge variant={
+                        selectedTransaction.status === 'conciliado' ? 'success' : 
+                        selectedTransaction.status === 'revisión' ? 'warning' : 'default'
+                      }>
+                        {selectedTransaction.status === 'conciliado' ? 'Conciliado Automáticamente' : 
+                         selectedTransaction.status === 'revisión' ? 'Requiere Revisión' : 'Pendiente de Procesar'}
+                      </Badge>
+                    </div>
+
+                    {selectedTransaction.confidence_score && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <p className="text-gray-500">Puntaje de Confianza:</p>
+                          <p className="font-bold text-indigo-600 dark:text-indigo-400">{(selectedTransaction.confidence_score * 100).toFixed(1)}%</p>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${selectedTransaction.confidence_score * 100}%` }}
+                            className="h-full bg-indigo-600 dark:bg-indigo-400"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+                      <Info className="w-4 h-4 text-gray-400 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-gray-700 dark:text-gray-300">Justificación de la IA</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                          {selectedTransaction.agente_ia_decision || 'El agente ha clasificado esta transacción basándose en patrones históricos de gastos similares y la categoría de la cuenta detectada.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400">¿Requiere Aprobación Humana?</p>
+                      <div className="flex items-center gap-2">
+                        {selectedTransaction.status === 'revisión' ? (
+                          <>
+                            <AlertTriangle className="w-4 h-4 text-amber-500" />
+                            <span className="text-xs font-bold text-amber-600">SÍ</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                            <span className="text-xs font-bold text-emerald-600">NO</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Approval & Conciliation Info */}
+                {(selectedTransaction.status === 'conciliado' || selectedTransaction.status === 'revisión') && (
+                  <div className={cn(
+                    "p-4 rounded-xl border space-y-4",
+                    selectedTransaction.status === 'conciliado' 
+                      ? "bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-100/50 dark:border-emerald-900/20" 
+                      : "bg-amber-50/50 dark:bg-amber-900/10 border-amber-100/50 dark:border-amber-900/20"
+                  )}>
+                    <div className="flex items-center gap-2 text-gray-900 dark:text-white">
+                      <ShieldCheck className={cn("w-4 h-4", selectedTransaction.status === 'conciliado' ? "text-emerald-600" : "text-amber-600")} />
+                      <span className="text-xs font-bold uppercase tracking-wider">Registro de Validación</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-y-4 gap-x-6">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Estado de Conciliación</p>
+                        <Badge variant={selectedTransaction.status === 'conciliado' ? 'success' : 'warning'}>
+                          {selectedTransaction.status === 'conciliado' ? 'Conciliado' : 'Pendiente de Aprobación'}
+                        </Badge>
+                      </div>
+                      
+                      <div className="space-y-1 text-right">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Usuario Validador</p>
+                        <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
+                          {selectedTransaction.aprobado_por || (selectedTransaction.status === 'conciliado' ? 'Sistema (IA)' : 'Pendiente')}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Fecha de Aprobación</p>
+                        <p className="text-xs font-medium text-gray-900 dark:text-white">
+                          {selectedTransaction.aprobado_en 
+                            ? formatDate(selectedTransaction.aprobado_en?.toDate?.() || selectedTransaction.aprobado_en) 
+                            : (selectedTransaction.status === 'conciliado' ? 'Automática' : 'Pendiente')}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1 text-right">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Fecha de Conciliación</p>
+                        <p className="text-xs font-medium text-gray-900 dark:text-white">
+                          {selectedTransaction.status === 'conciliado' 
+                            ? formatDate(selectedTransaction.aprobado_en?.toDate?.() || selectedTransaction.aprobado_en || selectedTransaction.creado_en?.toDate?.() || selectedTransaction.creado_en)
+                            : 'Pendiente'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => setSelectedTransaction(null)}>
+                  Cerrar
+                </Button>
+                {selectedTransaction.status === 'revisión' && (
+                  <Button className="flex-1" onClick={() => setIsConfirmModalOpen(true)}>
+                    Aprobar Transacción
+                  </Button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {isConfirmModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsConfirmModalOpen(false)}
+              className="absolute inset-0 bg-gray-950/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-gray-100 dark:border-gray-800"
+            >
+              <div className="p-6 text-center space-y-4">
+                <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto">
+                  <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Confirmar Aprobación</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    ¿Estás seguro de que deseas aprobar esta transacción? Esta acción marcará el movimiento como conciliado.
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+                <Button 
+                  variant="secondary" 
+                  className="flex-1" 
+                  onClick={() => setIsConfirmModalOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" 
+                  onClick={() => {
+                    approveTransaction(selectedTransaction);
+                    setIsConfirmModalOpen(false);
+                  }}
+                >
+                  Confirmar
+                </Button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

@@ -44,31 +44,43 @@ Al entrar, verás un resumen visual de la salud financiera:
 ---
 
 ### 5. Gestión de Transacciones
-En la pestaña **"Transacciones"**, verás el listado de todos tus movimientos.
+En la pestaña **"Transacciones"**, verás el listado de todos tus movimientos con detalles clave como la **Moneda** (ej. MXN) y la cuenta contable asignada.
 
 *   **Simular Transacción**: Haz clic en el botón azul para ver la magia. El sistema creará un movimiento y verás cómo el **Agente Clasificador** entra en acción de inmediato para asignarle una cuenta y un nivel de confianza.
+*   **Etiquetas (Tags)**: Ahora puedes organizar tus transacciones con etiquetas personalizadas (ej. "Urgente", "Proyecto A"). 
+    *   **Añadir/Quitar**: En el modal de detalles de la transacción, escribe el nombre de la etiqueta y presiona Enter. Para quitarla, haz clic en la 'X' de la etiqueta.
+    *   **Filtrar**: Usa el nuevo campo de búsqueda por etiquetas en la parte superior de la tabla para encontrar movimientos específicos rápidamente.
 *   **Estados de la IA**:
     *   ✅ **Conciliado**: La IA está segura y ha procesado el dato.
-    *   ⚠️ **En Revisión**: La IA tiene dudas o el monto es muy alto (más de $50,000) y requiere tu validación humana.
+    *   ⚠️ **En Revisión**: La IA tiene dudas o el monto es muy alto y requiere tu validación humana.
     *   ⚪ **Pendiente**: Aún no ha sido procesado.
+*   **Aprobación Segura**: Al aprobar una transacción "En Revisión", el sistema mostrará un **Modal de Confirmación**. Esto evita aprobaciones accidentales y asegura que cada validación sea intencional.
 
 ---
 
-### 6. Seguridad y Bitácora (Audit Log)
+### 6. Exportación de Datos
+¿Necesitas llevar tus datos a otro sistema o compartirlos con tu contador externo?
+*   Usa el botón **"Exportar CSV"**.
+*   El archivo generado incluirá todos los detalles, incluyendo la moneda, el puntaje de confianza de la IA y las **etiquetas** que hayas asignado.
+
+---
+
+### 7. Seguridad y Bitácora (Audit Log)
 En contabilidad, la confianza es todo. Por eso, contAI incluye una **Bitácora de Auditoría Inmutable**.
 *   Cada vez que alguien entra, sale o la IA toma una decisión, se genera un registro que **no se puede borrar ni modificar**.
 *   Cada registro tiene un "Sello Digital" (Hash) que garantiza que la información es verídica y no ha sido alterada.
 
 ---
 
-### 7. Personalización: Modo Oscuro
+### 8. Personalización: Modo Oscuro
 Si trabajas de noche o prefieres una pantalla que canse menos la vista:
 *   Busca el icono de la **Luna/Sol** en la parte superior derecha.
 *   Haz clic para cambiar instantáneamente entre el Modo Claro y el Modo Oscuro. La app recordará tu preferencia la próxima vez.
 
 ---
 
-### 8. Consejos para el Éxito
+### 9. Consejos para el Éxito
+*   **Usa las Etiquetas**: Etiquetar tus gastos por proyecto o departamento te permitirá generar reportes mucho más detallados en el futuro.
 *   **Confía pero verifica**: La IA tiene una eficiencia del 95%+, pero siempre revisa las transacciones marcadas "En Revisión".
 *   **Usa las Alertas**: Si el Agente Auditor genera una alerta, investígala de inmediato; podría ser un error de dedo o un gasto no autorizado.
 *   **Mantén tu sesión segura**: Siempre cierra sesión al terminar si compartes equipo.

@@ -62,6 +62,15 @@ service cloud.firestore {
              data.organization_id is string;
     }
 
+    function isValidRecurringTransaction(data) {
+      return data.keys().hasAll(['organization_id', 'tipo', 'monto', 'frecuencia', 'proxima_ejecucion', 'condicion_fin', 'activa']) &&
+             data.tipo in ['ingreso', 'egreso'] &&
+             data.frecuencia in ['diaria', 'semanal', 'mensual', 'anual'] &&
+             data.condicion_fin in ['nunca', 'ocurrencias', 'fecha'] &&
+             data.monto is number &&
+             data.activa is bool;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -78,6 +87,14 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidTransaction(request.resource.data);
       allow update: if isAuthenticated() && isValidTransaction(request.resource.data) && 
+                    (hasRole('admin') || hasRole('contador') || hasRole('director'));
+      allow delete: if isAdmin();
+    }
+
+    match /recurring_transactions/{recurringId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidRecurringTransaction(request.resource.data);
+      allow update: if isAuthenticated() && isValidRecurringTransaction(request.resource.data) && 
                     (hasRole('admin') || hasRole('contador') || hasRole('director'));
       allow delete: if isAdmin();
     }
