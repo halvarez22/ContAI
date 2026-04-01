@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Document ID: userId (Auth UID)
+    // Fields: email, role, nombre, activo, creado_en, ultimo_acceso
+    //
+    // Collection: transactions
+    // Document ID: transactionId
+    // Fields: organization_id, tipo, monto, moneda, concepto, fecha, status, confidence_score, agente_ia_decision
+    //
+    // Collection: audit_logs
+    // Document ID: logId
+    // Fields: usuario_id, accion, recurso, detalles, ip_origen, user_agent, timestamp, firma_hash
+    //
+    // Collection: organizations
+    // Document ID: orgId
+    // Fields: nombre, plan, activa, configuracion
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().role == role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (getUserData().role == 'admin' || 
+         (request.auth.token.email == "halvareznet@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'nombre', 'activo']) &&
+             data.role in ['admin', 'contador', 'auxiliar', 'vendedor', 'director'] &&
+             data.email is string &&
+             data.nombre is string && data.nombre.size() < 100;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['organization_id', 'tipo', 'monto', 'fecha', 'status']) &&
+             data.tipo in ['ingreso', 'egreso'] &&
+             data.status in ['pendiente', 'conciliado', 'revisión'] &&
+             data.monto is number &&
+             data.organization_id is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin()) && 
+                    (request.resource.data.role == resource.data.role || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidTransaction(request.resource.data);
+      allow update: if isAuthenticated() && isValidTransaction(request.resource.data) && 
+                    (hasRole('admin') || hasRole('contador') || hasRole('director'));
+      allow delete: if isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if hasRole('admin') || hasRole('contador') || hasRole('director');
+      allow create: if isAuthenticated(); // Anyone can log their actions
+      allow update, delete: if false; // Immutable
+    }
+
+    match /organizations/{orgId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}
