@@ -91,6 +91,7 @@ export default function App() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -239,18 +240,49 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex text-gray-900 dark:text-gray-100">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex text-gray-900 dark:text-gray-100 overflow-x-hidden">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <motion.aside 
         initial={false}
-        animate={{ width: isSidebarOpen ? 280 : 80 }}
-        className="bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col sticky top-0 h-screen z-20"
+        animate={{ 
+          width: isSidebarOpen ? 280 : 80,
+          x: typeof window !== 'undefined' && window.innerWidth < 1024 
+            ? (isMobileMenuOpen ? 0 : -280) 
+            : 0
+        }}
+        className={cn(
+          "bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col fixed lg:sticky top-0 h-screen z-50 lg:z-20 transition-all duration-300",
+          !isSidebarOpen && "lg:w-20"
+        )}
       >
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-6 h-6 text-white" />
+        <div className="p-6 flex items-center justify-between lg:justify-start gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-6 h-6 text-white" />
+            </div>
+            {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
+              <span className="font-bold text-xl text-gray-900 dark:text-white">contAI</span>
+            )}
           </div>
-          {isSidebarOpen && <span className="font-bold text-xl text-gray-900 dark:text-white">contAI</span>}
+          <button 
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         <nav className="flex-1 px-4 space-y-2 mt-4">
@@ -262,7 +294,10 @@ export default function App() {
           ].map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => {
+                setActiveTab(item.id);
+                setIsMobileMenuOpen(false);
+              }}
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
                 activeTab === item.id 
@@ -271,7 +306,9 @@ export default function App() {
               )}
             >
               <item.icon className="w-5 h-5 shrink-0" />
-              {isSidebarOpen && <span className="font-medium">{item.label}</span>}
+              {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
+                <span className="font-medium">{item.label}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -284,34 +321,41 @@ export default function App() {
             )}
           >
             <LogOut className="w-5 h-5 shrink-0" />
-            {isSidebarOpen && <span className="font-medium">Cerrar Sesión</span>}
+            {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
+              <span className="font-medium">Cerrar Sesión</span>
+            )}
           </button>
         </div>
       </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-8 sticky top-0 z-10">
-          <div className="flex items-center gap-4">
+      <main className="flex-1 flex flex-col min-w-0 w-full">
+        <header className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-10">
+          <div className="flex items-center gap-2 lg:gap-4">
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 dark:text-gray-400"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 dark:text-gray-400"
+              className="hidden lg:block p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 dark:text-gray-400"
             >
               {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-sm lg:text-lg font-semibold text-gray-900 dark:text-white truncate max-w-[150px] sm:max-w-none">
               {activeTab === 'overview' && 'Panel General'}
-              {activeTab === 'transactions' && 'Gestión de Transacciones'}
-              {activeTab === 'audit' && 'Bitácora de Auditoría'}
-              {activeTab === 'settings' && 'Configuración del Sistema'}
+              {activeTab === 'transactions' && 'Transacciones'}
+              {activeTab === 'audit' && 'Bitácora'}
+              {activeTab === 'settings' && 'Configuración'}
             </h2>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 lg:gap-4">
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 dark:text-gray-400 transition-colors"
-              title={isDarkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
             >
               {isDarkMode ? (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 9h-1m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 5a7 7 0 100 14 7 7 0 000-14z" /></svg>
@@ -319,20 +363,20 @@ export default function App() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
               )}
             </button>
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium text-gray-900 dark:text-white">{user.displayName}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Administrador</p>
+            <div className="text-right hidden md:block">
+              <p className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[100px]">{user.displayName}</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">Admin</p>
             </div>
             <img 
               src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} 
-              className="w-10 h-10 rounded-full border border-gray-200 dark:border-gray-700"
+              className="w-8 h-8 lg:w-10 lg:h-10 rounded-full border border-gray-200 dark:border-gray-700"
               alt="Avatar"
               referrerPolicy="no-referrer"
             />
           </div>
         </header>
 
-        <div className="p-8 overflow-auto">
+        <div className="p-4 lg:p-8 overflow-x-hidden">
           <AnimatePresence mode="wait">
             {activeTab === 'overview' && (
               <motion.div 
@@ -343,80 +387,80 @@ export default function App() {
                 className="space-y-8"
               >
                 {/* Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
                   {[
                     { label: 'Ingresos Mensuales', value: formatCurrency(1250000), trend: '+12%', icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
                     { label: 'Egresos Mensuales', value: formatCurrency(850000), trend: '+5%', icon: Receipt, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-                    { label: 'Pendientes Conciliación', value: '24', trend: '-8%', icon: Clock, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
-                    { label: 'Alertas de Auditoría', value: '3', trend: 'Crítico', icon: AlertTriangle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/20' },
+                    { label: 'Pendientes', value: '24', trend: '-8%', icon: Clock, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
+                    { label: 'Alertas', value: '3', trend: 'Crítico', icon: AlertTriangle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/20' },
                   ].map((stat, i) => (
-                    <Card key={i} className="p-6">
+                    <Card key={i} className="p-4 lg:p-6">
                       <div className="flex items-start justify-between">
-                        <div className={cn('p-3 rounded-xl', stat.bg)}>
-                          <stat.icon className={cn('w-6 h-6', stat.color)} />
+                        <div className={cn('p-2 lg:p-3 rounded-xl', stat.bg)}>
+                          <stat.icon className={cn('w-5 h-5 lg:w-6 lg:h-6', stat.color)} />
                         </div>
-                        <span className={cn('text-xs font-bold px-2 py-1 rounded-full', 
+                        <span className={cn('text-[10px] lg:text-xs font-bold px-2 py-1 rounded-full', 
                           stat.trend.includes('+') ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 
                           stat.trend === 'Crítico' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
                         )}>
                           {stat.trend}
                         </span>
                       </div>
-                      <div className="mt-4">
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
-                        <h3 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stat.value}</h3>
+                      <div className="mt-3 lg:mt-4">
+                        <p className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
+                        <h3 className="text-xl lg:text-2xl font-bold text-gray-900 dark:text-white mt-1">{stat.value}</h3>
                       </div>
                     </Card>
                   ))}
                 </div>
 
                 {/* Agents Status */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <Card className="lg:col-span-2 p-6">
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+                  <Card className="lg:col-span-2 p-4 lg:p-6">
+                    <div className="flex items-center justify-between mb-4 lg:mb-6">
+                      <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2 text-sm lg:text-base">
                         <BrainCircuit className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                        Estado de Agentes Autónomos
+                        Estado de Agentes
                       </h3>
-                      <Badge variant="success">Sistema Operativo</Badge>
+                      <Badge variant="success">Online</Badge>
                     </div>
-                    <div className="space-y-4">
+                    <div className="space-y-3 lg:space-y-4">
                       {[
-                        { name: 'Agente Conciliador', status: 'Activo', task: 'Conciliando movimientos Banorte', efficiency: '98.5%' },
-                        { name: 'Agente Clasificador', status: 'Activo', task: 'Procesando tickets de sucursal León', efficiency: '94.2%' },
-                        { name: 'Agente Auditor', status: 'Monitoreando', task: 'Escaneando anomalías en CFDI 4.0', efficiency: '100%' },
+                        { name: 'Conciliador', status: 'Activo', task: 'Conciliando movimientos', efficiency: '98.5%' },
+                        { name: 'Clasificador', status: 'Activo', task: 'Procesando gastos', efficiency: '94.2%' },
+                        { name: 'Auditor', status: 'Monitoreando', task: 'Escaneando anomalías', efficiency: '100%' },
                       ].map((agent, i) => (
-                        <div key={i} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
-                          <div className="flex items-center gap-4">
+                        <div key={i} className="flex items-center justify-between p-3 lg:p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
+                          <div className="flex items-center gap-3 lg:gap-4">
                             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                             <div>
-                              <p className="font-semibold text-gray-900 dark:text-white">{agent.name}</p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">{agent.task}</p>
+                              <p className="text-sm lg:font-semibold text-gray-900 dark:text-white">{agent.name}</p>
+                              <p className="text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px] sm:max-w-none">{agent.task}</p>
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-sm font-bold text-gray-900 dark:text-white">{agent.efficiency}</p>
-                            <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider">Eficiencia</p>
+                            <p className="text-xs lg:text-sm font-bold text-gray-900 dark:text-white">{agent.efficiency}</p>
+                            <p className="text-[8px] lg:text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider">Eficiencia</p>
                           </div>
                         </div>
                       ))}
                     </div>
                   </Card>
 
-                  <Card className="p-6">
-                    <h3 className="font-bold text-gray-900 dark:text-white mb-4">Acciones Rápidas</h3>
-                    <div className="space-y-3">
-                      <Button onClick={addMockTransaction} className="w-full justify-start" disabled={isProcessing}>
+                  <Card className="p-4 lg:p-6">
+                    <h3 className="font-bold text-gray-900 dark:text-white mb-4 text-sm lg:text-base">Acciones Rápidas</h3>
+                    <div className="space-y-2 lg:space-y-3">
+                      <Button onClick={addMockTransaction} className="w-full justify-start text-sm" disabled={isProcessing}>
                         <Plus className="w-4 h-4" />
                         Nueva Transacción
                       </Button>
-                      <Button variant="secondary" className="w-full justify-start">
+                      <Button variant="secondary" className="w-full justify-start text-sm">
                         <Receipt className="w-4 h-4" />
-                        Cargar XML (SAT)
+                        Cargar XML
                       </Button>
-                      <Button variant="secondary" className="w-full justify-start">
+                      <Button variant="secondary" className="w-full justify-start text-sm">
                         <History className="w-4 h-4" />
-                        Ver Reporte Mensual
+                        Reporte
                       </Button>
                     </div>
                   </Card>
@@ -432,11 +476,11 @@ export default function App() {
                 exit={{ opacity: 0, x: -20 }}
                 className="space-y-6"
               >
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">Historial de Transacciones</h3>
-                  <Button onClick={addMockTransaction} disabled={isProcessing}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <h3 className="text-lg lg:text-xl font-bold text-gray-900 dark:text-white">Transacciones</h3>
+                  <Button onClick={addMockTransaction} disabled={isProcessing} className="w-full sm:w-auto">
                     <Plus className="w-4 h-4" />
-                    Simular Transacción
+                    Simular
                   </Button>
                 </div>
 
@@ -593,15 +637,15 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-white/60 dark:bg-gray-950/60 backdrop-blur-sm z-50 flex items-center justify-center"
           >
-            <Card className="p-8 flex flex-col items-center gap-4 shadow-2xl border-indigo-100 dark:border-indigo-900/30">
+            <Card className="p-4 lg:p-8 flex flex-col items-center gap-4 shadow-2xl border-indigo-100 dark:border-indigo-900/30 max-w-[90vw]">
               <div className="relative">
-                <div className="w-16 h-16 border-4 border-indigo-100 dark:border-indigo-900/30 rounded-full"></div>
-                <div className="w-16 h-16 border-4 border-indigo-600 dark:border-indigo-400 rounded-full border-t-transparent animate-spin absolute top-0"></div>
-                <BrainCircuit className="w-8 h-8 text-indigo-600 dark:text-indigo-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                <div className="w-12 h-12 lg:w-16 lg:h-16 border-4 border-indigo-100 dark:border-indigo-900/30 rounded-full"></div>
+                <div className="w-12 h-12 lg:w-16 lg:h-16 border-4 border-indigo-600 dark:border-indigo-400 rounded-full border-t-transparent animate-spin absolute top-0"></div>
+                <BrainCircuit className="w-6 h-6 lg:w-8 lg:h-8 text-indigo-600 dark:text-indigo-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
               </div>
               <div className="text-center">
-                <h4 className="font-bold text-gray-900 dark:text-white">Agente IA Procesando</h4>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Analizando cumplimiento y conciliación...</p>
+                <h4 className="font-bold text-gray-900 dark:text-white text-sm lg:text-base">Agente IA Procesando</h4>
+                <p className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">Analizando cumplimiento...</p>
               </div>
             </Card>
           </motion.div>
