@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Subconjunto mínimo para validar raíz Comprobante CFDI 4.x (namespace SAT).
+  No sustituye cfdv40.xsd oficial ni complementos; sirve si no hay XSD completos en /public.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  targetNamespace="http://www.sat.gob.mx/cfd/4"
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  elementFormDefault="qualified"
+  attributeFormDefault="unqualified">
+  <xs:element name="Comprobante">
+    <xs:complexType mixed="false">
+      <xs:sequence>
+        <xs:any namespace="##any" processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="Version" type="xs:string" use="required"/>
+      <xs:attribute name="Serie" type="xs:string" use="optional"/>
+      <xs:attribute name="Folio" type="xs:string" use="optional"/>
+      <xs:attribute name="Fecha" type="xs:string" use="required"/>
+      <xs:attribute name="SubTotal" type="xs:decimal" use="required"/>
+      <xs:attribute name="Descuento" type="xs:decimal" use="optional"/>
+      <xs:attribute name="Moneda" type="xs:string" use="required"/>
+      <xs:attribute name="TipoCambio" type="xs:decimal" use="optional"/>
+      <xs:attribute name="Total" type="xs:decimal" use="required"/>
+      <xs:attribute name="TipoDeComprobante" type="xs:string" use="required"/>
+      <xs:attribute name="Exportacion" type="xs:string" use="optional"/>
+      <xs:attribute name="MetodoPago" type="xs:string" use="optional"/>
+      <xs:attribute name="FormaPago" type="xs:string" use="optional"/>
+      <xs:attribute name="LugarExpedicion" type="xs:string" use="required"/>
+      <xs:attribute name="NoCertificado" type="xs:string" use="optional"/>
+      <xs:attribute name="Certificado" type="xs:string" use="optional"/>
+      <xs:attribute name="Sello" type="xs:string" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

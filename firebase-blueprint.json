@@ -1,0 +1,108 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with role-based access control.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "contador", "auxiliar", "vendedor", "director"] },
+        "nombre": { "type": "string" },
+        "empresa": { "type": "string" },
+        "sucursal": { "type": "string" },
+        "activo": { "type": "boolean" },
+        "creado_en": { "type": "string", "format": "date-time" },
+        "ultimo_acceso": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "role", "nombre", "activo"]
+    },
+    "Transaction": {
+      "title": "Accounting Transaction",
+      "description": "Financial transaction records.",
+      "type": "object",
+      "properties": {
+        "organization_id": { "type": "string" },
+        "tipo": { "type": "string", "enum": ["ingreso", "egreso"] },
+        "monto": { "type": "number" },
+        "moneda": { "type": "string" },
+        "concepto": { "type": "string" },
+        "fecha": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pendiente", "conciliado", "revisión"] },
+        "confidence_score": { "type": "number" },
+        "agente_ia_decision": { "type": "string" }
+      },
+      "required": ["organization_id", "tipo", "monto", "fecha", "status"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Immutable audit log of all system actions.",
+      "type": "object",
+      "properties": {
+        "usuario_id": { "type": "string" },
+        "accion": { "type": "string" },
+        "recurso": { "type": "string" },
+        "detalles": { "type": "object" },
+        "ip_origen": { "type": "string" },
+        "user_agent": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "firma_hash": { "type": "string" }
+      },
+      "required": ["usuario_id", "accion", "timestamp", "firma_hash"]
+    },
+    "Organization": {
+      "title": "Organization",
+      "description": "Multi-tenant organization settings.",
+      "type": "object",
+      "properties": {
+        "nombre": { "type": "string" },
+        "plan": { "type": "string", "enum": ["starter", "pro", "enterprise"] },
+        "activa": { "type": "boolean" },
+        "configuracion": { "type": "object" }
+      },
+      "required": ["nombre", "plan", "activa"]
+    },
+    "RecurringTransaction": {
+      "title": "Recurring Transaction",
+      "description": "Templates for recurring financial transactions.",
+      "type": "object",
+      "properties": {
+        "organization_id": { "type": "string" },
+        "tipo": { "type": "string", "enum": ["ingreso", "egreso"] },
+        "monto": { "type": "number" },
+        "moneda": { "type": "string" },
+        "concepto": { "type": "string" },
+        "frecuencia": { "type": "string", "enum": ["diaria", "semanal", "mensual", "anual"] },
+        "proxima_ejecucion": { "type": "string", "format": "date-time" },
+        "condicion_fin": { "type": "string", "enum": ["nunca", "ocurrencias", "fecha"] },
+        "valor_fin": { "type": "string" },
+        "ocurrencias_completadas": { "type": "number" },
+        "activa": { "type": "boolean" },
+        "creado_en": { "type": "string", "format": "date-time" },
+        "usuario_id": { "type": "string" }
+      },
+      "required": ["organization_id", "tipo", "monto", "frecuencia", "proxima_ejecucion", "condicion_fin", "activa"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles."
+    },
+    "transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Accounting transactions."
+    },
+    "recurring_transactions/{recurringId}": {
+      "schema": "RecurringTransaction",
+      "description": "Recurring transaction templates."
+    },
+    "audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System-wide audit logs."
+    },
+    "organizations/{orgId}": {
+      "schema": "Organization",
+      "description": "Organization data."
+    }
+  }
+}

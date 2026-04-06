@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    @apply transition-colors duration-200;
+  }
+}

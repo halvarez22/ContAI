@@ -1,0 +1,14 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+playwright-report/
+test-results/
+*.tsbuildinfo
+# Secretos locales (nunca subir)
+Credenciales FireBase.txt
+ContAI GroqApiKey.txt

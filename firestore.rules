@@ -1,0 +1,143 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Modelo ContAI (resumen)
+    // users: perfil, cuentas_contables, empresa_*, periodos_cerrados
+    // transactions, recurring_transactions, audit_logs
+    // products, inventory_movements, organizations
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().role == role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (getUserData().role == 'admin' ||
+         (request.auth.token.email == "halvareznet@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // --- Usuario: campos obligatorios + opcionales permitidos (merge) ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'nombre', 'activo']) &&
+             data.role in ['admin', 'contador', 'auxiliar', 'vendedor', 'director'] &&
+             data.email is string &&
+             data.nombre is string && data.nombre.size() < 100 &&
+             data.activo is bool &&
+             (!('periodos_cerrados' in data) || (data.periodos_cerrados is list && data.periodos_cerrados.size() < 64)) &&
+             (!('cuentas_contables' in data) || (data.cuentas_contables is list && data.cuentas_contables.size() < 200)) &&
+             (!('empresa_nombre' in data) || (data.empresa_nombre is string && data.empresa_nombre.size() < 300)) &&
+             (!('empresa_rfc' in data) || (data.empresa_rfc is string && data.empresa_rfc.size() < 20));
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['organization_id', 'usuario_id', 'tipo', 'monto', 'fecha', 'status']) &&
+             data.tipo in ['ingreso', 'egreso'] &&
+             data.status in ['pendiente', 'conciliado', 'revisión', 'rechazado'] &&
+             data.monto is number &&
+             data.organization_id is string &&
+             data.usuario_id is string;
+    }
+
+    function isValidRecurringTransaction(data) {
+      return data.keys().hasAll(['organization_id', 'usuario_id', 'tipo', 'monto', 'frecuencia', 'proxima_ejecucion', 'condicion_fin', 'activa']) &&
+             data.tipo in ['ingreso', 'egreso'] &&
+             data.frecuencia in ['diaria', 'semanal', 'mensual', 'anual'] &&
+             data.condicion_fin in ['nunca', 'ocurrencias', 'fecha'] &&
+             data.monto is number &&
+             data.usuario_id is string &&
+             data.activa is bool;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin()) &&
+                    (request.resource.data.role == resource.data.role || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated() &&
+                  (resource.data.usuario_id == request.auth.uid ||
+                   hasRole('admin') || hasRole('contador') || hasRole('director'));
+      allow create: if isAuthenticated() &&
+                    isValidTransaction(request.resource.data) &&
+                    request.resource.data.usuario_id == request.auth.uid;
+      allow update: if isAuthenticated() && isValidTransaction(request.resource.data) &&
+                    request.resource.data.usuario_id == resource.data.usuario_id &&
+                    (resource.data.usuario_id == request.auth.uid ||
+                     hasRole('admin') || hasRole('contador') || hasRole('director'));
+      allow delete: if isAdmin();
+    }
+
+    match /recurring_transactions/{recurringId} {
+      allow read: if isAuthenticated() &&
+                  (resource.data.usuario_id == request.auth.uid ||
+                   hasRole('admin') || hasRole('contador') || hasRole('director'));
+      allow create: if isAuthenticated() &&
+                    isValidRecurringTransaction(request.resource.data) &&
+                    request.resource.data.usuario_id == request.auth.uid;
+      allow update: if isAuthenticated() && isValidRecurringTransaction(request.resource.data) &&
+                    request.resource.data.usuario_id == resource.data.usuario_id &&
+                    (resource.data.usuario_id == request.auth.uid ||
+                     hasRole('admin') || hasRole('contador') || hasRole('director'));
+      allow delete: if isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if (isAuthenticated() && resource.data.usuario_id == request.auth.uid) ||
+                  hasRole('admin') || hasRole('contador') || hasRole('director');
+      allow create: if isAuthenticated() && request.resource.data.usuario_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /organizations/{orgId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+
+    match /products/{productId} {
+      allow read: if isAuthenticated() && resource.data.usuario_id == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.keys().hasAll(['usuario_id', 'codigo', 'descripcion']) &&
+        request.resource.data.usuario_id == request.auth.uid &&
+        request.resource.data.codigo is string &&
+        request.resource.data.descripcion is string;
+      allow update, delete: if isAuthenticated() &&
+        resource.data.usuario_id == request.auth.uid &&
+        request.resource.data.usuario_id == resource.data.usuario_id;
+    }
+
+    match /inventory_movements/{movId} {
+      allow read: if isAuthenticated() && resource.data.usuario_id == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.keys().hasAll(['usuario_id', 'product_id', 'tipo', 'cantidad', 'fecha']) &&
+        request.resource.data.usuario_id == request.auth.uid &&
+        request.resource.data.tipo in ['entrada', 'salida', 'ajuste'] &&
+        request.resource.data.cantidad is number &&
+        request.resource.data.product_id is string;
+      allow update, delete: if isAuthenticated() &&
+        resource.data.usuario_id == request.auth.uid &&
+        request.resource.data.usuario_id == resource.data.usuario_id;
+    }
+  }
+}
