@@ -82,6 +82,7 @@ import { buildTaxPreview } from './services/taxCalculatorService';
 import { TaxPreviewCard } from './components/TaxPreviewCard';
 import { ImportModals } from './components/ImportModals';
 import { BankReconciliationPanel } from './components/BankReconciliationPanel';
+import { SatDownloadPanel } from './components/SatDownloadPanel';
 import { useImportFlow } from './hooks/useImportFlow';
 import { toBankLedgerItems } from './hooks/useBankReconciliation';
 import type { CfdiClassificationPayload } from './types/cfdiBatch';
@@ -1159,6 +1160,7 @@ export default function App() {
             { id: 'transactions', icon: Receipt, label: 'Transacciones' },
             { id: 'analysis', icon: Activity, label: 'Análisis' },
             { id: 'reconciliation', icon: Upload, label: 'Conciliación' },
+            { id: 'sat_download', icon: Download, label: 'Descarga SAT' },
             { id: 'fiscal', icon: Percent, label: 'Fiscal' },
             { id: 'inventory', icon: Package, label: 'Inventario' },
             { id: 'recurring', icon: Repeat, label: 'Recurrentes' },
@@ -1222,6 +1224,7 @@ export default function App() {
               {activeTab === 'transactions' && 'Transacciones'}
               {activeTab === 'analysis' && 'Análisis'}
               {activeTab === 'reconciliation' && 'Conciliación'}
+              {activeTab === 'sat_download' && 'Descarga SAT (Beta)'}
               {activeTab === 'fiscal' && 'Administración fiscal'}
               {activeTab === 'inventory' && 'Inventario'}
               {activeTab === 'recurring' && 'Transacciones Recurrentes'}
@@ -1804,6 +1807,24 @@ export default function App() {
                 <BankReconciliationPanel
                   ledger={bankLedger}
                   periodLabel={reconciliationPeriodLabel}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === 'sat_download' && (
+              <motion.div
+                key="sat_download"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <SatDownloadPanel
+                  userId={user?.uid}
+                  defaultRfc={empresaRfc || 'XAXX010101000'}
+                  periodosCerrados={periodosCerrados}
+                  highAmountReviewThreshold={HIGH_AMOUNT_REVIEW_THRESHOLD}
+                  classify={triggerAgent}
                 />
               </motion.div>
             )}

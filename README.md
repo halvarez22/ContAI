@@ -105,11 +105,12 @@ Checklist completo: [`docs/FASE1_CIERRE.md`](./docs/FASE1_CIERRE.md).
 
 ---
 
-## Fuera de Fase 1 (siguiente)
+## Fuera de Fase 1 / Fase 2 en curso
 
-- **E5 — Conciliación bancaria** (cruce CSV banco ↔ transacciones) — ver `implementation_plan.md`.
-- Descarga automática SAT.
-- Multi-tenant real; NER PII avanzado; partir God Object residual de `App.tsx`.
+- **E5 Conciliación bancaria** — E5.1–E5.3 en `main` (heurística, IA edge cases, UI dedicada).
+- **E6.1 Descarga SAT (fundación)** — UI + provider **mock** + wire a `runCfdiBatchImport`. **No** habla al SAT ni maneja FIEL/CSD en el browser.
+- **E6.2 (pendiente)** — Backend obligatorio (Cloud Functions / API) con FIEL cifrada + Web Service Descarga Masiva real. Variables previstas en `.env.example`.
+- Multi-tenant real; NER PII avanzado; seguir reduciendo God Object residual de `App.tsx`.
 
 ---
 
