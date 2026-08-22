@@ -81,11 +81,20 @@ export interface SatDownloadJob {
   usuario_id: string;
   request: SatDownloadRequest;
   status: SatDownloadJobStatus;
+  /** IdSolicitud activo o el primero (compat). */
   sat_request_id?: string;
+  /** Una o más solicitudes (emitidos/recibidos). */
+  sat_request_ids?: string[];
+  /** Ids aún en EnProceso / Aceptada. */
+  pending_request_ids?: string[];
   sat_package_ids?: string[];
+  /** Paquetes ZIP pendientes de descargar. */
+  pending_package_ids?: string[];
   packages_path?: string;
   packages?: SatCfdiPackage[];
   package_count?: number;
+  /** Aviso no fatal (ej. paquete parcial SAT). */
+  warning?: string;
   error_code?: SatJobErrorCode;
   error_message?: string;
   attempts: number;
@@ -100,6 +109,11 @@ export interface StartSatDownloadResponse {
 }
 
 export interface GetSatDownloadJobResponse {
+  job: SatDownloadJob;
+  packagesSignedUrl?: string;
+}
+
+export interface AdvanceSatDownloadResponse {
   job: SatDownloadJob;
   packagesSignedUrl?: string;
 }

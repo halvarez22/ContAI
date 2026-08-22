@@ -32,12 +32,12 @@ export function SatDownloadPanel(props: SatDownloadPanelProps) {
           <p className="font-bold">
             {isMock
               ? 'Simulación / Beta — sin conexión real al SAT'
-              : 'Modo sat_ws — backend Cloud Functions (FIEL nunca en el browser)'}
+              : 'Modo sat_ws — backend Cloud Functions + advance por poll (E6.2.1). FIEL nunca en el browser.'}
           </p>
           <p className="text-xs leading-relaxed text-amber-900/90 dark:text-amber-200/90">
             {isMock
-              ? 'Provider mock (VITE_SAT_PROVIDER=mock). No usa FIEL/CSD ni el WS del SAT. Para backend E6.2 use VITE_SAT_PROVIDER=sat_ws con Functions desplegadas.'
-              : 'Polling con backoff hacia startSatDownload / getSatDownloadJob. SOAP real del SAT = E6.2.1 (hoy MockWs en el servidor).'}
+              ? 'Provider mock (VITE_SAT_PROVIDER=mock). No usa FIEL/CSD ni el WS del SAT. Para backend use VITE_SAT_PROVIDER=sat_ws con Functions y SAT_WS_MODE=real + FIEL.'
+              : 'Polling con backoff llama advanceSatDownloadJob. SOAP real si Functions tiene SAT_WS_MODE=real y FIEL en vault; si no, MockWs en servidor.'}
           </p>
         </div>
       </div>

@@ -18,4 +18,5 @@ export type {
   SatDownloadJob,
   StartSatDownloadResponse,
   GetSatDownloadJobResponse,
+  AdvanceSatDownloadResponse,
 } from '../../packages/sat-contracts/src/index';

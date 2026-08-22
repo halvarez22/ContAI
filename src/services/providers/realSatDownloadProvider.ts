@@ -1,7 +1,6 @@
 /**
- * Provider sat_ws — habla con Cloud Functions (E6.2).
- * Polling con backoff exponencial (2s → … → máx 30s).
- * Sin FIEL en el cliente.
+ * Provider sat_ws — Cloud Functions (E6.2.1).
+ * Poll + advanceSatDownloadJob (A2) con backoff 2s → 30s.
  */
 
 import type {
@@ -11,13 +10,13 @@ import type {
   SatDownloadResult,
 } from '../../types/satDownload';
 import {
-  getSatDownloadJob,
+  advanceSatDownloadJob,
   startSatDownloadJob,
 } from '../satFunctionsClient';
 
 const INITIAL_MS = 2000;
 const MAX_MS = 30_000;
-const MAX_POLLS = 40;
+const MAX_POLLS = 80;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -44,19 +43,20 @@ export const realSatDownloadProvider: SatDownloadProvider = {
 
       for (let i = 0; i < MAX_POLLS; i++) {
         await sleep(delay);
-        const { job, packagesSignedUrl } = await getSatDownloadJob(jobId);
+        const { job, packagesSignedUrl } = await advanceSatDownloadJob(jobId);
 
         if (job.status === 'ready') {
           let packages = job.packages ?? [];
           if (packagesSignedUrl && packages.length === 0) {
             packages = await fetchPackagesFromSignedUrl(packagesSignedUrl);
           }
+          const base = `Job ${jobId}: ${packages.length} CFDI(s) listos (backend).`;
           return {
             ok: true,
             packages,
             provider: 'sat_ws',
             jobId,
-            message: `Job ${jobId}: ${packages.length} CFDI(s) listos (backend).`,
+            message: job.warning ? `${base} Aviso: ${job.warning}` : base,
           };
         }
 

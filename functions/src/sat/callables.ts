@@ -1,6 +1,6 @@
 /**
- * Callables HTTPS — orquestación SAT E6.2.
- * Memory ≥512MiB en flujos que desempaquetan.
+ * Callables HTTPS — orquestación SAT E6.2 / E6.2.1.
+ * start = solicitar; advance = un paso (poll frontend A2).
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
@@ -8,22 +8,27 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { randomUUID } from 'crypto';
 import type {
+  AdvanceSatDownloadResponse,
+  GetSatDownloadJobResponse,
   SatDownloadJob,
   SatDownloadRequest,
   StartSatDownloadResponse,
-  GetSatDownloadJobResponse,
 } from '../contracts';
 import {
+  advanceSatDownloadJob,
   createQueuedJob,
   isRateLimited,
-  runSatDownloadJob,
+  solicitarSatDownloadJob,
   type JobStore,
 } from './jobService';
-import { createMockSatWsClient } from './satWsClient';
 import {
   encryptPrivateKey,
   credentialFingerprint,
+  zeroizeBuffer,
 } from './fielVault';
+import { resolveSatWsClient } from './satWsFactory';
+import { SatWsClientError } from './realSatWsClient';
+import { mapSatFailure } from './satErrorMap';
 
 const ORG = 'org_main';
 const MAX_JOBS_PER_HOUR = 10;
@@ -64,6 +69,41 @@ function validateRequest(req: SatDownloadRequest): void {
   }
 }
 
+async function maybePersistPackages(
+  job: SatDownloadJob,
+  uid: string
+): Promise<SatDownloadJob> {
+  if (job.status !== 'ready' || !job.packages?.length) return job;
+  const store = firestoreStore();
+  try {
+    const bucket = getStorage().bucket();
+    const path = `sat_jobs/${job.id}/packages.json`;
+    await bucket.file(path).save(JSON.stringify(job.packages), {
+      contentType: 'application/json',
+      metadata: { jobId: job.id, usuario_id: uid },
+    });
+    job = { ...job, packages_path: path };
+    await store.set(job);
+  } catch {
+    await store.set(job);
+  }
+  return job;
+}
+
+async function signedUrlFor(job: SatDownloadJob): Promise<string | undefined> {
+  if (!job.packages_path || job.status !== 'ready') return undefined;
+  try {
+    const bucket = getStorage().bucket();
+    const [url] = await bucket.file(job.packages_path).getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 15 * 60_000,
+    });
+    return url;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Sube CER + KEY cifrada. Nunca loguea el contenido de la llave. */
 export const uploadSatCredential = onCall(
   { memory: '256MiB', timeoutSeconds: 60 },
@@ -82,11 +122,17 @@ export const uploadSatCredential = onCall(
     const cerBuf = Buffer.from(cerBase64, 'base64');
     const keyBuf = Buffer.from(keyBase64, 'base64');
     const encrypted = encryptPrivateKey(keyBuf);
-    // zeroize best-effort
-    keyBuf.fill(0);
+    zeroizeBuffer(keyBuf);
 
     const fp = credentialFingerprint(cerBuf);
     const db = getFirestore();
+    let passwordEncrypted;
+    if (password) {
+      const passBuf = Buffer.from(password, 'utf8');
+      passwordEncrypted = encryptPrivateKey(passBuf);
+      zeroizeBuffer(passBuf);
+    }
+
     await db.collection(CREDS).doc(ORG).set(
       {
         organization_id: ORG,
@@ -95,11 +141,8 @@ export const uploadSatCredential = onCall(
         cer_b64: cerBase64,
         key_encrypted: encrypted,
         has_password: Boolean(password),
-        // password cifrado solo si se envía — mismo vault
-        ...(password
-          ? {
-              password_encrypted: encryptPrivateKey(Buffer.from(password, 'utf8')),
-            }
+        ...(passwordEncrypted
+          ? { password_encrypted: passwordEncrypted }
           : {}),
         fingerprint: fp,
         keyVersion: encrypted.keyVersion,
@@ -112,11 +155,10 @@ export const uploadSatCredential = onCall(
 );
 
 /**
- * Crea job y ejecuta pipeline (MockWs en E6.2).
- * Memoria 512MiB por unpack.
+ * Crea job + fase solicitar. No espera Terminada (E6.2.1 A2).
  */
 export const startSatDownload = onCall(
-  { memory: '512MiB', timeoutSeconds: 300 },
+  { memory: '512MiB', timeoutSeconds: 120 },
   async (request): Promise<StartSatDownloadResponse> => {
     const uid = assertAuth(request.auth?.uid);
     const body = request.data as SatDownloadRequest;
@@ -139,6 +181,22 @@ export const startSatDownload = onCall(
       );
     }
 
+    let wsBundle;
+    try {
+      wsBundle = await resolveSatWsClient({ organizationId: ORG });
+    } catch (e) {
+      if (e instanceof SatWsClientError) {
+        const m = e.mapped;
+        throw new HttpsError(
+          m.code === 'NO_CREDENTIAL' || m.code === 'SAT_AUTH'
+            ? 'failed-precondition'
+            : 'internal',
+          m.message
+        );
+      }
+      throw e;
+    }
+
     const jobId = randomUUID();
     const store = firestoreStore();
     const job = await createQueuedJob({
@@ -151,38 +209,78 @@ export const startSatDownload = onCall(
         fechaFin: body.fechaFin,
         tipo: body.tipo || 'ambos',
       },
-      provider: 'mock_ws',
+      provider: wsBundle.providerId,
     });
     await store.set(job);
 
-    const ws = createMockSatWsClient({ verifyCallsBeforeDone: 2 });
-    const finished = await runSatDownloadJob({
+    await solicitarSatDownloadJob({
       jobId,
       store,
-      ws,
-      maxVerifyAttempts: 10,
+      ws: wsBundle.client,
     });
 
-    // Persistir packages en Storage si hay muchos (arquitectura A); mock suele ser chico
-    if (finished.status === 'ready' && finished.packages && finished.packages.length > 0) {
-      try {
-        const bucket = getStorage().bucket();
-        const path = `sat_jobs/${jobId}/packages.json`;
-        const file = bucket.file(path);
-        await file.save(JSON.stringify(finished.packages), {
-          contentType: 'application/json',
-          metadata: { jobId, usuario_id: uid },
-        });
-        finished.packages_path = path;
-        // Mantener packages en doc para jobs pequeños (poll simple)
-        await store.set(finished);
-      } catch {
-        // Emulator / sin bucket: packages quedan en el documento
-        await store.set(finished);
-      }
+    return { jobId };
+  }
+);
+
+/**
+ * Avanza un paso del job (verify o download). Llamado desde poll frontend.
+ */
+export const advanceSatDownload = onCall(
+  { memory: '512MiB', timeoutSeconds: 120 },
+  async (request): Promise<AdvanceSatDownloadResponse> => {
+    const uid = assertAuth(request.auth?.uid);
+    const jobId = String(request.data?.jobId || '');
+    if (!jobId) {
+      throw new HttpsError('invalid-argument', 'jobId requerido.');
     }
 
-    return { jobId };
+    const store = firestoreStore();
+    let job = await store.get(jobId);
+    if (!job) {
+      throw new HttpsError('not-found', 'Job no encontrado.');
+    }
+    if (job.usuario_id !== uid) {
+      throw new HttpsError('permission-denied', 'No autorizado para este job.');
+    }
+
+    if (job.status === 'ready' || job.status === 'failed' || job.status === 'expired') {
+      return { job, packagesSignedUrl: await signedUrlFor(job) };
+    }
+
+    let wsBundle;
+    try {
+      wsBundle = await resolveSatWsClient({
+        organizationId: ORG,
+        mode: job.provider === 'sat_ws' ? 'real' : 'mock',
+      });
+    } catch (e) {
+      const mapped =
+        e instanceof SatWsClientError
+          ? e.mapped
+          : mapSatFailure({
+              kind: 'internal',
+              message: e instanceof Error ? e.message : 'Error WS',
+            });
+      job = {
+        ...job,
+        status: 'failed',
+        error_code: mapped.code,
+        error_message: mapped.message,
+        updated_at: new Date().toISOString(),
+      };
+      await store.set(job);
+      return { job };
+    }
+
+    job = await advanceSatDownloadJob({
+      jobId,
+      store,
+      ws: wsBundle.client,
+    });
+    job = await maybePersistPackages(job, uid);
+
+    return { job, packagesSignedUrl: await signedUrlFor(job) };
   }
 );
 
@@ -204,20 +302,6 @@ export const getSatDownloadJob = onCall(
       throw new HttpsError('permission-denied', 'No autorizado para este job.');
     }
 
-    let packagesSignedUrl: string | undefined;
-    if (job.packages_path && job.status === 'ready') {
-      try {
-        const bucket = getStorage().bucket();
-        const [url] = await bucket.file(job.packages_path).getSignedUrl({
-          action: 'read',
-          expires: Date.now() + 15 * 60_000,
-        });
-        packagesSignedUrl = url;
-      } catch {
-        /* sin storage / emulator */
-      }
-    }
-
-    return { job, packagesSignedUrl };
+    return { job, packagesSignedUrl: await signedUrlFor(job) };
   }
 );

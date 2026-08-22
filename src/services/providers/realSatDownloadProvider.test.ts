@@ -3,28 +3,29 @@ import { realSatDownloadProvider } from './realSatDownloadProvider';
 
 vi.mock('../satFunctionsClient', () => ({
   startSatDownloadJob: vi.fn(),
+  advanceSatDownloadJob: vi.fn(),
   getSatDownloadJob: vi.fn(),
 }));
 
 import {
   startSatDownloadJob,
-  getSatDownloadJob,
+  advanceSatDownloadJob,
 } from '../satFunctionsClient';
 
 describe('realSatDownloadProvider', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.mocked(startSatDownloadJob).mockReset();
-    vi.mocked(getSatDownloadJob).mockReset();
+    vi.mocked(advanceSatDownloadJob).mockReset();
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('resuelve packages tras poll ready (backoff exponencial)', async () => {
+  it('llama advance en cada poll hasta ready (backoff)', async () => {
     vi.mocked(startSatDownloadJob).mockResolvedValue({ jobId: 'j1' });
-    vi.mocked(getSatDownloadJob)
+    vi.mocked(advanceSatDownloadJob)
       .mockResolvedValueOnce({
         job: {
           id: 'j1',
@@ -75,7 +76,6 @@ describe('realSatDownloadProvider', () => {
 
     expect(result.ok).toBe(true);
     expect(result.provider).toBe('sat_ws');
-    expect(result.packages).toHaveLength(1);
-    expect(getSatDownloadJob).toHaveBeenCalledTimes(2);
+    expect(advanceSatDownloadJob).toHaveBeenCalledTimes(2);
   });
 });

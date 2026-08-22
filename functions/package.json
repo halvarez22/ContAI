@@ -13,13 +13,16 @@
     "deploy": "firebase deploy --only functions"
   },
   "dependencies": {
+    "@nodecfdi/cfdi-core": "1.0.0",
+    "@nodecfdi/sat-ws-descarga-masiva": "2.0.0",
     "firebase-admin": "^13.0.2",
     "firebase-functions": "^6.3.0",
     "jszip": "^3.10.1",
-    "react-example": "file:.."
+    "luxon": "3.6.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "nock": "14.0.10",
     "typescript": "~5.8.2",
     "vitest": "^3.1.1"
   }

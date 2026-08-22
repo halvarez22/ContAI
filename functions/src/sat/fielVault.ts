@@ -66,3 +66,24 @@ export function decryptPrivateKey(blob: EncryptedBlob): Buffer {
 export function credentialFingerprint(cerDerOrPem: Buffer): string {
   return createHash('sha256').update(cerDerOrPem).digest('hex').slice(0, 16);
 }
+
+/** Sobrescribe bytes en memoria (higiene criptográfica post-uso). */
+export function zeroizeBuffer(buf: Buffer): void {
+  if (buf.length > 0) buf.fill(0);
+}
+
+/**
+ * Decrypt → callback → zeroize del buffer de llave.
+ * Preferir sobre decryptPrivateKey suelto en call sites de FIEL.
+ */
+export function withDecryptedPrivateKey<T>(
+  blob: EncryptedBlob,
+  fn: (plaintext: Buffer) => T
+): T {
+  const plaintext = decryptPrivateKey(blob);
+  try {
+    return fn(plaintext);
+  } finally {
+    zeroizeBuffer(plaintext);
+  }
+}

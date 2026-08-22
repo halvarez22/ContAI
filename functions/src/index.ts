@@ -7,5 +7,6 @@ setGlobalOptions({ region: 'us-central1' });
 export {
   uploadSatCredential,
   startSatDownload,
+  advanceSatDownload,
   getSatDownloadJob,
 } from './sat/callables';

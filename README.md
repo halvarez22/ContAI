@@ -114,12 +114,13 @@ Checklist completo: [`docs/FASE1_CIERRE.md`](./docs/FASE1_CIERRE.md).
 
 - **E5 Conciliación bancaria** — E5.1–E5.3 en `main` (heurística, IA edge cases, UI dedicada).
 - **E6.1 Descarga SAT (fundación)** — UI + provider **mock** + wire a `runCfdiBatchImport`. **No** habla al SAT ni maneja FIEL/CSD en el browser.
-- **E6.2 Backend SAT** — Cloud Functions (`functions/`): vault FIEL (AES-GCM + `SAT_FIEL_MASTER_KEY`), jobs asíncronos, MockWs, callables `startSatDownload` / `getSatDownloadJob` / `uploadSatCredential`. Frontend: `RealSatDownloadProvider` con polling backoff. SOAP real = **E6.2.1**. KMS = deuda **E6.3**.
+- **E6.2 Backend SAT** — Cloud Functions: vault FIEL, jobs, MockWs, callables.
+- **E6.2.1 SOAP real** — `@nodecfdi/sat-ws-descarga-masiva` + `advanceSatDownload` (poll A2); `SAT_WS_MODE=real`. Retenciones / KMS = E6.3.
 - Multi-tenant real; NER PII avanzado; seguir reduciendo God Object residual de `App.tsx`.
 
 ---
 
-## Backend E6.2 (Cloud Functions)
+## Backend E6.2 / E6.2.1 (Cloud Functions)
 
 **Requisitos:** Node.js 20, Firebase CLI, proyecto con Auth + Firestore + Storage.
 
@@ -131,18 +132,21 @@ cd functions && npm install
 npm run lint && npm test
 # Deploy (prod): configurar secret antes
 firebase functions:secrets:set SAT_FIEL_MASTER_KEY
+# SOAP real (staging): SAT_WS_MODE=real + FIEL vía uploadSatCredential
 firebase deploy --only functions,firestore:rules,storage
 ```
 
 | Pieza | Notas |
 |-------|--------|
 | Región | `us-central1` (`VITE_FIREBASE_FUNCTIONS_REGION`) |
-| Memoria unpack | `startSatDownload` con **512MiB** |
-| Rules | `sat_credentials` deny client; Storage `sat_jobs` solo signed URL |
+| Memoria | `startSatDownload` / `advanceSatDownload` **512MiB** |
+| `SAT_WS_MODE` | `mock` (default) \| `real` (Nodecfdi → SAT) |
+| Flujo async | `start` solicita; frontend poll llama `advanceSatDownload` (A2) |
 | Rate limit | Máx 10 jobs/hora por `org_main` |
-| Provider UI | `VITE_SAT_PROVIDER=mock` (default, sin Functions) \| `sat_ws` |
+| Provider UI | `VITE_SAT_PROVIDER=mock` \| `sat_ws` |
+| Staging FIEL | [`docs/SAT_STAGING.md`](./docs/SAT_STAGING.md) |
 
-La FIEL **nunca** viaja al browser: solo `uploadSatCredential` → cifrado envelope → Firestore Admin.
+La FIEL **nunca** viaja al browser: solo `uploadSatCredential` → cifrado envelope → Firestore Admin. Buffers de llave se zeroizan tras uso.
 
 ---
 
