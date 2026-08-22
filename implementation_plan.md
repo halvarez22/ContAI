@@ -1,16 +1,15 @@
-# Implementation Plan — Entregable 5.2 (Groq Conciliador)
+# Implementation Plan — Entregable 5.3 (UI dedicada de conciliación)
 
-**Estado:** **IMPLEMENTADO** (aprobación §8.1A / 8.2A / 8.3A / 8.4A + refinamientos auditor)  
-**Commit base previo:** E5.1 `82e814c`
+**Estado:** **IMPLEMENTADO** (§9.1A / 9.2A / 9.3A / 9.4A)  
+**Base:** E5.2 `077e67e`
 
-## Criterios (cerrados)
+## Entregado
 
-| Criterio | OK |
-|----------|----|
-| `BankAiMatchProposal` + `suggestionSource` + `BANK_AI_LOW_SCORE_THRESHOLD` | ✅ |
-| `proposeBankMatch` + `sanitizeBankDescription` | ✅ |
-| `selectAiEligibleRows` / `enrichSuggestionsWithAi` (inyección, K=1, fallos parciales) | ✅ |
-| Conflictos post-IA + ambigüedad 1º/2º | ✅ |
-| Audit `AI_BANK_RECONCILE_GROQ` | ✅ |
-| App: Sugerir con IA + error por fila; confirm manual intacta | ✅ |
-| Tests + lint | ✅ |
+| Pieza | Ruta |
+|-------|------|
+| Vista pura + tests | `src/lib/bankReconciliationView.ts` (+ `.test.ts`) |
+| Hook | `src/hooks/useBankReconciliation.ts` |
+| Panel | `src/components/BankReconciliationPanel.tsx` |
+| App | Tab sidebar Conciliación; card legacy eliminado; solo `ledger` tipado |
+
+Semántica E5.1/E5.2 de services **sin cambios**.
