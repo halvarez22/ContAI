@@ -74,11 +74,17 @@ import {
   filterTransactionsYtdThroughMonth,
   computeRiskRankings,
   buildMonthlyContextPack,
+} from './lib/monthlyAnalysis';
+import {
   parseBankCsv,
   suggestBankMatches,
-  type ParsedBankRow,
-  type BankMatchSuggestion,
-} from './lib/monthlyAnalysis';
+  toBankLedgerItems,
+  confirmNonConflictMatches,
+} from './services/bankReconciliationService';
+import type {
+  ParsedBankRow,
+  BankMatchSuggestion,
+} from './types/bankReconciliation';
 import { buildFiscalSnapshot, parseIvaTasa } from './lib/fiscal';
 import { isPeriodClosed, isTransactionDateInClosedPeriod, periodKey } from './lib/periodClose';
 import { generateExecutiveBriefing, askMonthQuestion } from './services/insightsService';
@@ -150,6 +156,8 @@ export default function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [bankCsvPreview, setBankCsvPreview] = useState<{ rows: ParsedBankRow[]; errors: string[] } | null>(null);
   const [bankMatchHints, setBankMatchHints] = useState<BankMatchSuggestion[]>([]);
+  const [bankConfirming, setBankConfirming] = useState(false);
+  const [bankConfirmMessage, setBankConfirmMessage] = useState<string | null>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<any[]>([]);
   const [periodosCerrados, setPeriodosCerrados] = useState<string[]>([]);
@@ -1056,13 +1064,15 @@ export default function App() {
 
   const handleBankFile = (file: File | null) => {
     if (!file) return;
+    setBankConfirmMessage(null);
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result || '');
       const parsed = parseBankCsv(text);
       setBankCsvPreview(parsed);
       if (parsed.rows.length > 0) {
-        const hints = suggestBankMatches(parsed.rows, transactionsInPeriod);
+        const ledger = toBankLedgerItems(transactionsInPeriod);
+        const hints = suggestBankMatches(parsed.rows, ledger);
         setBankMatchHints(hints);
       } else {
         setBankMatchHints([]);
@@ -1071,9 +1081,35 @@ export default function App() {
     reader.readAsText(file, 'UTF-8');
   };
 
+  const handleConfirmBankMatches = async () => {
+    if (!bankCsvPreview?.rows?.length || bankMatchHints.length === 0) return;
+    setBankConfirming(true);
+    setBankConfirmMessage(null);
+    try {
+      const summary = await confirmNonConflictMatches(
+        bankCsvPreview.rows,
+        bankMatchHints
+      );
+      if (summary.errors.length > 0) {
+        setBankConfirmMessage(summary.errors.join(' · '));
+      } else {
+        setBankConfirmMessage(
+          `Confirmados: ${summary.confirmed}. Omitidos por conflicto: ${summary.skippedConflict}. Sin match: ${summary.skippedNoMatch}.`
+        );
+      }
+    } catch (e) {
+      setBankConfirmMessage(
+        e instanceof Error ? e.message : 'Error al confirmar coincidencias'
+      );
+    } finally {
+      setBankConfirming(false);
+    }
+  };
+
   useEffect(() => {
     if (!bankCsvPreview?.rows?.length) return;
-    setBankMatchHints(suggestBankMatches(bankCsvPreview.rows, transactionsInPeriod));
+    const ledger = toBankLedgerItems(transactionsInPeriod);
+    setBankMatchHints(suggestBankMatches(bankCsvPreview.rows, ledger));
   }, [transactionsInPeriod, bankCsvPreview]);
 
   if (loading) {
@@ -1753,7 +1789,8 @@ export default function App() {
                         <h3 className="font-bold text-gray-900 dark:text-white">Conciliación asistida (v1)</h3>
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                        CSV con columnas: <span className="font-mono">fecha, monto, descripción</span> (coma o punto y coma). Se sugieren coincidencias con el libro del periodo; no se guarda el banco aún.
+                        CSV con columnas: <span className="font-mono">fecha, monto, descripción</span> (coma o punto y coma).
+                        Se sugieren coincidencias (monto ±2%, fecha ±4 días). Confirma manualmente; los conflictos no se aplican solos.
                       </p>
                       <label className="flex items-center gap-2 cursor-pointer text-sm text-indigo-600 dark:text-indigo-400">
                         <input
@@ -1774,20 +1811,42 @@ export default function App() {
                           )}
                           <p className="text-xs text-gray-500">
                             {bankCsvPreview.rows.length} movimientos bancarios ·{' '}
-                            {bankMatchHints.filter((h) => h.transactionId).length} posibles coincidencias
+                            {bankMatchHints.filter((h) => h.transactionId && !h.isConflict).length} listos para confirmar ·{' '}
+                            {bankMatchHints.filter((h) => h.isConflict).length} en conflicto
                           </p>
                           <div className="max-h-40 overflow-y-auto text-[10px] font-mono bg-gray-50 dark:bg-gray-800/50 rounded p-2 border border-gray-100 dark:border-gray-800">
                             {bankCsvPreview.rows.slice(0, 8).map((r, i) => (
-                              <div key={i} className="truncate border-b border-gray-100 dark:border-gray-800 py-1">
-                                {formatDate(r.fecha)} · {formatCurrency(r.monto)} · {r.descripcion.slice(0, 60)}
-                                {bankMatchHints[i]?.transactionId ? (
-                                  <span className="text-emerald-600 ml-1">→ match</span>
+                              <div key={i} className="truncate border-b border-gray-100 dark:border-gray-800 py-1 flex items-center gap-1">
+                                <span className="flex-1 truncate">
+                                  {formatDate(r.fecha)} · {formatCurrency(r.monto)} · {r.descripcion.slice(0, 50)}
+                                </span>
+                                {bankMatchHints[i]?.isConflict ? (
+                                  <span className="text-amber-600 inline-flex items-center gap-0.5 shrink-0" title={bankMatchHints[i]?.note}>
+                                    <AlertTriangle className="w-3 h-3" /> conflicto
+                                  </span>
+                                ) : bankMatchHints[i]?.transactionId ? (
+                                  <span className="text-emerald-600 shrink-0">→ match</span>
                                 ) : (
-                                  <span className="text-gray-400 ml-1">sin match</span>
+                                  <span className="text-gray-400 shrink-0">sin match</span>
                                 )}
                               </div>
                             ))}
                           </div>
+                          <Button
+                            className="w-full mt-2"
+                            onClick={() => void handleConfirmBankMatches()}
+                            disabled={
+                              bankConfirming ||
+                              bankMatchHints.filter((h) => h.transactionId && !h.isConflict).length === 0
+                            }
+                          >
+                            {bankConfirming
+                              ? 'Confirmando…'
+                              : 'Confirmar coincidencias sin conflicto'}
+                          </Button>
+                          {bankConfirmMessage && (
+                            <p className="text-xs text-gray-600 dark:text-gray-300">{bankConfirmMessage}</p>
+                          )}
                         </div>
                       )}
                     </Card>

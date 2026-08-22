@@ -286,112 +286,13 @@ export function buildMonthlyContextPack(
   return pack;
 }
 
-export interface ParsedBankRow {
-  fecha: string;
-  monto: number;
-  descripcion: string;
-}
+/** @deprecated Preferir `bankReconciliationService` — re-export E5.1 compat. */
+export type {
+  ParsedBankRow,
+  BankMatchSuggestion,
+} from '../types/bankReconciliation';
 
-export interface BankMatchSuggestion {
-  bankRowIndex: number;
-  transactionId: string | null;
-  score: number;
-  note: string;
-}
-
-/** Parse CSV simple: columnas fecha, monto, descripción (coma o punto y coma). */
-export function parseBankCsv(text: string): { rows: ParsedBankRow[]; errors: string[] } {
-  const errors: string[] = [];
-  const lines = text.trim().split(/\r?\n/).filter(Boolean);
-  const rows: ParsedBankRow[] = [];
-  if (lines.length === 0) return { rows, errors: ['Archivo vacío'] };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const parts = line.split(/[,;]/).map((p) => p.trim().replace(/^"|"$/g, ''));
-    if (parts.length < 2) continue;
-
-    let fechaStr = parts[0];
-    let montoRaw = parts[1];
-    const desc = parts.slice(2).join(' ') || parts[0];
-
-    const monto = parseFloat(String(montoRaw).replace(/[$,\s]/g, '').replace(',', '.'));
-    if (Number.isNaN(monto)) {
-      if (i === 0) continue;
-      errors.push(`Línea ${i + 1}: monto no numérico`);
-      continue;
-    }
-
-    let fechaIso = '';
-    if (/^\d{4}-\d{2}-\d{2}/.test(fechaStr)) {
-      fechaIso = new Date(fechaStr).toISOString();
-    } else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(fechaStr)) {
-      const segs = fechaStr.split(/[\/\-]/);
-      if (segs.length === 3) {
-        const d = parseInt(segs[0], 10);
-        const mo = parseInt(segs[1], 10) - 1;
-        const y = segs[2].length === 2 ? 2000 + parseInt(segs[2], 10) : parseInt(segs[2], 10);
-        const dt = new Date(y, mo, d);
-        if (!Number.isNaN(dt.getTime())) fechaIso = dt.toISOString();
-      }
-    } else {
-      const tryDate = new Date(fechaStr);
-      if (!Number.isNaN(tryDate.getTime())) fechaIso = tryDate.toISOString();
-    }
-
-    if (!fechaIso) {
-      if (i === 0) continue;
-      errors.push(`Línea ${i + 1}: fecha no reconocida`);
-      continue;
-    }
-
-    rows.push({
-      fecha: fechaIso,
-      monto: Math.abs(monto),
-      descripcion: desc,
-    });
-  }
-
-  return { rows, errors };
-}
-
-export function suggestBankMatches(
-  bankRows: ParsedBankRow[],
-  ledger: any[],
-  amountTolerancePct = 2,
-  maxDaysDiff = 4
-): BankMatchSuggestion[] {
-  const suggestions: BankMatchSuggestion[] = [];
-
-  for (let i = 0; i < bankRows.length; i++) {
-    const br = bankRows[i];
-    const bankDate = new Date(br.fecha).getTime();
-    let best: { id: string; score: number } | null = null;
-
-    for (const tx of ledger) {
-      const m = Number(tx.monto) || 0;
-      const txDate = new Date(tx.fecha).getTime();
-      const dayDiff = Math.abs(bankDate - txDate) / (86400 * 1000);
-      if (dayDiff > maxDaysDiff) continue;
-
-      const pctDiff = m === 0 ? 100 : (Math.abs(m - br.monto) / m) * 100;
-      if (pctDiff > amountTolerancePct) continue;
-
-      const score = 100 - dayDiff * 8 - pctDiff * 3;
-      if (!best || score > best.score) {
-        best = { id: String(tx.id), score };
-      }
-    }
-
-    suggestions.push({
-      bankRowIndex: i,
-      transactionId: best?.id ?? null,
-      score: best?.score ?? 0,
-      note: best
-        ? `Posible coincidencia (${best.score.toFixed(0)} pts)`
-        : 'Sin coincidencia en libro',
-    });
-  }
-
-  return suggestions;
-}
+export {
+  parseBankCsv,
+  suggestBankMatches,
+} from '../services/bankReconciliationService';
