@@ -74,7 +74,9 @@ npm run dev                  # http://localhost:3000
 | `npm run dev` | Servidor Vite |
 | `npm run build` | Build producción |
 | `npm run lint` | `tsc --noEmit` |
-| `npm test` | Vitest (26+ tests Fase 1) |
+| `npm test` | Vitest (app) |
+| `npm run test:functions` | Vitest Cloud Functions (E6.2) |
+| `npm run sync:sat-contracts` | Copia contratos SAT → `functions/src/contracts` |
 | `npm run test:e2e` | Playwright |
 
 ---
@@ -90,6 +92,9 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `GROQ_MODEL` | No | Default en `src/config/aiModels.ts` |
 | `GEMINI_API_KEY` | No | Residual / futuro; no es fallback de clasificación en Fase 1 |
 | `VITE_APP_URL` | No | URL pública de la app |
+| `VITE_SAT_PROVIDER` | No | `mock` (default) o `sat_ws` (E6.2 callables) |
+| `VITE_FIREBASE_FUNCTIONS_REGION` | No | Default `us-central1` |
+| `SAT_FIEL_MASTER_KEY` | Sí (Functions prod) | Secret Manager — **nunca** en Vite |
 
 **Importante (Vercel):** configurar `GROQ_API_KEY` (y Firebase `VITE_*`) en *Project → Settings → Environment Variables* para Production/Preview. Tras cambiar env, **redeploy**.
 
@@ -109,8 +114,35 @@ Checklist completo: [`docs/FASE1_CIERRE.md`](./docs/FASE1_CIERRE.md).
 
 - **E5 Conciliación bancaria** — E5.1–E5.3 en `main` (heurística, IA edge cases, UI dedicada).
 - **E6.1 Descarga SAT (fundación)** — UI + provider **mock** + wire a `runCfdiBatchImport`. **No** habla al SAT ni maneja FIEL/CSD en el browser.
-- **E6.2 (pendiente)** — Backend obligatorio (Cloud Functions / API) con FIEL cifrada + Web Service Descarga Masiva real. Variables previstas en `.env.example`.
+- **E6.2 Backend SAT** — Cloud Functions (`functions/`): vault FIEL (AES-GCM + `SAT_FIEL_MASTER_KEY`), jobs asíncronos, MockWs, callables `startSatDownload` / `getSatDownloadJob` / `uploadSatCredential`. Frontend: `RealSatDownloadProvider` con polling backoff. SOAP real = **E6.2.1**. KMS = deuda **E6.3**.
 - Multi-tenant real; NER PII avanzado; seguir reduciendo God Object residual de `App.tsx`.
+
+---
+
+## Backend E6.2 (Cloud Functions)
+
+**Requisitos:** Node.js 20, Firebase CLI, proyecto con Auth + Firestore + Storage.
+
+```bash
+# Contratos compartidos (fuente: packages/sat-contracts)
+npm run sync:sat-contracts
+
+cd functions && npm install
+npm run lint && npm test
+# Deploy (prod): configurar secret antes
+firebase functions:secrets:set SAT_FIEL_MASTER_KEY
+firebase deploy --only functions,firestore:rules,storage
+```
+
+| Pieza | Notas |
+|-------|--------|
+| Región | `us-central1` (`VITE_FIREBASE_FUNCTIONS_REGION`) |
+| Memoria unpack | `startSatDownload` con **512MiB** |
+| Rules | `sat_credentials` deny client; Storage `sat_jobs` solo signed URL |
+| Rate limit | Máx 10 jobs/hora por `org_main` |
+| Provider UI | `VITE_SAT_PROVIDER=mock` (default, sin Functions) \| `sat_ws` |
+
+La FIEL **nunca** viaja al browser: solo `uploadSatCredential` → cifrado envelope → Firestore Admin.
 
 ---
 

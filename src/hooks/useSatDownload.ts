@@ -3,7 +3,7 @@ import {
   packagesToBatchInputs,
   requestSatDownload,
 } from '../services/satDownloadService';
-import { mockSatDownloadProvider } from '../services/providers/mockSatDownloadProvider';
+import { resolveSatDownloadProvider } from '../services/satProviderFactory';
 import { runCfdiBatchImport } from '../services/cfdiBatchImportService';
 import type { ClassifyBatchFn } from '../services/cfdiBatchImportService';
 import type {
@@ -29,7 +29,7 @@ export function useSatDownload({
   periodosCerrados,
   highAmountReviewThreshold,
   classify,
-  provider = mockSatDownloadProvider,
+  provider = resolveSatDownloadProvider(),
 }: UseSatDownloadParams) {
   const [phase, setPhase] = useState<SatDownloadPhase>('idle');
   const [rfc, setRfc] = useState(defaultRfc);

@@ -19,6 +19,7 @@ export function SatDownloadPanel(props: SatDownloadPanelProps) {
   const sat = useSatDownload(props);
   const busy = sat.phase === 'requesting' || sat.phase === 'importing';
   const failed = sat.batchResults.filter((r) => !r.ok);
+  const isMock = sat.providerId === 'mock';
 
   return (
     <div className="space-y-4 max-w-3xl">
@@ -28,11 +29,15 @@ export function SatDownloadPanel(props: SatDownloadPanelProps) {
       >
         <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
         <div className="text-sm text-amber-950 dark:text-amber-100 space-y-1">
-          <p className="font-bold">Simulación / Beta — sin conexión real al SAT</p>
+          <p className="font-bold">
+            {isMock
+              ? 'Simulación / Beta — sin conexión real al SAT'
+              : 'Modo sat_ws — backend Cloud Functions (FIEL nunca en el browser)'}
+          </p>
           <p className="text-xs leading-relaxed text-amber-900/90 dark:text-amber-200/90">
-            Esta pantalla prueba el flujo de ingesta automática. No descarga CFDIs del
-            Web Service del SAT ni usa FIEL/CSD. La conexión real llegará en E6.2 con
-            un backend seguro.
+            {isMock
+              ? 'Provider mock (VITE_SAT_PROVIDER=mock). No usa FIEL/CSD ni el WS del SAT. Para backend E6.2 use VITE_SAT_PROVIDER=sat_ws con Functions desplegadas.'
+              : 'Polling con backoff hacia startSatDownload / getSatDownloadJob. SOAP real del SAT = E6.2.1 (hoy MockWs en el servidor).'}
           </p>
         </div>
       </div>

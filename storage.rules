@@ -1,0 +1,15 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /sat_credentials/{allPaths=**} {
+      allow read, write: if false;
+    }
+    match /sat_jobs/{allPaths=**} {
+      // Lectura solo vía signed URL generada por Functions
+      allow read, write: if false;
+    }
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

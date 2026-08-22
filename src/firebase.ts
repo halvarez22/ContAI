@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import firebaseConfigJSON from '../firebase-applet-config.json';
 
 const envOrUndefined = (value: string | undefined) => {
@@ -8,7 +9,6 @@ const envOrUndefined = (value: string | undefined) => {
   return trimmed ? trimmed : undefined;
 };
 
-// Use environment variables if available (Vite/Vercel), otherwise fallback to JSON config
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigJSON.apiKey,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJSON.authDomain,
@@ -19,20 +19,24 @@ const firebaseConfig = {
   firestoreDatabaseId: envOrUndefined(import.meta.env.VITE_FIREBASE_DATABASE_ID),
 };
 
-// Initialize Firebase SDK
 const app = initializeApp(firebaseConfig);
 export const db = firebaseConfig.firestoreDatabaseId
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : getFirestore(app);
 export const auth = getAuth(app);
 
-// Validate connection to Firestore
+/** Cloud Functions (E6.2 Descarga SAT). */
+export const functions = getFunctions(
+  app,
+  import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1'
+);
+
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. The client is offline.");
+      console.error('Please check your Firebase configuration. The client is offline.');
     }
   }
 }
