@@ -1,0 +1,23 @@
+---
+description: Política de uso de providers de IA (Groq + Gemini) y configuración fiscal. Decisiones de producto congeladas para Fase 1 MVP.
+alwaysApply: true
+---
+
+# Política de IA y Configuración Fiscal - Fase 1 MVP
+
+## Decisiones de producto congeladas (alineadas al código real — ago 2026):
+
+1. **Groq**: Clasificación/extracción CFDI/Excel (JSON forzado) **y** briefing ejecutivo / Q&A del mes (ya implementado en `insightsService`).
+2. **Gemini**: Disponible para análisis profundo o Q&A complejo futuro; no se fuerza migración del briefing fuera de Groq en Fase 1.
+3. **Coexistencia Simple**: NO hay orquestador inteligente ni validación cruzada. **E2:** agentes e insights usan solo Groq; sin fallback Gemini↔Groq ni fallback local por keywords. Si Groq falla → error claro al usuario.
+4. **Configuración de Tasas**: Las tasas fiscales oficiales (IVA 16%, 8%, 0%) y versiones de CFDI viven en un catálogo tipado en código (ej. `src/config/taxRates.ts`). Overrides del cliente (cuentas, regímenes) en Firestore. NO panel admin en Fase 1.
+5. **audit_logs**: Compatibilidad hacia atrás — no renombrar campos existentes (`usuario_id`, `accion`, `recurso`, `detalles`, …); campos nuevos solo opcionales (`provider`, `modelUsed`, `tokensUsed`).
+6. **org_main**: Hardcodeado en E1 (multi-tenant fuera de alcance).
+
+## Reglas técnicas:
+
+- `groqAIService.ts`: Único punto de contacto con Groq. Encapsula el SDK, maneja el JSON forzado y sanitiza prompts.
+- Lo existente de Gemini se deja intacto o se envuelve mínimamente. No se refactoriza sin motivo justificado.
+- Prohibido crear interfaces abstractas (`ILLMProvider`), fábricas de providers o patrones de orquestación complejos (YAGNI para Fase 1).
+- **Auditoría (Audit Logs)**: Schema existente en Firestore sin renombrar (`usuario_id`, `accion`, `recurso`, `detalles`, …). Campos opcionales nuevos: `provider`, `modelUsed`, `tokensUsed`.
+- **Cero Hardcoding**: Los nombres de los modelos de IA viven en `src/config/aiModels.ts` (env `GROQ_MODEL` / `GEMINI_MODEL` o defaults). Consumidos vía `groqAIService`.

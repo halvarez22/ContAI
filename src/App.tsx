@@ -10,14 +10,9 @@ import {
   collection, 
   query, 
   onSnapshot, 
-  addDoc, 
-  serverTimestamp,
   where,
   doc,
   getDoc,
-  setDoc,
-  arrayUnion,
-  arrayRemove,
 } from 'firebase/firestore';
 import { 
   LayoutDashboard, 
@@ -56,8 +51,24 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './firebase';
 import { cn, formatCurrency, formatDate } from './lib/utils';
-import { executeAgent, AGENT_TYPES, AgentDecision } from './services/geminiService';
+import { Button } from './components/ui/Button';
+import { Card } from './components/ui/Card';
+import { Badge } from './components/ui/Badge';
+import { executeAgent, AGENT_TYPES } from './services/groqAIService';
+import type { AgentDecision, AgentType } from './types/agentDecision';
 import { logAuditEntry } from './services/auditService';
+import {
+  createUserProfile,
+  updateUserSettings,
+  toggleUserPeriodClosed,
+  createProduct,
+  createInventoryMovement,
+  createTransaction,
+  setTransaction,
+  createRecurring,
+  setRecurring,
+  serverTimestamp,
+} from './services/firestoreService';
 import {
   filterTransactionsByMonth,
   filterTransactionsYtdThroughMonth,
@@ -69,57 +80,12 @@ import {
   type BankMatchSuggestion,
 } from './lib/monthlyAnalysis';
 import { buildFiscalSnapshot, parseIvaTasa } from './lib/fiscal';
-import { computeMonthlyIva } from './lib/ivaMonth';
-import { computeIsrProvisionalSummary } from './lib/isrProvisional';
 import { isPeriodClosed, isTransactionDateInClosedPeriod, periodKey } from './lib/periodClose';
-import {
-  parseCfdiXml,
-  mapTipoComprobanteToTxTipo,
-  inferIvaTasaFromAmounts,
-} from './lib/cfdiXml';
 import { generateExecutiveBriefing, askMonthQuestion } from './services/insightsService';
-
-// --- Components ---
-
-const Button = ({ className, variant = 'primary', ...props }: any) => {
-  const variants = {
-    primary: 'bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600',
-    secondary: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-750',
-    ghost: 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200',
-    danger: 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30',
-  };
-  return (
-    <button 
-      className={cn(
-        'px-4 py-2 rounded-lg font-medium transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2',
-        variants[variant as keyof typeof variants],
-        className
-      )} 
-      {...props} 
-    />
-  );
-};
-
-const Card = ({ children, className }: any) => (
-  <div className={cn('bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden dark:bg-gray-900 dark:border-gray-800', className)}>
-    {children}
-  </div>
-);
-
-const Badge = ({ children, variant = 'default' }: any) => {
-  const variants = {
-    default: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-    success: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400',
-    warning: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
-    error: 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400',
-    info: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400',
-  };
-  return (
-    <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', variants[variant as keyof typeof variants])}>
-      {children}
-    </span>
-  );
-};
+import { buildTaxPreview } from './services/taxCalculatorService';
+import { TaxPreviewCard } from './components/TaxPreviewCard';
+import { ImportModals } from './components/ImportModals';
+import { useImportFlow, type CfdiClassificationPayload } from './hooks/useImportFlow';
 
 // --- Main App ---
 
@@ -186,15 +152,6 @@ export default function App() {
   const [products, setProducts] = useState<any[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<any[]>([]);
   const [periodosCerrados, setPeriodosCerrados] = useState<string[]>([]);
-  const [isCfdiImportOpen, setIsCfdiImportOpen] = useState(false);
-  const [cfdiPreview, setCfdiPreview] = useState<import('./lib/cfdiXml').CfdiExtracted | null>(null);
-  const [cfdiImportError, setCfdiImportError] = useState<string | null>(null);
-  const [cfdiImporting, setCfdiImporting] = useState(false);
-  const [cfdiXsdMode, setCfdiXsdMode] = useState<string | null>(null);
-  const [cfdiXsdValidating, setCfdiXsdValidating] = useState(false);
-  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
-  const [excelImportMessage, setExcelImportMessage] = useState<string | null>(null);
-  const [excelImporting, setExcelImporting] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('theme') === 'dark' || 
@@ -221,12 +178,10 @@ export default function App() {
         // Ensure user profile exists
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (!userDoc.exists()) {
-          await setDoc(doc(db, 'users', user.uid), {
+          await createUserProfile(user.uid, {
             email: user.email,
-            role: 'admin', // Default for first user
             nombre: user.displayName || 'Usuario',
-            activo: true,
-            creado_en: serverTimestamp(),
+            role: 'admin',
           });
         }
         logAuditEntry('LOGIN', 'auth', { email: user.email });
@@ -289,16 +244,11 @@ export default function App() {
     const rfc = draftEmpresaRfc.trim().toUpperCase();
     setIsSavingSettings(true);
     try {
-      await setDoc(
-        doc(db, 'users', user.uid),
-        {
-          cuentas_contables: lines,
-          empresa_nombre: nombre,
-          empresa_rfc: rfc,
-          actualizado_en: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await updateUserSettings(user.uid, {
+        cuentas_contables: lines,
+        empresa_nombre: nombre,
+        empresa_rfc: rfc,
+      });
       await logAuditEntry('UPDATE_SETTINGS', 'users', { cuentas: lines.length, empresa: Boolean(nombre), rfc: Boolean(rfc) });
       settingsCatalogDirtyRef.current = false;
     } catch (e) {
@@ -407,18 +357,51 @@ export default function App() {
     await signOut(auth);
   };
 
-  const triggerAgent = async (type: string, data: any) => {
+  type AgentClassifyPayload = CfdiClassificationPayload & {
+    account_name?: string;
+    tags?: string[];
+  };
+
+  const triggerAgent = async (
+    type: AgentType,
+    data: AgentClassifyPayload
+  ): Promise<AgentDecision | undefined> => {
     setIsProcessing(true);
     try {
-      const decision = await executeAgent(type, data);
-      await logAuditEntry(`AGENT_${type.toUpperCase()}`, 'ai_service', { decision, input: data });
-      return decision;
+      const result = await executeAgent(type, data);
+      const accion =
+        type === AGENT_TYPES.CLASIFICADOR
+          ? 'AI_CLASSIFICATION_GROQ'
+          : `AI_AGENT_GROQ_${String(type).toUpperCase()}`;
+      await logAuditEntry(
+        accion,
+        'ai_service',
+        { decision: result.decision, input: data },
+        {
+          provider: result.provider,
+          modelUsed: result.modelUsed,
+          tokensUsed: result.tokensUsed,
+        }
+      );
+      return result.decision;
     } catch (error) {
       console.error('Agent error:', error);
+      const msg =
+        error instanceof Error
+          ? error.message
+          : 'No se pudo clasificar con Groq. Revisa GROQ_API_KEY e intenta de nuevo.';
+      alert(msg);
     } finally {
       setIsProcessing(false);
     }
   };
+
+  const importFlow = useImportFlow({
+    userId: user?.uid,
+    periodosCerrados,
+    classify: triggerAgent,
+    highAmountReviewThreshold: HIGH_AMOUNT_REVIEW_THRESHOLD,
+  });
 
   const saveProduct = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -431,13 +414,10 @@ export default function App() {
       return;
     }
     try {
-      await addDoc(collection(db, 'products'), {
-        organization_id: 'org_main',
-        usuario_id: user.uid,
+      await createProduct(user.uid, {
         codigo,
         descripcion,
         unidad: String(fd.get('unidad') || '').trim() || 'PZA',
-        creado_en: serverTimestamp(),
       });
       await logAuditEntry('CREATE_PRODUCT', 'products', { codigo });
       e.currentTarget.reset();
@@ -465,16 +445,13 @@ export default function App() {
       return;
     }
     try {
-      await addDoc(collection(db, 'inventory_movements'), {
-        organization_id: 'org_main',
-        usuario_id: user.uid,
-        product_id: product_id,
+      await createInventoryMovement(user.uid, {
+        product_id,
         tipo: tipoMov,
         cantidad,
         costo_unitario: Number(fd.get('costo_unitario')) || 0,
         fecha: new Date(fecha).toISOString(),
         nota: String(fd.get('nota_mov') || '').trim(),
-        creado_en: serverTimestamp(),
       });
       await logAuditEntry('CREATE_INV_MOV', 'inventory_movements', { product_id: product_id.slice(0, 40), tipo: tipoMov });
       e.currentTarget.reset();
@@ -513,198 +490,11 @@ export default function App() {
     const key = periodKey(periodYear, periodMonth);
     const cerrado = periodosCerrados.includes(key);
     try {
-      await setDoc(
-        doc(db, 'users', user.uid),
-        {
-          periodos_cerrados: cerrado ? arrayRemove(key) : arrayUnion(key),
-          actualizado_en: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await toggleUserPeriodClosed(user.uid, key, cerrado);
       await logAuditEntry(cerrado ? 'OPEN_PERIOD' : 'CLOSE_PERIOD', 'users', { periodo: key });
     } catch (e) {
       console.error(e);
       alert('No se pudo actualizar el cierre del periodo.');
-    }
-  };
-
-  const handleCfdiFile = (file: File | null) => {
-    if (!file) return;
-    setCfdiImportError(null);
-    setCfdiPreview(null);
-    setCfdiXsdMode(null);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const text = String(reader.result || '');
-      setCfdiXsdValidating(true);
-      try {
-        const { validateCfdiXmlAgainstXsd } = await import('./lib/cfdiXsdValidate');
-        const xsd = await validateCfdiXmlAgainstXsd(text);
-        setCfdiXsdMode(xsd.mode);
-        if (!xsd.valid) {
-          setCfdiImportError(
-            [...xsd.errors, `(esquema: ${xsd.mode})`].filter(Boolean).join(' · ')
-          );
-          return;
-        }
-        const r = parseCfdiXml(text);
-        if (r.ok === false) {
-          setCfdiImportError(r.errors.join(' '));
-          return;
-        }
-        setCfdiPreview(r.data);
-      } finally {
-        setCfdiXsdValidating(false);
-      }
-    };
-    reader.readAsText(file, 'UTF-8');
-  };
-
-  const runExcelImport = async (fileList: FileList | null) => {
-    if (!fileList?.length || !user) return;
-    setExcelImporting(true);
-    setExcelImportMessage(null);
-    try {
-      const { parseContaiExcelBuffer, mergeExcelResults } = await import('./lib/excelContaiImportXlsx');
-      const { commitExcelImport } = await import('./services/excelImportService');
-      const results = [];
-      for (const f of Array.from(fileList)) {
-        const buf = await f.arrayBuffer();
-        results.push(parseContaiExcelBuffer(buf, f.name));
-      }
-      const merged = mergeExcelResults(results);
-      const skippedClosed: string[] = [];
-      const txs = merged.transactions.filter((t) => {
-        if (isTransactionDateInClosedPeriod(t.fecha, periodosCerrados)) {
-          skippedClosed.push(t.concepto.slice(0, 40));
-          return false;
-        }
-        return true;
-      });
-      const { txCount, productCount } = await commitExcelImport(user.uid, txs, merged.products);
-      setExcelImportMessage(
-        [
-          `Listo: ${txCount} transacciones, ${productCount} productos.`,
-          merged.warnings.length
-            ? `Avisos (${merged.warnings.length}): ${merged.warnings.slice(0, 8).join(' · ')}`
-            : '',
-          skippedClosed.length ? `Omitidas por periodo cerrado: ${skippedClosed.length}.` : '',
-        ]
-          .filter(Boolean)
-          .join('\n')
-      );
-    } catch (e) {
-      console.error(e);
-      setExcelImportMessage('Error al importar. Revisa la consola o el formato de los archivos.');
-    } finally {
-      setExcelImporting(false);
-    }
-  };
-
-  const importCfdiAsTransaction = async () => {
-    if (!user || !cfdiPreview) return;
-    const d = cfdiPreview;
-    let fechaIso: string;
-    try {
-      fechaIso = new Date(d.fecha).toISOString();
-    } catch {
-      setCfdiImportError('Fecha inválida en el CFDI.');
-      return;
-    }
-    if (isTransactionDateInClosedPeriod(fechaIso, periodosCerrados)) {
-      alert('El periodo de la fecha del CFDI está cerrado.');
-      return;
-    }
-    setCfdiImporting(true);
-    setCfdiImportError(null);
-    try {
-      const tipo = mapTipoComprobanteToTxTipo(d.tipoComprobante);
-      const iva_tasa = inferIvaTasaFromAmounts(d.subtotal, d.totalIvaTrasladado);
-      const proveedor =
-        tipo === 'ingreso'
-          ? d.receptorNombre || d.receptorRfc || 'Cliente'
-          : d.emisorNombre || d.emisorRfc || 'Proveedor';
-      const concepto = d.descripcionPrimerConcepto
-        ? `CFDI: ${d.descripcionPrimerConcepto}`
-        : `CFDI importado${d.uuid ? ` · ${d.uuid.slice(0, 8)}…` : ''}`;
-
-      const docRef = await addDoc(collection(db, 'transactions'), {
-        organization_id: 'org_main',
-        usuario_id: user.uid,
-        tipo,
-        monto: d.total,
-        moneda: d.moneda || 'MXN',
-        concepto,
-        proveedor,
-        fecha: fechaIso,
-        status: 'pendiente',
-        account_name: '',
-        tags: [],
-        iva_tasa,
-        egreso_acredita_iva: tipo === 'egreso',
-        deducible: tipo === 'egreso',
-        fiscal_subtotal: d.subtotal,
-        fiscal_iva: d.totalIvaTrasladado,
-        rfc_contraparte: tipo === 'ingreso' ? d.receptorRfc : d.emisorRfc,
-        uso_cfdi: d.receptorUsoCfdi || undefined,
-        forma_pago_sat: d.formaPago || undefined,
-        metodo_pago_sat: d.metodoPago || undefined,
-        cp_expedicion: d.lugarExpedicion || undefined,
-        cfdi_uuid: d.uuid || undefined,
-        importado_cfdi: true,
-        creado_en: serverTimestamp(),
-      });
-
-      const decision = await triggerAgent(AGENT_TYPES.CLASIFICADOR, {
-        tipo,
-        monto: d.total,
-        concepto,
-        proveedor,
-        fecha: fechaIso,
-        moneda: d.moneda || 'MXN',
-      });
-      if (decision) {
-        const requiresPolicyReview = d.total > HIGH_AMOUNT_REVIEW_THRESHOLD;
-        const requiresHumanApproval = decision.requires_human_approval || requiresPolicyReview;
-        await setDoc(doc(db, 'transactions', docRef.id), {
-          tipo,
-          monto: d.total,
-          moneda: d.moneda || 'MXN',
-          concepto,
-          proveedor,
-          fecha: fechaIso,
-          status: requiresHumanApproval ? 'revisión' : 'conciliado',
-          account_name: decision.account_name,
-          agente_ia_decision: decision.decision,
-          confidence_score: decision.confidence_score,
-          account_source: 'ai',
-          policy_review_reason: requiresPolicyReview ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}` : null,
-          organization_id: 'org_main',
-          usuario_id: user.uid,
-          iva_tasa,
-          egreso_acredita_iva: tipo === 'egreso',
-          deducible: tipo === 'egreso',
-          fiscal_subtotal: d.subtotal,
-          fiscal_iva: d.totalIvaTrasladado,
-          rfc_contraparte: tipo === 'ingreso' ? d.receptorRfc : d.emisorRfc,
-          uso_cfdi: d.receptorUsoCfdi || undefined,
-          forma_pago_sat: d.formaPago || undefined,
-          metodo_pago_sat: d.metodoPago || undefined,
-          cp_expedicion: d.lugarExpedicion || undefined,
-          cfdi_uuid: d.uuid || undefined,
-          importado_cfdi: true,
-          creado_en: serverTimestamp(),
-        });
-      }
-
-      await logAuditEntry('IMPORT_CFDI', 'transactions', { id: docRef.id, uuid: d.uuid });
-      setIsCfdiImportOpen(false);
-      setCfdiPreview(null);
-    } catch (err) {
-      console.error(err);
-      setCfdiImportError('No se pudo guardar la transacción.');
-    } finally {
-      setCfdiImporting(false);
     }
   };
 
@@ -816,17 +606,14 @@ export default function App() {
     }
 
     try {
-      const docRef = await addDoc(collection(db, 'transactions'), {
-        ...transactionData,
-        creado_en: serverTimestamp(),
-      });
+      const docRef = await createTransaction(transactionData);
 
       const decision = await triggerAgent(AGENT_TYPES.CLASIFICADOR, transactionData);
       if (decision) {
         const requiresPolicyReview = transactionData.monto > HIGH_AMOUNT_REVIEW_THRESHOLD;
         const requiresHumanApproval = decision.requires_human_approval || requiresPolicyReview;
         const manualAccountName = transactionData.account_name?.trim();
-        await setDoc(doc(db, 'transactions', docRef.id), {
+        await setTransaction(docRef.id, {
           ...transactionData,
           status: requiresHumanApproval ? 'revisión' : 'conciliado',
           agente_ia_decision: decision.decision,
@@ -859,7 +646,7 @@ export default function App() {
   };
 
   const toggleRecurringStatus = async (rec: any) => {
-    await setDoc(doc(db, 'recurring_transactions', rec.id), {
+    await setRecurring(rec.id, {
       ...rec,
       activa: !rec.activa,
     });
@@ -867,12 +654,14 @@ export default function App() {
   };
 
   const deleteRecurringTransaction = async (id: string) => {
-    // In a real app we might use deleteDoc, but here we'll just deactivate or log
-    // For this demo let's just deactivate
-    await setDoc(doc(db, 'recurring_transactions', id), {
-      activa: false,
-      deleted: true,
-    }, { merge: true });
+    await setRecurring(
+      id,
+      {
+        activa: false,
+        deleted: true,
+      },
+      { merge: true }
+    );
     logAuditEntry('DELETE_RECURRING', 'recurring_transactions', { id });
   };
 
@@ -894,10 +683,10 @@ export default function App() {
     };
 
     if (selectedRecurring) {
-      await setDoc(doc(db, 'recurring_transactions', selectedRecurring.id), data);
+      await setRecurring(selectedRecurring.id, data);
       logAuditEntry('UPDATE_RECURRING', 'recurring_transactions', { id: selectedRecurring.id });
     } else {
-      await addDoc(collection(db, 'recurring_transactions'), data);
+      await createRecurring(data);
       logAuditEntry('CREATE_RECURRING', 'recurring_transactions', data);
     }
 
@@ -934,7 +723,7 @@ export default function App() {
             creado_en: serverTimestamp(),
           };
 
-          await addDoc(collection(db, 'transactions'), txData);
+          await createTransaction(txData);
           
           // Update next execution
           let newNextExec = new Date(nextExec);
@@ -943,7 +732,7 @@ export default function App() {
           else if (rec.frecuencia === 'mensual') newNextExec.setMonth(newNextExec.getMonth() + 1);
           else if (rec.frecuencia === 'anual') newNextExec.setFullYear(newNextExec.getFullYear() + 1);
 
-          await setDoc(doc(db, 'recurring_transactions', rec.id), {
+          await setRecurring(rec.id, {
             ...rec,
             proxima_ejecucion: newNextExec.toISOString(),
             ocurrencias_completadas: (rec.ocurrencias_completadas || 0) + 1,
@@ -1006,7 +795,7 @@ export default function App() {
       return;
     }
     try {
-      await setDoc(doc(db, 'transactions', tx.id), {
+      await setTransaction(tx.id, {
         ...tx,
         status: 'conciliado',
         aprobado_por: user?.email,
@@ -1033,7 +822,7 @@ export default function App() {
     }
 
     try {
-      await setDoc(doc(db, 'transactions', tx.id), {
+      await setTransaction(tx.id, {
         ...tx,
         status: 'rechazado',
         motivo_rechazo: trimmedReason,
@@ -1064,7 +853,7 @@ export default function App() {
         return;
       }
       
-      await setDoc(doc(db, 'transactions', txId), {
+      await setTransaction(txId, {
         ...tx,
         tags: newTags,
         actualizado_en: serverTimestamp()
@@ -1133,7 +922,7 @@ export default function App() {
           }
         : updatedData;
 
-      await setDoc(doc(db, 'transactions', selectedTransaction.id), finalData);
+      await setTransaction(selectedTransaction.id, finalData);
       setSelectedTransaction({ id: selectedTransaction.id, ...finalData });
       setIsEditTxModalOpen(false);
 
@@ -1189,15 +978,15 @@ export default function App() {
     [transactionsInPeriod, periodYear, periodMonth, empresaNombre, empresaRfc, transactions]
   );
 
-  const ivaBreakdown = useMemo(
-    () => computeMonthlyIva(transactionsInPeriod, periodYear, periodMonth),
-    [transactionsInPeriod, periodYear, periodMonth]
-  );
-
-  const isrYtdSummary = useMemo(() => {
+  const taxPreview = useMemo(() => {
     const ytd = filterTransactionsYtdThroughMonth(transactions, periodYear, periodMonth);
-    return computeIsrProvisionalSummary(ytd, periodMonth);
-  }, [transactions, periodYear, periodMonth]);
+    return buildTaxPreview({
+      monthTransactions: transactionsInPeriod,
+      ytdTransactions: ytd,
+      year: periodYear,
+      monthIndex: periodMonth,
+    });
+  }, [transactionsInPeriod, transactions, periodYear, periodMonth]);
 
   const periodoActualCerrado = useMemo(
     () => isPeriodClosed(periodosCerrados, periodYear, periodMonth),
@@ -1229,7 +1018,6 @@ export default function App() {
     try {
       const text = await generateExecutiveBriefing(periodContextPack);
       setExecutiveDraftText(text);
-      await logAuditEntry('EXECUTIVE_BRIEFING', 'ai_insights', { periodo: periodContextPack.periodo });
     } catch (e) {
       console.error(e);
       setExecutiveDraftText(
@@ -1252,7 +1040,6 @@ export default function App() {
     try {
       const answer = await askMonthQuestion(q, periodContextPack);
       setChatMessages((prev) => [...prev, { role: 'assistant', text: answer }]);
-      await logAuditEntry('NL_MONTH_QUESTION', 'ai_insights', { q: q.slice(0, 200) });
     } catch (e) {
       setChatMessages((prev) => [
         ...prev,
@@ -1583,33 +1370,7 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Card className="p-4 border-indigo-100 dark:border-indigo-900/40">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Percent className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                      <h3 className="font-bold text-gray-900 dark:text-white text-sm">IVA del periodo (informativo)</h3>
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                      Trasladado {formatCurrency(ivaBreakdown.ivaTrasladadoTotal)} · Acreditable {formatCurrency(ivaBreakdown.ivaAcreditableTotal)}
-                    </p>
-                    <p className="text-lg font-bold text-gray-900 dark:text-white">
-                      Saldo neto IVA: {formatCurrency(ivaBreakdown.saldoNetoIva)}
-                    </p>
-                    {ivaBreakdown.lineasSinDesglose > 0 && (
-                      <p className="text-[10px] text-amber-600 mt-1">{ivaBreakdown.lineasSinDesglose} movimientos sin tasa IVA</p>
-                    )}
-                  </Card>
-                  <Card className="p-4 border-indigo-100 dark:border-indigo-900/40">
-                    <div className="flex items-center gap-2 mb-2">
-                      <PieChart className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                      <h3 className="font-bold text-gray-900 dark:text-white text-sm">ISR estimado (YTD, aprox.)</h3>
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{isrYtdSummary.nota}</p>
-                    <p className="text-lg font-bold text-gray-900 dark:text-white">
-                      Base {formatCurrency(isrYtdSummary.baseGravable)} → ISR ~{formatCurrency(isrYtdSummary.isrEstimadoAnual.isr)}
-                    </p>
-                  </Card>
-                </div>
+                <TaxPreviewCard preview={taxPreview} variant="compact" />
 
                 {/* IA Activity */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
@@ -1688,10 +1449,7 @@ export default function App() {
                     </Button>
                     <Button
                       variant="secondary"
-                      onClick={() => {
-                        setExcelImportMessage(null);
-                        setIsExcelImportOpen(true);
-                      }}
+                      onClick={() => importFlow.openExcelImport()}
                       className="flex-1 sm:flex-none"
                       type="button"
                     >
@@ -2131,82 +1889,12 @@ export default function App() {
                         Archivo XML del comprobante. No valida timbrado; crea una transacción con datos del XML.
                       </p>
                     </div>
-                    <Button variant="secondary" type="button" onClick={() => setIsCfdiImportOpen(true)}>
+                    <Button variant="secondary" type="button" onClick={() => importFlow.openCfdiImport()}>
                       Importar XML
                     </Button>
                   </div>
                 </Card>
-                <Card className="p-6">
-                  <h3 className="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                    <Percent className="w-5 h-5 text-indigo-600" />
-                    IVA del mes
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">IVA trasladado (ingresos)</p>
-                      <p className="text-xl font-bold text-emerald-600">{formatCurrency(ivaBreakdown.ivaTrasladadoTotal)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">IVA acreditable (egresos)</p>
-                      <p className="text-xl font-bold text-amber-600">{formatCurrency(ivaBreakdown.ivaAcreditableTotal)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">Saldo neto del periodo</p>
-                      <p className="text-xl font-bold text-indigo-600">{formatCurrency(ivaBreakdown.saldoNetoIva)}</p>
-                    </div>
-                  </div>
-                  {Object.keys(ivaBreakdown.porTasaIngreso).length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-                      <p className="text-xs font-bold text-gray-500 mb-2">Por tasa (ingresos)</p>
-                      <ul className="text-xs space-y-1 font-mono">
-                        {Object.entries(ivaBreakdown.porTasaIngreso).map(([k, v]) => (
-                          <li key={k}>
-                            {k}: base {formatCurrency(v.subtotal)} · IVA {formatCurrency(v.iva)}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {ivaBreakdown.lineasSinDesglose > 0 && (
-                    <p className="text-xs text-amber-600 mt-3">
-                      {ivaBreakdown.lineasSinDesglose} movimiento(s) con tasa &quot;N/A&quot; — no entran en el cuadre IVA.
-                    </p>
-                  )}
-                </Card>
-                <Card className="p-6">
-                  <h3 className="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                    <PieChart className="w-5 h-5 text-indigo-600" />
-                    ISR (estimación anual sobre acumulado YTD)
-                  </h3>
-                  <div className="space-y-2 text-sm">
-                    <p>
-                      <span className="text-gray-500">Ingresos acumulables (subtotal):</span>{' '}
-                      <strong>{formatCurrency(isrYtdSummary.ingresosAcumulables)}</strong>
-                    </p>
-                    <p>
-                      <span className="text-gray-500">Deducciones (egresos deducibles, subtotal):</span>{' '}
-                      <strong>{formatCurrency(isrYtdSummary.deduccionesAcumuladas)}</strong>
-                    </p>
-                    <p>
-                      <span className="text-gray-500">Base gravable:</span>{' '}
-                      <strong>{formatCurrency(isrYtdSummary.baseGravable)}</strong>
-                    </p>
-                    <p>
-                      <span className="text-gray-500">ISR estimado (tarifa anual art. 152 simplificada):</span>{' '}
-                      <strong className="text-lg text-indigo-600">{formatCurrency(isrYtdSummary.isrEstimadoAnual.isr)}</strong>
-                    </p>
-                    <p className="text-xs text-gray-500 mt-3">{isrYtdSummary.isrEstimadoAnual.detalle}</p>
-                    <p className="text-xs text-gray-500">
-                      Factor tarifa: ({isrYtdSummary.mesAplicado + 1}/12) sobre tablas anuales 2024.
-                    </p>
-                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">{isrYtdSummary.nota}</p>
-                  </div>
-                </Card>
-                <Card className="p-4 bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-900/40">
-                  <p className="text-xs text-gray-600 dark:text-gray-300">
-                    <strong>Integración IA:</strong> el borrador ejecutivo y el chat del mes incluyen el bloque <code className="text-[10px]">fiscal</code> en el JSON cuando hay datos.
-                  </p>
-                </Card>
+                <TaxPreviewCard preview={taxPreview} variant="detailed" />
               </motion.div>
             )}
 
@@ -3616,175 +3304,23 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Importar CFDI */}
-      <AnimatePresence>
-        {isCfdiImportOpen && (
-          <div className="fixed inset-0 z-[76] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => !cfdiImporting && !cfdiXsdValidating && setIsCfdiImportOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto border border-gray-100 dark:border-gray-800"
-            >
-              <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Importar CFDI</h3>
-                <button
-                  type="button"
-                  onClick={() => !cfdiImporting && !cfdiXsdValidating && setIsCfdiImportOpen(false)}
-                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-              <div className="p-4 space-y-4">
-                <label className="flex flex-col gap-2 text-sm text-gray-600 dark:text-gray-300">
-                  <span className="font-medium">Archivo XML</span>
-                  <input
-                    type="file"
-                    accept=".xml,text/xml,application/xml"
-                    disabled={cfdiImporting || cfdiXsdValidating}
-                    onChange={(e) => handleCfdiFile(e.target.files?.[0] || null)}
-                    className="text-xs"
-                  />
-                </label>
-                {cfdiXsdValidating && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Validando XML contra XSD…</p>
-                )}
-                {cfdiImportError && (
-                  <p className="text-xs text-red-600 dark:text-red-400">{cfdiImportError}</p>
-                )}
-                {cfdiPreview && cfdiXsdMode && (
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                    Validación XSD: {cfdiXsdMode}
-                  </p>
-                )}
-                {cfdiPreview && (
-                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-xs space-y-1 font-mono bg-gray-50 dark:bg-gray-800/50">
-                    <p>
-                      <span className="text-gray-500">Tipo:</span> {cfdiPreview.tipoComprobante} · Total{' '}
-                      {formatCurrency(cfdiPreview.total)}
-                    </p>
-                    <p>
-                      <span className="text-gray-500">Fecha:</span> {cfdiPreview.fecha}
-                    </p>
-                    <p>
-                      <span className="text-gray-500">UUID:</span> {cfdiPreview.uuid || '—'}
-                    </p>
-                    <p>
-                      <span className="text-gray-500">Emisor:</span> {cfdiPreview.emisorNombre} ({cfdiPreview.emisorRfc})
-                    </p>
-                    <p>
-                      <span className="text-gray-500">Receptor:</span> {cfdiPreview.receptorNombre} ({cfdiPreview.receptorRfc})
-                    </p>
-                  </div>
-                )}
-                <div className="flex gap-2 pt-2">
-                  <Button
-                    variant="secondary"
-                    className="flex-1"
-                    type="button"
-                    disabled={cfdiImporting || cfdiXsdValidating}
-                    onClick={() => {
-                      setIsCfdiImportOpen(false);
-                      setCfdiPreview(null);
-                      setCfdiImportError(null);
-                      setCfdiXsdMode(null);
-                    }}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button
-                    className="flex-1"
-                    type="button"
-                    disabled={!cfdiPreview || cfdiImporting || cfdiXsdValidating}
-                    onClick={() => importCfdiAsTransaction()}
-                  >
-                    {cfdiImporting ? 'Guardando…' : 'Registrar transacción'}
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Importar Excel (plantillas tipo data/) */}
-      <AnimatePresence>
-        {isExcelImportOpen && (
-          <div className="fixed inset-0 z-[77] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => !excelImporting && setIsExcelImportOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto border border-gray-100 dark:border-gray-800"
-            >
-              <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Importar Excel</h3>
-                <button
-                  type="button"
-                  onClick={() => !excelImporting && setIsExcelImportOpen(false)}
-                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-              <div className="p-4 space-y-3 text-sm text-gray-600 dark:text-gray-300">
-                <p className="text-xs leading-relaxed">
-                  Selecciona uno o varios .xlsx (como en <code className="text-indigo-600 dark:text-indigo-400">data/</code>
-                  ): archivo tipo <strong>CARLOS</strong> (hojas ING y EGR), <strong>control inventarios</strong> (stock
-                  menudeo) y <strong>Utilidad de ventas</strong> (Hoja1). Se crearán transacciones conciliadas y
-                  productos; las fechas en periodos cerrados se omiten.
-                </p>
-                <label className="flex flex-col gap-2">
-                  <span className="font-medium">Archivos .xlsx</span>
-                  <input
-                    type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    multiple
-                    disabled={excelImporting}
-                    onChange={(e) => {
-                      void runExcelImport(e.target.files);
-                      e.target.value = '';
-                    }}
-                    className="text-xs"
-                  />
-                </label>
-                {excelImporting && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Importando…</p>
-                )}
-                {excelImportMessage && (
-                  <pre className="text-xs whitespace-pre-wrap rounded-lg bg-gray-50 dark:bg-gray-800/80 p-3 text-gray-800 dark:text-gray-200 max-h-48 overflow-y-auto">
-                    {excelImportMessage}
-                  </pre>
-                )}
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  type="button"
-                  disabled={excelImporting}
-                  onClick={() => setIsExcelImportOpen(false)}
-                >
-                  Cerrar
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Importar CFDI / Excel */}
+      <ImportModals
+        isCfdiImportOpen={importFlow.isCfdiImportOpen}
+        cfdiPreview={importFlow.cfdiPreview}
+        cfdiImportError={importFlow.cfdiImportError}
+        cfdiImporting={importFlow.cfdiImporting}
+        cfdiXsdMode={importFlow.cfdiXsdMode}
+        cfdiXsdValidating={importFlow.cfdiXsdValidating}
+        isExcelImportOpen={importFlow.isExcelImportOpen}
+        excelImportMessage={importFlow.excelImportMessage}
+        excelImporting={importFlow.excelImporting}
+        onCloseCfdi={importFlow.closeCfdiImport}
+        onCloseExcel={importFlow.closeExcelImport}
+        onCfdiFile={importFlow.handleCfdiFile}
+        onExcelFiles={importFlow.runExcelImport}
+        onImportCfdi={importFlow.importCfdiAsTransaction}
+      />
 
       {/* Borrador ejecutivo modal */}
       <AnimatePresence>

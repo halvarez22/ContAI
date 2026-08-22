@@ -1,0 +1,35 @@
+---
+description: ContAI Fase 1 — arquitectura de capas estricta y TypeScript First (inamovible)
+alwaysApply: true
+---
+
+# ContAI Fase 1 — Arquitectura (Anti-God-Object)
+
+## Capas obligatorias
+
+| Ruta | Responsabilidad | Prohibido |
+|------|-----------------|-----------|
+| `src/components/` | Solo UI y estado local | Llamar Groq, Firebase/Firestore o lógica de negocio |
+| `src/hooks/` | Estado compartido (ej. `useCFDIImport`) | SDKs de Groq/Firebase; orquestar vía services |
+| `src/services/` | Lógica de negocio pura | JSX / hooks de React |
+
+## Servicios canónicos
+
+- `groqAIService.ts` — único punto que encapsula el SDK de Groq
+- `firestoreService.ts` — único punto de acceso a Firebase/Firestore
+- `taxCalculatorService.ts` — cálculos fiscales (IVA/ISR)
+
+```typescript
+// ❌ BAD — componente habla con Groq/Firebase
+await groq.chat.completions.create(...)
+await addDoc(collection(db, 'transactions'), data)
+
+// ✅ GOOD — componente → hook/service
+await groqAIService.classifyTransaction(payload)
+await firestoreService.createTransaction(data)
+```
+
+## Contratos TypeScript First
+
+- Toda interacción con Groq tipada con interfaces estrictas (`CFDIExtractedData`, `TaxPreview`, etc.).
+- **Prohibido `any`**. Preferir `unknown` + narrowing si el origen es externo.

@@ -1,0 +1,22 @@
+---
+description: ContAI Fase 1 — pruebas unitarias obligatorias de taxCalculatorService
+globs: src/services/taxCalculatorService.ts,src/**/*tax*.test.ts,src/**/*Tax*.test.ts
+alwaysApply: false
+---
+
+# ContAI Fase 1 — Pruebas fiscales obligatorias
+
+`taxCalculatorService.ts` **debe** tener pruebas unitarias que validen:
+
+1. Cálculos de IVA al **16%**, **8%** y **0%**
+2. Interpretación correcta del **JSON tipado** devuelto por Groq (mapeo a `TaxPreview` / contratos equivalentes)
+
+```typescript
+// ✅ Cubrir al menos
+expect(calcIva(1000, 0.16)).toBe(160)
+expect(calcIva(1000, 0.08)).toBe(80)
+expect(calcIva(1000, 0)).toBe(0)
+expect(mapGroqTaxJson(validPayload)).toMatchObject({ /* TaxPreview */ })
+```
+
+Sin estas pruebas, no se considera completo un cambio al cálculo o al parseo fiscal desde Groq.

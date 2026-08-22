@@ -10,7 +10,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "manual:pdf": "node scripts/build-manual-pdf.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -28,14 +29,15 @@
     "react-markdown": "^10.1.0",
     "tailwind-merge": "^3.5.0",
     "vite": "^6.2.0",
-    "xmllint-wasm": "^5.2.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xmllint-wasm": "^5.2.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.1",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "marked": "^17.0.6",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

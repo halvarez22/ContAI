@@ -1,0 +1,31 @@
+---
+description: ContAI Fase 1 — Groq JSON, PII, batch Firestore, auditoría y UX de importación
+alwaysApply: true
+---
+
+# ContAI Fase 1 — Groq, costos SaaS y seguridad
+
+## Economía de tokens (Groq)
+
+- Salida **siempre JSON**: `response_format: { type: "json_object" }` o Tool Calling.
+- Parsear la respuesta a interfaces TypeScript; no confiar en texto libre.
+
+## Firestore
+
+- Importación múltiple de CFDIs → **`writeBatch`** (no N escrituras sueltas).
+
+## PII antes de Groq
+
+- En el service, limpiar/enmascarar PII no esencial (RFC completo, CURP, domicilios, emails, teléfonos, nombres de personas si no aportan a la clasificación) **antes** de enviar CFDI/Excel a Groq.
+
+## UX de importación
+
+Estados obligatorios: `idle` → `uploading` → `processing_ai` (skeletons) → `success` | `error`.
+
+- En `error`, indicar **archivo o fila** concreta que falló.
+
+## Trazabilidad
+
+Cada clasificación Groq debe escribir en `audit_logs`:
+
+- `userId`, `timestamp`, `action: 'AI_CLASSIFICATION_GROQ'`, `documentId`, `modelUsed` (ej. `llama3-70b-8192`), `result`

@@ -1,29 +1,29 @@
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import type { AuditLogEntry } from '../types/audit';
 
-export interface AuditLogEntry {
-  usuario_id: string;
-  accion: string;
-  recurso: string;
-  detalles: any;
-  ip_origen: string;
-  user_agent: string;
-  timestamp: any;
-  firma_hash: string;
-}
+export type { AuditLogEntry };
 
-export async function logAuditEntry(accion: string, recurso: string, detalles: any) {
+export async function logAuditEntry(
+  accion: string,
+  recurso: string,
+  detalles: object,
+  extras?: Pick<AuditLogEntry, 'provider' | 'modelUsed' | 'tokensUsed'>
+): Promise<void> {
   try {
     const user = auth.currentUser;
-    const entry = {
+    const entry: AuditLogEntry = {
       usuario_id: user?.uid || 'system',
       accion,
       recurso,
-      detalles,
-      ip_origen: 'unknown', // In a real app, this would be fetched from a service
-      user_agent: navigator.userAgent,
+      detalles: detalles as Record<string, unknown>,
+      ip_origen: 'unknown',
+      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
       timestamp: serverTimestamp(),
-      firma_hash: btoa(Math.random().toString()), // Simplified hash for MVP
+      firma_hash: btoa(Math.random().toString()),
+      ...(extras?.provider ? { provider: extras.provider } : {}),
+      ...(extras?.modelUsed ? { modelUsed: extras.modelUsed } : {}),
+      ...(extras?.tokensUsed !== undefined ? { tokensUsed: extras.tokensUsed } : {}),
     };
 
     await addDoc(collection(db, 'audit_logs'), entry);

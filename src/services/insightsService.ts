@@ -1,38 +1,6 @@
 import type { MonthlyContextPack } from '../lib/monthlyAnalysis';
-
-async function groqCompletion(systemPrompt: string, userContent: string, temperature = 0.35): Promise<string> {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) {
-    throw new Error('Configura GROQ_API_KEY para usar insights con IA.');
-  }
-
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
-      ],
-      temperature,
-      max_tokens: 4096,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Groq: ${res.status} ${err}`);
-  }
-
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  const text = data.choices?.[0]?.message?.content;
-  if (!text) throw new Error('Respuesta vacía del modelo');
-  return text.trim();
-}
+import { completeText } from './groqAIService';
+import { logAuditEntry } from './auditService';
 
 export async function generateExecutiveBriefing(pack: MonthlyContextPack): Promise<string> {
   const system = `Eres un asistente para dirección financiera en México. Genera un BORRADOR EJECUTIVO claro en español.
@@ -44,7 +12,20 @@ Reglas estrictas:
 - Tono profesional y breve (máximo ~800 palabras).
 - Incluye al inicio: empresa y RFC si vienen en el JSON.`;
 
-  return groqCompletion(system, JSON.stringify(pack), 0.4);
+  const { text, modelUsed, tokensUsed } = await completeText(
+    system,
+    JSON.stringify(pack),
+    0.4
+  );
+
+  await logAuditEntry(
+    'AI_INSIGHTS_BRIEFING',
+    'ai_service',
+    { chars: text.length },
+    { provider: 'groq', modelUsed, tokensUsed }
+  );
+
+  return text;
 }
 
 export async function askMonthQuestion(question: string, pack: MonthlyContextPack): Promise<string> {
@@ -54,5 +35,18 @@ Reglas:
 - Sé conciso. Puedes hacer sumas/comparaciones explícitas a partir de los números del JSON.
 - No inventes transacciones ni montos.`;
 
-  return groqCompletion(system, `Pregunta del usuario:\n${question}\n\nDatos del periodo (JSON):\n${JSON.stringify(pack)}`, 0.25);
+  const { text, modelUsed, tokensUsed } = await completeText(
+    system,
+    `Pregunta del usuario:\n${question}\n\nDatos del periodo (JSON):\n${JSON.stringify(pack)}`,
+    0.25
+  );
+
+  await logAuditEntry(
+    'AI_INSIGHTS_QA',
+    'ai_service',
+    { questionPreview: question.slice(0, 120), chars: text.length },
+    { provider: 'groq', modelUsed, tokensUsed }
+  );
+
+  return text;
 }

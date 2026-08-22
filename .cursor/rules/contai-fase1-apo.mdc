@@ -1,0 +1,27 @@
+---
+description: Auditoría Profunda Obligatoria (APO) y Planning Mode. Aplicar antes de CUALQUIER cambio a lógica existente.
+alwaysApply: true
+---
+
+# APO - Auditoría Profunda Obligatoria
+
+Queda estrictamente prohibido aplicar "hotfixes" ciegos o cambios rápidos sin planificación. NINGÚN CAMBIO ES TRIVIAL.
+
+## Antes de modificar código existente, el agente DEBE:
+
+1. **Mapeo del Grafo de Impacto**: Rastrear el flujo completo (UI → hook → service → Firebase/Groq → DB). Prohibido analizar solo el archivo del issue.
+2. **Identificar Efectos Secundarios**: Listar explícitamente qué otros módulos, componentes o tipos se verán alterados. No descubrir dependencias "sobre la marcha".
+3. **Generar `implementation_plan.md`**: Documento que incluya:
+   - Diagnóstico técnico actual (qué existe, qué viola reglas).
+   - Lista exacta de archivos a crear (ruta + responsabilidad única).
+   - Lista exacta de archivos a modificar.
+   - Estrategia de pruebas para la lógica afectada.
+   - Preguntas críticas si hay ambigüedades.
+
+## Reglas de ejecución:
+
+- **PROHIBIDO escribir código** antes de recibir aprobación explícita del usuario al plan.
+- **Planes incrementales**: Un plan por entregable pequeño y verificable. Prohibidos megaplanes de "toda la Fase 1".
+- **Bucle de detención**: Si durante la ejecución se descubre una dependencia no mapeada, DETENERSE, actualizar el plan y pedir nueva aprobación. Prohibido improvisar parches.
+- **Naming consistente**: Respetar los nombres ya establecidos en el proyecto (ej. `groqAIService.ts`, `firestoreService.ts`, `taxCalculatorService.ts`). Prohibido inventar nombres alternativos.
+- **Principio de Responsabilidad Única**: Priorizar la separación de concerns (UI / Hooks / Services) sobre límites arbitrarios de líneas de código.

@@ -10,6 +10,8 @@ export default defineConfig(({mode}) => {
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GROQ_API_KEY': JSON.stringify(env.GROQ_API_KEY),
+      'process.env.GROQ_MODEL': JSON.stringify(env.GROQ_MODEL),
+      'process.env.GEMINI_MODEL': JSON.stringify(env.GEMINI_MODEL),
     },
     resolve: {
       alias: {
