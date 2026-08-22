@@ -1,6 +1,6 @@
 /**
- * Conciliación bancaria E5.1: parse CSV, heurística, conflictos, confirmación.
- * Sin React. Persistencia vía firestoreService (merge). Sin Groq.
+ * Conciliación bancaria E5.1–E5.2: parse, heurística, enrich IA, confirmación.
+ * Sin React. Persistencia vía firestoreService (merge). Groq solo vía fn inyectada / proposeBankMatch.
  */
 
 import {
@@ -9,13 +9,19 @@ import {
 } from './firestoreService';
 import { logAuditEntry } from './auditService';
 import type {
+  BankAiEnrichSummary,
+  BankAiMatchInput,
   BankConfirmSummary,
   BankLedgerItem,
   BankMatchSuggestion,
   BankReconcileConfirm,
   ParsedBankRow,
+  ProposeBankMatchFn,
 } from '../types/bankReconciliation';
 import {
+  BANK_AI_LOW_SCORE_THRESHOLD,
+  BANK_AI_MAX_CANDIDATES,
+  BANK_MATCH_AMBIGUOUS_SCORE_DELTA,
   BANK_MATCH_AMOUNT_TOLERANCE_PCT,
   BANK_MATCH_DESC_MAX_LEN,
   BANK_MATCH_MAX_DAYS_DIFF,
@@ -36,20 +42,19 @@ export function parseBankCsv(text: string): { rows: ParsedBankRow[]; errors: str
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Preferir ; si está presente (evita romper montos con miles tipo $1,200.00)
     const delim = line.includes(';') ? ';' : ',';
     const parts = line.split(delim).map((p) => p.trim().replace(/^"|"$/g, ''));
     if (parts.length < 2) continue;
 
     const fechaStr = parts[0];
     const montoRaw = parts[1];
-    const desc = parts.slice(2).join(delim === ';' ? ' ' : ' ') || parts[0];
+    const desc = parts.slice(2).join(' ') || parts[0];
 
     const monto = parseFloat(
       String(montoRaw)
         .replace(/[$\s]/g, '')
-        .replace(/,(?=\d{3}(\D|$))/g, '') // miles 1,200
-        .replace(',', '.') // decimal europeo 1200,50
+        .replace(/,(?=\d{3}(\D|$))/g, '')
+        .replace(',', '.')
     );
     if (Number.isNaN(monto)) {
       if (i === 0) continue;
@@ -90,29 +95,28 @@ export function parseBankCsv(text: string): { rows: ParsedBankRow[]; errors: str
   return { rows, errors };
 }
 
-function markConflicts(suggestions: BankMatchSuggestion[]): BankMatchSuggestion[] {
+export function markConflicts(suggestions: BankMatchSuggestion[]): BankMatchSuggestion[] {
   const counts = new Map<string, number>();
   for (const s of suggestions) {
     if (!s.transactionId) continue;
     counts.set(s.transactionId, (counts.get(s.transactionId) ?? 0) + 1);
   }
   return suggestions.map((s) => {
-    const isConflict = Boolean(
+    const multiRowConflict = Boolean(
       s.transactionId && (counts.get(s.transactionId) ?? 0) > 1
     );
-    return {
-      ...s,
-      isConflict,
-      note: isConflict
-        ? `${s.note} · CONFLICTO: varias filas bancarias → misma tx`
-        : s.note,
-    };
+    const isConflict = s.isConflict || multiRowConflict;
+    let note = s.note;
+    if (multiRowConflict && !s.note.includes('CONFLICTO')) {
+      note = `${s.note} · CONFLICTO: varias filas bancarias → misma tx`;
+    }
+    return { ...s, isConflict, note };
   });
 }
 
 /**
  * Heurística: monto ±amountTolerancePct, fecha ±maxDaysDiff.
- * Marca isConflict cuando dos+ filas bancarias apuntan a la misma tx.
+ * Ambigüedad 1.º vs 2.º → isConflict. Varias filas → misma tx → isConflict.
  */
 export function suggestBankMatches(
   bankRows: ParsedBankRow[],
@@ -125,7 +129,7 @@ export function suggestBankMatches(
   for (let i = 0; i < bankRows.length; i++) {
     const br = bankRows[i];
     const bankDate = new Date(br.fecha).getTime();
-    let best: { id: string; score: number } | null = null;
+    const scored: Array<{ id: string; score: number }> = [];
 
     for (const tx of ledger) {
       if (!tx.id) continue;
@@ -140,23 +144,157 @@ export function suggestBankMatches(
       if (pctDiff > amountTolerancePct) continue;
 
       const score = 100 - dayDiff * 8 - pctDiff * 3;
-      if (!best || score > best.score) {
-        best = { id: String(tx.id), score };
-      }
+      scored.push({ id: String(tx.id), score });
     }
+
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0] ?? null;
+    const second = scored[1] ?? null;
+    const ambiguous =
+      Boolean(best && second) &&
+      best!.score - second!.score < BANK_MATCH_AMBIGUOUS_SCORE_DELTA;
 
     suggestions.push({
       bankRowIndex: i,
       transactionId: best?.id ?? null,
       score: best?.score ?? 0,
-      note: best
-        ? `Posible coincidencia (${best.score.toFixed(0)} pts)`
-        : 'Sin coincidencia en libro',
-      isConflict: false,
+      note: ambiguous
+        ? `Ambigüedad entre candidatos (${best!.score.toFixed(0)} vs ${second!.score.toFixed(0)} pts)`
+        : best
+          ? `Posible coincidencia (${best.score.toFixed(0)} pts)`
+          : 'Sin coincidencia en libro',
+      isConflict: ambiguous,
+      suggestionSource: 'heuristic',
     });
   }
 
   return markConflicts(suggestions);
+}
+
+/** Filas elegibles para Groq: sin match o score < umbral; excluye conflictos. */
+export function selectAiEligibleRows(
+  suggestions: BankMatchSuggestion[],
+  lowScoreThreshold: number = BANK_AI_LOW_SCORE_THRESHOLD
+): number[] {
+  const out: number[] = [];
+  for (const s of suggestions) {
+    if (s.isConflict) continue;
+    if (!s.transactionId || s.score < lowScoreThreshold) {
+      out.push(s.bankRowIndex);
+    }
+  }
+  return out;
+}
+
+/** Candidatos amplios (ventana/tolerancia relajada) para contexto Groq. */
+export function buildAiCandidates(
+  bankRow: ParsedBankRow,
+  ledger: BankLedgerItem[],
+  maxN: number = BANK_AI_MAX_CANDIDATES
+): BankLedgerItem[] {
+  const bankDate = new Date(bankRow.fecha).getTime();
+  const scored: Array<{ item: BankLedgerItem; score: number }> = [];
+
+  for (const tx of ledger) {
+    const m = Number(tx.monto) || 0;
+    const txDate = new Date(tx.fecha).getTime();
+    if (Number.isNaN(bankDate) || Number.isNaN(txDate)) continue;
+    const dayDiff = Math.abs(bankDate - txDate) / (86400 * 1000);
+    if (dayDiff > 14) continue;
+    const pctDiff = m === 0 ? 100 : (Math.abs(m - bankRow.monto) / m) * 100;
+    if (pctDiff > 15) continue;
+    const score = 100 - dayDiff * 4 - pctDiff * 2;
+    scored.push({ item: tx, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, maxN).map((s) => s.item);
+}
+
+/**
+ * Enrich secuencial (K=1). Fallos parciales por fila. No auto-aplica.
+ * `propose` inyectable para tests sin red.
+ */
+export async function enrichSuggestionsWithAi(params: {
+  bankRows: ParsedBankRow[];
+  ledger: BankLedgerItem[];
+  suggestions: BankMatchSuggestion[];
+  propose: ProposeBankMatchFn;
+  lowScoreThreshold?: number;
+  onProgress?: (current: number, total: number, bankRowIndex: number) => void;
+}): Promise<BankAiEnrichSummary> {
+  const {
+    bankRows,
+    ledger,
+    suggestions,
+    propose,
+    lowScoreThreshold = BANK_AI_LOW_SCORE_THRESHOLD,
+    onProgress,
+  } = params;
+
+  const eligible = selectAiEligibleRows(suggestions, lowScoreThreshold);
+  const next = suggestions.map((s) => ({ ...s }));
+  const errorByRowIndex: Record<number, string> = {};
+  let enriched = 0;
+  const ledgerIds = new Set(ledger.map((l) => l.id));
+
+  for (let i = 0; i < eligible.length; i++) {
+    const rowIndex = eligible[i];
+    onProgress?.(i + 1, eligible.length, rowIndex);
+    const row = bankRows[rowIndex];
+    if (!row) continue;
+
+    const input: BankAiMatchInput = {
+      bankRow: row,
+      candidates: buildAiCandidates(row, ledger),
+    };
+
+    try {
+      const { proposal, modelUsed, tokensUsed } = await propose(input);
+      await logAuditEntry(
+        'AI_BANK_RECONCILE_GROQ',
+        'ai_service',
+        {
+          bankRowIndex: rowIndex,
+          matchedTransactionId: proposal.matchedTransactionId,
+          confidence_score: proposal.confidence_score,
+          reason: proposal.reason,
+          requires_human_approval: proposal.requires_human_approval,
+        },
+        { provider: 'groq', modelUsed, tokensUsed }
+      );
+
+      if (
+        proposal.matchedTransactionId &&
+        ledgerIds.has(proposal.matchedTransactionId)
+      ) {
+        const confPts = Math.round(
+          Math.max(0, Math.min(1, proposal.confidence_score)) * 100
+        );
+        next[rowIndex] = {
+          bankRowIndex: rowIndex,
+          transactionId: proposal.matchedTransactionId,
+          score: confPts,
+          note: proposal.requires_human_approval
+            ? `IA: ${proposal.reason} · requiere revisión`.slice(0, 200)
+            : `IA: ${proposal.reason}`.slice(0, 200),
+          isConflict: false,
+          suggestionSource: 'ai',
+        };
+        enriched += 1;
+      }
+    } catch (e) {
+      errorByRowIndex[rowIndex] =
+        e instanceof Error ? e.message : 'IA no disponible para esta fila';
+    }
+  }
+
+  return {
+    enriched,
+    attempted: eligible.length,
+    errorByRowIndex,
+    suggestions: markConflicts(next),
+  };
 }
 
 /** Confirms elegibles: tienen tx, no conflicto. */
@@ -200,10 +338,6 @@ export function buildBankReconcilePatch(confirm: BankReconcileConfirm): {
   };
 }
 
-/**
- * Persiste confirms (solo los pasados; caller filtra conflictos).
- * Usa writeBatch merge — no pisa clasificación/fiscal.
- */
 export async function confirmBankMatches(
   confirms: BankReconcileConfirm[]
 ): Promise<BankConfirmSummary> {
@@ -242,7 +376,6 @@ export async function confirmBankMatches(
   return summary;
 }
 
-/** Orquestación UI: confirma solo matches sin conflicto. */
 export async function confirmNonConflictMatches(
   bankRows: ParsedBankRow[],
   suggestions: BankMatchSuggestion[]
@@ -256,7 +389,6 @@ export async function confirmNonConflictMatches(
   return summary;
 }
 
-/** Adapta filas del libro (pueden venir con id opcional) a BankLedgerItem. */
 export function toBankLedgerItems(
   rows: Array<{ id?: string; monto?: number; fecha?: string; concepto?: string }>
 ): BankLedgerItem[] {

@@ -7,6 +7,10 @@
 import { AI_MODELS } from '../config/aiModels';
 import type { AgentDecision } from '../types/agentDecision';
 import { AGENT_TYPES } from '../types/agentDecision';
+import type {
+  BankAiMatchInput,
+  BankAiMatchProposal,
+} from '../types/bankReconciliation';
 
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -23,14 +27,14 @@ export type GroqTextResult = {
 };
 
 const systemInstructions = {
-  conciliador: `Eres un agente autónomo de conciliación bancaria para una empresa.
-Tu tarea es cruzar movimientos bancarios con registros contables internos.
+  conciliador: `Eres un agente autónomo de conciliación bancaria para una empresa en México.
+Tu tarea: elegir a lo sumo UNA transacción del libro (candidates) que corresponda al movimiento bancario.
 Reglas:
-- Si monto coincide ±2% y fecha ±3 días → CONFIDENCE: HIGH
-- Si monto coincide pero fecha >5 días → CONFIDENCE: MEDIUM
-- Si hay discrepancia >5% → CONFIDENCE: LOW, requiere revisión humana
-- Pagos >$50,000 MXN siempre requieren aprobación humana
-Responde en formato JSON.`,
+- Preferir coincidencia de monto (±2%) y fecha cercana (±5 días).
+- Si ninguna candidata es razonable → matchedTransactionId = null.
+- Pagos >$50,000 MXN → requires_human_approval = true.
+- No inventes IDs: solo usa ids presentes en candidates.
+Responde ÚNICAMENTE con JSON.`,
 
   clasificador: `Eres un agente autónomo de clasificación de gastos contables para una empresa.
 Tu tarea es asignar la cuenta contable correcta a cada gasto.
@@ -105,6 +109,125 @@ export function sanitizeClassificationContext(
   }
 
   return out;
+}
+
+/** Sanitiza descripciones de estado de cuenta antes de Groq (E5.2). */
+export function sanitizeBankDescription(desc: string): string {
+  let s = desc;
+  // Refs / CLABE / cuentas largas primero (antes de regex de teléfono)
+  s = s.replace(/\b\d{10,}\b/g, '[ref]');
+  s = s.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[email]');
+  s = s.replace(/(?:\+?52)?[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{4}\b/g, '[tel]');
+  s = s.replace(/\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b/gi, (m) => `***${m.slice(-3)}`);
+  // Nombres propios simples (2–4 tokens capitalizados)
+  s = s.replace(
+    /\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,3}\b/g,
+    '[nombre]'
+  );
+  return s.trim().slice(0, 200);
+}
+
+export function parseBankAiMatchJson(raw: string): BankAiMatchProposal {
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) text = fence[1].trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Respuesta Groq no es JSON válido');
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Respuesta JSON de conciliación incompleta');
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const idRaw = obj.matchedTransactionId;
+  let matchedTransactionId: string | null = null;
+  if (idRaw === null || idRaw === undefined || idRaw === '') {
+    matchedTransactionId = null;
+  } else if (typeof idRaw === 'string') {
+    matchedTransactionId = idRaw;
+  } else {
+    throw new Error('matchedTransactionId inválido');
+  }
+
+  if (
+    typeof obj.confidence_score !== 'number' ||
+    typeof obj.reason !== 'string' ||
+    typeof obj.requires_human_approval !== 'boolean'
+  ) {
+    throw new Error('Respuesta JSON de conciliación incompleta');
+  }
+
+  const confidence_score = Math.max(0, Math.min(1, obj.confidence_score));
+
+  return {
+    matchedTransactionId,
+    confidence_score,
+    reason: obj.reason.slice(0, 500),
+    requires_human_approval: obj.requires_human_approval,
+  };
+}
+
+/**
+ * Propone match bancario vía Groq (JSON forzado). Sin Gemini / sin fallback local.
+ */
+export async function proposeBankMatch(
+  input: BankAiMatchInput
+): Promise<{
+  proposal: BankAiMatchProposal;
+  modelUsed: string;
+  tokensUsed?: number;
+}> {
+  const systemPrompt = `${systemInstructions.conciliador}
+
+Responde ÚNICAMENTE con un objeto JSON con claves:
+matchedTransactionId (string|null), confidence_score (number 0..1), reason (string), requires_human_approval (boolean).`;
+
+  const payload = sanitizeClassificationContext({
+    bankRow: {
+      fecha: input.bankRow.fecha,
+      monto: input.bankRow.monto,
+      descripcion: sanitizeBankDescription(input.bankRow.descripcion),
+    },
+    candidates: input.candidates.map((c) => ({
+      id: c.id,
+      fecha: c.fecha,
+      monto: c.monto,
+      concepto: sanitizeBankDescription(String(c.concepto || '')),
+    })),
+  });
+
+  const result = await completeJson(
+    systemPrompt,
+    JSON.stringify(payload),
+    parseBankAiMatchJson,
+    0.1
+  );
+
+  // No inventar ids fuera de candidates
+  const allowed = new Set(input.candidates.map((c) => c.id));
+  let proposal = result.data;
+  if (
+    proposal.matchedTransactionId &&
+    !allowed.has(proposal.matchedTransactionId)
+  ) {
+    proposal = {
+      ...proposal,
+      matchedTransactionId: null,
+      reason: `${proposal.reason} (id fuera de candidatos; descartado)`,
+      requires_human_approval: true,
+    };
+  }
+
+  return {
+    proposal,
+    modelUsed: result.modelUsed,
+    tokensUsed: result.tokensUsed,
+  };
 }
 
 export function parseAgentJson(raw: string): AgentDecision {

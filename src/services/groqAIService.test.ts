@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseAgentJson,
+  parseBankAiMatchJson,
+  sanitizeBankDescription,
   sanitizeClassificationContext,
 } from './groqAIService';
 
@@ -20,12 +22,46 @@ describe('parseAgentJson', () => {
   });
 
   it('acepta JSON dentro de fence markdown', () => {
-    const raw = '```json\n{"decision":"x","confidence_score":0.5,"reason":"r","requires_human_approval":true}\n```';
+    const raw =
+      '```json\n{"decision":"x","confidence_score":0.5,"reason":"r","requires_human_approval":true}\n```';
     expect(parseAgentJson(raw).decision).toBe('x');
   });
 
   it('rechaza JSON incompleto', () => {
     expect(() => parseAgentJson('{"decision":"solo"}')).toThrow(/incompleta/i);
+  });
+});
+
+describe('parseBankAiMatchJson', () => {
+  it('acepta propuesta válida y clampa confidence', () => {
+    const p = parseBankAiMatchJson(
+      JSON.stringify({
+        matchedTransactionId: 'tx1',
+        confidence_score: 1.5,
+        reason: 'ok',
+        requires_human_approval: false,
+      })
+    );
+    expect(p.matchedTransactionId).toBe('tx1');
+    expect(p.confidence_score).toBe(1);
+  });
+
+  it('acepta matchedTransactionId null', () => {
+    const p = parseBankAiMatchJson(
+      JSON.stringify({
+        matchedTransactionId: null,
+        confidence_score: 0.2,
+        reason: 'sin match',
+        requires_human_approval: true,
+      })
+    );
+    expect(p.matchedTransactionId).toBeNull();
+  });
+
+  it('rechaza JSON incompleto', () => {
+    expect(() => parseBankAiMatchJson('{"matchedTransactionId":"x"}')).toThrow(
+      /incompleta/i
+    );
   });
 });
 
@@ -45,5 +81,16 @@ describe('sanitizeClassificationContext', () => {
     expect(cleaned.telefono).toBe('[redacted]');
     expect(String(cleaned.rfc_contraparte)).toMatch(/\*\*\*/);
     expect(String(cleaned.rfc_contraparte)).not.toBe('ABCD901231XYZ');
+  });
+});
+
+describe('sanitizeBankDescription', () => {
+  it('enmascara refs largas y nombres capitalizados', () => {
+    const s = sanitizeBankDescription(
+      'TRANSFERENCIA 123456789012 Juan Perez CLABE 012345678901234567'
+    );
+    expect(s).not.toMatch(/123456789012/);
+    expect(s).toContain('[ref]');
+    expect(s).toContain('[nombre]');
   });
 });

@@ -80,7 +80,10 @@ import {
   suggestBankMatches,
   toBankLedgerItems,
   confirmNonConflictMatches,
+  enrichSuggestionsWithAi,
+  selectAiEligibleRows,
 } from './services/bankReconciliationService';
+import { proposeBankMatch } from './services/groqAIService';
 import type {
   ParsedBankRow,
   BankMatchSuggestion,
@@ -158,6 +161,9 @@ export default function App() {
   const [bankMatchHints, setBankMatchHints] = useState<BankMatchSuggestion[]>([]);
   const [bankConfirming, setBankConfirming] = useState(false);
   const [bankConfirmMessage, setBankConfirmMessage] = useState<string | null>(null);
+  const [bankAiEnriching, setBankAiEnriching] = useState(false);
+  const [bankAiErrors, setBankAiErrors] = useState<Record<number, string>>({});
+  const [bankAiProgress, setBankAiProgress] = useState<string | null>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<any[]>([]);
   const [periodosCerrados, setPeriodosCerrados] = useState<string[]>([]);
@@ -1065,6 +1071,8 @@ export default function App() {
   const handleBankFile = (file: File | null) => {
     if (!file) return;
     setBankConfirmMessage(null);
+    setBankAiErrors({});
+    setBankAiProgress(null);
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result || '');
@@ -1079,6 +1087,46 @@ export default function App() {
       }
     };
     reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleSuggestBankWithAi = async () => {
+    if (!bankCsvPreview?.rows?.length || bankMatchHints.length === 0) return;
+    const eligible = selectAiEligibleRows(bankMatchHints);
+    if (eligible.length === 0) {
+      setBankConfirmMessage('No hay filas elegibles para IA (todas tienen match fuerte o conflicto).');
+      return;
+    }
+    setBankAiEnriching(true);
+    setBankAiErrors({});
+    setBankAiProgress(null);
+    setBankConfirmMessage(null);
+    try {
+      const ledger = toBankLedgerItems(transactionsInPeriod);
+      const summary = await enrichSuggestionsWithAi({
+        bankRows: bankCsvPreview.rows,
+        ledger,
+        suggestions: bankMatchHints,
+        propose: proposeBankMatch,
+        onProgress: (current, total, bankRowIndex) => {
+          setBankAiProgress(`IA ${current}/${total} · fila ${bankRowIndex + 1}`);
+        },
+      });
+      setBankMatchHints(summary.suggestions);
+      setBankAiErrors(summary.errorByRowIndex);
+      const errCount = Object.keys(summary.errorByRowIndex).length;
+      setBankConfirmMessage(
+        `IA: ${summary.enriched} enriquecida(s) de ${summary.attempted} intentos` +
+          (errCount ? ` · ${errCount} error(es) por fila` : '') +
+          '. Confirma manualmente las coincidencias.'
+      );
+    } catch (e) {
+      setBankConfirmMessage(
+        e instanceof Error ? e.message : 'Error al sugerir con IA'
+      );
+    } finally {
+      setBankAiEnriching(false);
+      setBankAiProgress(null);
+    }
   };
 
   const handleConfirmBankMatches = async () => {
@@ -1110,6 +1158,7 @@ export default function App() {
     if (!bankCsvPreview?.rows?.length) return;
     const ledger = toBankLedgerItems(transactionsInPeriod);
     setBankMatchHints(suggestBankMatches(bankCsvPreview.rows, ledger));
+    setBankAiErrors({});
   }, [transactionsInPeriod, bankCsvPreview]);
 
   if (loading) {
@@ -1789,8 +1838,8 @@ export default function App() {
                         <h3 className="font-bold text-gray-900 dark:text-white">Conciliación asistida (v1)</h3>
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                        CSV con columnas: <span className="font-mono">fecha, monto, descripción</span> (coma o punto y coma).
-                        Se sugieren coincidencias (monto ±2%, fecha ±4 días). Confirma manualmente; los conflictos no se aplican solos.
+                        CSV: <span className="font-mono">fecha, monto, descripción</span>.
+                        Heurística (±2% / ±4 días); opcionalmente IA solo en filas sin match o score bajo. Confirmación siempre manual.
                       </p>
                       <label className="flex items-center gap-2 cursor-pointer text-sm text-indigo-600 dark:text-indigo-400">
                         <input
@@ -1810,22 +1859,32 @@ export default function App() {
                             <p className="text-xs text-amber-600">{bankCsvPreview.errors.slice(0, 3).join(' · ')}</p>
                           )}
                           <p className="text-xs text-gray-500">
-                            {bankCsvPreview.rows.length} movimientos bancarios ·{' '}
-                            {bankMatchHints.filter((h) => h.transactionId && !h.isConflict).length} listos para confirmar ·{' '}
-                            {bankMatchHints.filter((h) => h.isConflict).length} en conflicto
+                            {bankCsvPreview.rows.length} movimientos ·{' '}
+                            {bankMatchHints.filter((h) => h.transactionId && !h.isConflict).length} listos ·{' '}
+                            {bankMatchHints.filter((h) => h.isConflict).length} conflicto ·{' '}
+                            {selectAiEligibleRows(bankMatchHints).length} elegibles IA
                           </p>
+                          {bankAiProgress && (
+                            <p className="text-xs text-indigo-600 dark:text-indigo-400">{bankAiProgress}</p>
+                          )}
                           <div className="max-h-40 overflow-y-auto text-[10px] font-mono bg-gray-50 dark:bg-gray-800/50 rounded p-2 border border-gray-100 dark:border-gray-800">
                             {bankCsvPreview.rows.slice(0, 8).map((r, i) => (
                               <div key={i} className="truncate border-b border-gray-100 dark:border-gray-800 py-1 flex items-center gap-1">
                                 <span className="flex-1 truncate">
-                                  {formatDate(r.fecha)} · {formatCurrency(r.monto)} · {r.descripcion.slice(0, 50)}
+                                  {formatDate(r.fecha)} · {formatCurrency(r.monto)} · {r.descripcion.slice(0, 40)}
                                 </span>
-                                {bankMatchHints[i]?.isConflict ? (
+                                {bankAiErrors[i] ? (
+                                  <span className="text-amber-600 shrink-0" title={bankAiErrors[i]}>
+                                    IA error
+                                  </span>
+                                ) : bankMatchHints[i]?.isConflict ? (
                                   <span className="text-amber-600 inline-flex items-center gap-0.5 shrink-0" title={bankMatchHints[i]?.note}>
                                     <AlertTriangle className="w-3 h-3" /> conflicto
                                   </span>
                                 ) : bankMatchHints[i]?.transactionId ? (
-                                  <span className="text-emerald-600 shrink-0">→ match</span>
+                                  <span className="text-emerald-600 shrink-0">
+                                    → {bankMatchHints[i]?.suggestionSource === 'ai' ? 'IA' : 'match'}
+                                  </span>
                                 ) : (
                                   <span className="text-gray-400 shrink-0">sin match</span>
                                 )}
@@ -1834,9 +1893,22 @@ export default function App() {
                           </div>
                           <Button
                             className="w-full mt-2"
+                            variant="secondary"
+                            onClick={() => void handleSuggestBankWithAi()}
+                            disabled={
+                              bankAiEnriching ||
+                              bankConfirming ||
+                              selectAiEligibleRows(bankMatchHints).length === 0
+                            }
+                          >
+                            {bankAiEnriching ? 'Sugeriendo con IA…' : 'Sugerir con IA'}
+                          </Button>
+                          <Button
+                            className="w-full"
                             onClick={() => void handleConfirmBankMatches()}
                             disabled={
                               bankConfirming ||
+                              bankAiEnriching ||
                               bankMatchHints.filter((h) => h.transactionId && !h.isConflict).length === 0
                             }
                           >
