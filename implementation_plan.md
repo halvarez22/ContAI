@@ -1,210 +1,199 @@
-# Implementation Plan — Entregable 4.1 (Híbrido corto: fachada + Import)
+# Implementation Plan — Entregable 4.2 (Batch CFDI + UX de progreso)
 
 **Proyecto:** ContAI Fase 1 MVP  
 **Fecha:** 2026-08-22  
-**Estado:** APROBADO e implementado (2026-08-22) — §8.1 A · §8.2 A · §8.3 A · §8.4 A  
-**Precondiciones:** E1–E3 APROBADOS  
-**Enfoque:** Reducir deuda de arquitectura **sin** megaplan UI y **sin** nueva funcionalidad de negocio.  
-**Fuera de alcance (E4.2+):** Conciliación bancaria, `writeBatch` multi-CFDI, descarga SAT, partir todo `App.tsx` a &lt;500 líneas, audit de cálculos fiscales, persistencia `tax_deductible`.
+**Estado:** **IMPLEMENTADO** (aprobación Qwen 2026-08-22: §8.1A / 8.2A / 8.3A / 8.4A)  
+**Precondiciones:** E1–E4.1 en `main` (`d61b731` pushed)  
+**Objetivo:** Subir N CFDIs XML de una vez, persistir con `writeBatch`, clasificar con Groq, y mostrar máquina de estados de importación.  
+**Fuera de alcance:** Conciliación bancaria (E5), descarga SAT, batch Excel (ya tiene `writeBatch`), partir más pantallas de App, NER PII avanzado.
 
 ---
 
-## 1. Diagnóstico técnico actual
+## 1. Diagnóstico técnico actual (post-E4.1)
 
-### 1.1 Fachada `geminiService`
+| Pieza | Estado |
+|-------|--------|
+| CFDI 1 archivo | `useImportFlow`: parse XSD → preview → `createTransaction` → `classify` → `setTransaction` |
+| Excel multi | Ya usa `commitExcelBatches` / `writeBatch` |
+| Firestore | `firestoreService` tiene `writeBatch` en Excel; **CFDI aún es 1 `addDoc` + 1 `setDoc` por archivo** |
+| UX import CFDI | Flags booleanos (`cfdiImporting`, `cfdiXsdValidating`); **no** hay `idle→uploading→processing_ai→success/error` |
+| Groq | `classify` inyectado; JSON + PII sanitize en `groqAIService` |
+| UI | `ImportModals` — input CFDI `multiple` **no** habilitado |
 
-| Hecho | Evidencia |
-|-------|-----------|
-| Único consumidor de la fachada | `App.tsx` L57: `import { executeAgent, AGENT_TYPES } from './services/geminiService'` |
-| Contenido real | Reexport a `groqAIService` / `types/agentDecision` (10 líneas) |
-| Insights / tests | Ya importan `groqAIService` directamente |
-| Riesgo de borrarla | Bajo si se actualiza **un** import en App + smoke clasificación |
-
-### 1.2 Flujo Import (vive dentro de `App.tsx`)
-
-**Estado local (aprox. L157–165):**  
-`isCfdiImportOpen`, `cfdiPreview`, `cfdiImportError`, `cfdiImporting`, `cfdiXsdMode`, `cfdiXsdValidating`, `isExcelImportOpen`, `excelImportMessage`, `excelImporting`.
-
-**Handlers (aprox. L497–672):**  
-`handleCfdiFile` → XSD + `parseCfdiXml`  
-`runExcelImport` → parse xlsx + `commitExcelImport`  
-`importCfdiAsTransaction` → `createTransaction` / `setTransaction` + `triggerAgent(CLASIFICADOR)`.
-
-**UI modales (aprox. L3487–3650):**  
-Modal CFDI XML + modal Excel; botones de apertura en Transactions / Fiscal.
-
-**Dependencias externas al flujo:** `user`, `periodosCerrados`, `triggerAgent`, `HIGH_AMOUNT_REVIEW_THRESHOLD`, services/libs ya existentes.
-
-### 1.3 Qué NO se hace en E4.1
-
-- No se introduce máquina de estados `idle → uploading → processing_ai` completa (regla UX import: **documentada como abierta** si el flujo actual no la tiene; solo se preserva comportamiento).
-- No `writeBatch` multi-archivo CFDI.
-- No extraer Dashboard / Fiscal / Transacciones enteras.
-- No commit git (solo si el usuario lo pide aparte).
+**Violación abierta de regla groq-saas:** importación múltiple CFDI sin `writeBatch` + UX de estados incompleta.
 
 ---
 
-## 2. Objetivo E4.1
+## 2. Objetivo E4.2
 
-1. **Eliminar** `src/services/geminiService.ts` y que App use `groqAIService` (+ tipos desde `types/agentDecision` si hace falta).
-2. Extraer la lógica de importación a **`src/hooks/useImportFlow.ts`** (estado + handlers).
-3. Extraer la UI de los modales a **`src/components/ImportModals.tsx`** (o `ImportPanel` — naming único abajo).
-4. `App.tsx` solo orquesta: pasa `userId`, periodos cerrados, `triggerAgent` / clasificar, y renderiza el componente de import.
-5. **Cero cambio de comportamiento** observable (mismos errores, mismos mensajes, misma secuencia create+classify CFDI).
-
-**Éxito:** `geminiService.ts` no existe; `rg geminiService` vacío en `src/`; import CFDI/Excel funciona igual; `npm test` + `npm run lint` OK; checklist §8 actualizado.
+1. Selección **múltiple** de `.xml` en el modal CFDI.
+2. Pipeline batch tipado: parse/validar → filtrar periodos cerrados → **persistencia en `writeBatch`** → clasificación Groq (controlada) → actualizar resultados.
+3. Máquina de estados UI: `idle` → `uploading` → `processing_ai` → `success` | `error` (error con **nombre de archivo** / índice).
+4. Flujo de **1 archivo** permanece equivalente (mismo resultado; idealmente reusa el pipeline batch con `files.length === 1`).
+5. Economía: chunks Firestore ≤400 ops; Groq con **concurrencia limitada** (no N llamadas en paralelo sin tope).
 
 ---
 
-## 3. Naming canónico (Responsabilidad única)
-
-| Ruta | Responsabilidad |
-|------|-----------------|
-| `src/hooks/useImportFlow.ts` | Estado de modales CFDI/Excel + handlers (`handleCfdiFile`, `runExcelImport`, `importCfdiAsTransaction`, reset/close). **Sin JSX.** |
-| `src/components/ImportModals.tsx` | UI de los dos modales (CFDI + Excel). Solo props + callbacks. |
-| `src/services/groqAIService.ts` | Sin cambio de contrato; App importa `executeAgent`, `AGENT_TYPES` desde aquí. |
-| ~~`src/services/geminiService.ts`~~ | **Eliminar** tras actualizar imports. |
-
-**No crear** en E4.1: `ImportScreen.tsx` a pantalla completa (los imports son modales embebidos; forzar “screen” sería inventar navegación). Si en E4.2 se quiere ruta `/import`, se planifica aparte.
-
----
-
-## 4. Grafo de impacto
+## 3. Diseño propuesto (grafo)
 
 ```
-ANTES:
-  App → geminiService (fachada) → groqAIService
-  App [estado+handlers+JSX modales Import]
-
-DESPUÉS:
-  App → groqAIService (+ types/agentDecision)
-  App → useImportFlow({ userId, periodosCerrados, classifyFn, ... })
-       → firestoreService / excelImportService / cfdi libs (igual que hoy)
-  App → <ImportModals {...flow} />
+Usuario selecciona N XML
+  → estado: uploading
+  → por cada archivo: leer texto, XSD, parseCfdiXml
+       · fallos → registrar error por fileName (no abortar todo el lote, salvo §8)
+  → estado: processing_ai
+  → firestoreService.commitCfdiBatch(drafts[])  // writeBatch, status pendiente
+  → para cada doc (secuencial o pool ≤ K):
+       classify(CLASIFICADOR, payload sanitizado vía groqAIService)
+       setTransaction / batchUpdate clasificación
+       audit AI_CLASSIFICATION_GROQ
+  → estado: success (resumen: ok / omitidos / fallidos) | error (si lote vacío o fallo crítico)
 ```
 
-**Archivos tocados:** `App.tsx`, nuevo hook, nuevo componente UI, borrado `geminiService.ts`.  
-**No tocados:** `groqAIService` lógica, `taxCalculatorService`, `firestoreService` API, parsers, insights.
+**Importante:** Las tasas IVA siguen saliendo del XML/`taxRates`, no de Groq. Groq solo clasifica cuenta.
 
 ---
 
-## 5. Archivos a crear / modificar / eliminar
+## 4. Archivos a crear / modificar
 
 ### Crear
-| Archivo | Rol |
-|---------|-----|
-| `src/hooks/useImportFlow.ts` | Estado + handlers import CFDI/Excel |
-| `src/components/ImportModals.tsx` | Modales presentacionales |
+| Ruta | Responsabilidad |
+|------|-----------------|
+| `src/types/cfdiBatch.ts` | `CfdiBatchItem`, `CfdiImportPhase`, resultados por archivo |
+| `src/services/cfdiBatchImportService.ts` | Lógica pura/orquestación: parse lista, armar drafts, `writeBatch` vía firestoreService, opcional apply classifications |
+| `src/services/cfdiBatchImportService.test.ts` | Tests: chunking, filtrado periodo cerrado, agregación de errores por fileName (sin red Groq real) |
 
 ### Modificar
-| Archivo | Cambio |
-|---------|--------|
-| `src/App.tsx` | Import desde `groqAIService`; cablear hook + `ImportModals`; quitar handlers/estado/JSX de import duplicados |
+| Ruta | Cambio |
+|------|--------|
+| `src/services/firestoreService.ts` | `commitCfdiTransactionBatch(drafts)` con `writeBatch` (+ chunks 400) |
+| `src/hooks/useImportFlow.ts` | Estado `phase` + progreso; `handleCfdiFiles(FileList)`; mantener path 1 archivo |
+| `src/components/ImportModals.tsx` | `multiple` en input CFDI; barra/texto de progreso; lista de errores por archivo |
+| `src/App.tsx` | Solo si hace falta pasar props nuevas (mínimo) |
 
-### Eliminar
-| Archivo | Motivo |
-|---------|--------|
-| `src/services/geminiService.ts` | Fachada legacy E2 |
+### No tocar
+`groqAIService` (salvo usar API existente), `taxCalculatorService`, Excel flow (salvo compartir helpers de chunk si aplica).
 
 ---
 
-## 6. Contrato del hook (borrador)
+## 5. Contrato de estados UX
 
 ```typescript
-type UseImportFlowParams = {
-  userId: string | undefined;
-  periodosCerrados: string[];
-  /** Clasificación post-CFDI / misma firma que triggerAgent hoy */
-  classify: (type: string, data: object) => Promise<AgentDecision | undefined>;
-  highAmountReviewThreshold: number;
-};
+type CfdiImportPhase =
+  | 'idle'
+  | 'uploading'      // leyendo + validando XML/XSD
+  | 'processing_ai'  // batch write + clasificación Groq
+  | 'success'
+  | 'error';
 
-// Devuelve: flags open/importing, preview, errors, handlers open/close, handleCfdiFile, runExcelImport, importCfdiAsTransaction
+interface CfdiBatchFileResult {
+  fileName: string;
+  ok: boolean;
+  documentId?: string;
+  error?: string; // ej. "XSD inválido", "periodo cerrado", "Groq HTTP 429"
+}
 ```
 
-`ImportModals` recibe solo lo necesario para render (estado + handlers). **Sin** Firebase directo en el componente.
+UI mínima (sin rediseño): texto “Validando 3/40…”, “Clasificando 12/40…”, lista de fallos con `fileName`.
 
 ---
 
-## 7. Estrategia de pruebas
+## 6. Persistencia `writeBatch`
 
-| Qué | Cómo |
-|-----|------|
-| Regresión suite | `npm test` (22+ tests existentes verdes) |
-| Lint | `npm run lint` |
-| Smoke manual | Login → Import Excel plantilla → Import 1 CFDI XML → ver TX + clasificación Groq (si hay key) |
-| Estático | `rg geminiService src` → 0 matches |
-| Opcional E4.1 | Test unitario mínimo del hook **solo si** se extrae lógica pura testeable sin DOM; no bloquear E4.1 si el hook es thin wrapper |
+- Nuevo método en `firestoreService` (naming canónico, no inventar otro service de Firebase).
+- Payload inicial por CFDI: mismos campos que `importCfdiAsTransaction` hoy (`status: 'pendiente'`, fiscal del XML, etc.).
+- Tras Groq: actualizar `account_name`, `status`, `confidence_score`, etc.  
+  - **Opción recomendada:** updates individuales o segundo `writeBatch` de patches (más simple y auditable por doc).  
+  - Evitar un solo batch gigante que mezcle creates + AI si falla a mitad.
 
-No se exige E2E Playwright nuevo en E4.1 (YAGNI); si ya hay e2e, no romperlos.
+Límite Firestore: 500 ops/batch → usar `CHUNK = 400` (como Excel).
+
+---
+
+## 7. Economía Groq / rate limit
+
+| Estrategia | Detalle |
+|------------|---------|
+| Concurrencia | Pool de **1–3** clasificaciones en paralelo (default **1** = secuencial; más seguro) |
+| Backoff | Si HTTP 429, esperar y reintentar **1 vez**; si falla, marcar archivo en `error` y continuar lote |
+| Tokens | Reusar `sanitizeClassificationContext` + JSON forzado (ya en E2) |
+| Audit | Una entrada `AI_CLASSIFICATION_GROQ` **por documento** clasificado OK |
 
 ---
 
 ## 8. Preguntas críticas
 
-### 8.1 ¿Eliminar `geminiService.ts` del todo o dejar stub deprecado un entregable?
-- **(A)** Eliminar archivo (recomendado — naming limpio).  
-- **(B)** Dejar archivo con `/** @deprecated */` reexport 1 sprint.
+### 8.1 Política de fallos parciales
+- **(A)** Continuar el lote: OK parcial + lista de errores por archivo (recomendado).  
+- **(B)** Abortar todo el lote ante el primer error de parseo.
 
-### 8.2 ¿Nombre del componente UI?
-- **(A)** `ImportModals.tsx` (recomendado — refleja que son modales).  
-- **(B)** `ImportPanel.tsx`.
+### 8.2 Concurrencia Groq
+- **(A)** Secuencial (K=1) (recomendado para MVP).  
+- **(B)** Pool K=3.
 
-### 8.3 ¿`classify` se inyecta desde App (`triggerAgent`) o el hook importa `executeAgent`?
-- **(A)** Inyectar desde App (recomendado — hook no acopla a audit/UI alert).  
-- **(B)** Hook llama `executeAgent` + `logAuditEntry` internamente.
+### 8.3 ¿El preview de 1 CFDI se mantiene?
+- **(A)** Sí: 1 archivo → preview + botón “Registrar” (comportamiento actual); N archivos → pipeline batch automático sin preview individual (recomendado).  
+- **(B)** Siempre batch automático también con 1 archivo (cambia UX de 1 archivo).
 
-### 8.4 ¿Incluir en E4.1 estados UX `idle/uploading/processing_ai`?
-- **(A)** No — solo mover código (recomendado; cero regresión UX).  
-- **(B)** Sí — mini máquina de estados (sub-alcance; riesgo de scope creep).
+### 8.4 ¿Dónde vive la orquestación batch?
+- **(A)** `cfdiBatchImportService` + hook solo estado/UI (recomendado — capas).  
+- **(B)** Todo en `useImportFlow` (más acoplado).
 
 **Recomendación Cursor:** **A / A / A / A**.
 
 ---
 
-## 9. Orden de ejecución (tras `APROBADO: Ejecutar E4.1`)
+## 9. Estrategia de pruebas
 
-1. Cambiar import App → `groqAIService`; verificar lint.  
-2. Extraer `useImportFlow` (mover handlers 1:1).  
-3. Extraer `ImportModals`; cablear en App.  
-4. Borrar `geminiService.ts`; `rg` limpio.  
-5. `npm test` + `npm run lint` + smoke import.  
-6. Parar. Plan E4.2 (negocio) aparte.
+| Test | Qué |
+|------|-----|
+| Unit | Armar drafts desde fixtures XML mínimos; periodo cerrado omitido |
+| Unit | `writeBatch` chunking (mock Firestore o función pura de partición) |
+| Unit | Agregación de `CfdiBatchFileResult` |
+| Regresión | Suite actual 22+ verde |
+| Manual smoke | 1 XML (preview igual); 3–5 XML batch; 1 XML inválido en el medio → error nombrado |
 
 ---
 
-## 10. Checklist de reglas
+## 10. Orden de ejecución (tras aprobación)
 
-### ✅ Cumplidas / avanzadas en E4.1
+1. Tipos `cfdiBatch` + `commitCfdiTransactionBatch` en firestoreService.  
+2. `cfdiBatchImportService` + tests.  
+3. Extender `useImportFlow` (phase + multi).  
+4. Actualizar `ImportModals` (multiple + progreso).  
+5. Smoke 1 archivo + N archivos.  
+6. `npm test` + `npm run lint`.  
+7. Parar.
+
+---
+
+## 11. Checklist de reglas
+
+### ✅ Cumplidas / avanzadas en E4.2
 
 | Regla | Cómo |
 |-------|------|
-| APO / plan incremental | Este doc; un entregable pequeño |
-| Naming canónico | `groqAIService` sin fachada engañosa |
-| Capas UI / hooks / services | Modales en components; estado en hooks; sin Firebase en JSX del modal |
-| Cero regresión de comportamiento | Mover, no reinventar |
-| Coexistencia IA | App habla directo a Groq |
+| APO / plan incremental | Este entregable acotado |
+| `writeBatch` multi-CFDI | firestoreService |
+| UX idle→…→success/error | phase + error por archivo |
+| Capas hooks/services/UI | service orquesta; modal presenta |
+| Groq JSON + PII | sin cambiar contrato E2 |
+| Cero regresión 1 archivo | §8.3 A |
+| Audit por clasificación | por documentId |
 
-### ⏳ Siguen abiertas (E4.2+)
+### ⏳ Siguen abiertas (E5+)
 
 | Deuda | Motivo |
 |-------|--------|
-| God Object residual (`App.tsx` aún grande) | Solo se saca Import |
-| UX import idle→processing_ai | §8.4 A |
-| `writeBatch` multi-CFDI | E4.2 |
-| Audit de previos fiscales | E4.2+ |
-| `any` en `triggerAgent` | Opcional tipar en E4.1 solo si es mecánico; no bloquear |
-| Commit de E1–E3 untracked | Pedido explícito del usuario |
+| Conciliación bancaria | E5 |
+| God Object residual App | Solo Import ya extraído |
+| Audit de previos fiscales | No es parte de batch |
+| Descarga SAT | Fuera Fase 1 |
+| NER nombres | YAGNI |
 
 ---
 
-## 11. Aprobación para **ejecutar** (código)
+## 12. Aprobación y cierre
 
-El “aprobado” de dirección ya autorizó **planear** E4.1.  
-Para escribir código, responde:
-
-- `APROBADO: Ejecutar Entregable 4.1` (+ letras §8.1–8.4)  
-- `APROBADO CON CAMBIOS: …`  
-- `RECHAZADO: …`
-
-**Sin esa frase de ejecución, no se implementa.**
+- **Aprobado y ejecutado** con §8.1(A) fallos parciales, §8.2(A) Groq K=1, §8.3(A) preview 1 archivo, §8.4(A) orquestación en `cfdiBatchImportService`.
+- Criterios E4.2: tipos sin `any`, service + tests chunking/periodos, `commitCfdiTransactionBatch`, máquina de estados en hook, `multiple` + progreso/errores en UI, cero regresión 1 archivo, audit vía `classify` → `AI_CLASSIFICATION_GROQ`.

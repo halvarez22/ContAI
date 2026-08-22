@@ -12,18 +12,17 @@ import {
   serverTimestamp,
 } from '../services/firestoreService';
 import { logAuditEntry } from '../services/auditService';
+import { runCfdiBatchImport } from '../services/cfdiBatchImportService';
 import type { AgentDecision, AgentType } from '../types/agentDecision';
 import { AGENT_TYPES } from '../types/agentDecision';
+import type {
+  CfdiBatchFileResult,
+  CfdiBatchProgress,
+  CfdiClassificationPayload,
+  CfdiImportPhase,
+} from '../types/cfdiBatch';
 
-/** Payload tipado para clasificación tras importar CFDI (sin any). */
-export interface CfdiClassificationPayload {
-  tipo: string;
-  monto: number;
-  concepto: string;
-  proveedor: string;
-  fecha: string;
-  moneda: string;
-}
+export type { CfdiClassificationPayload };
 
 export type ClassifyFn = (
   agentType: AgentType,
@@ -53,7 +52,17 @@ export function useImportFlow({
   const [excelImportMessage, setExcelImportMessage] = useState<string | null>(null);
   const [excelImporting, setExcelImporting] = useState(false);
 
-  const openCfdiImport = useCallback(() => setIsCfdiImportOpen(true), []);
+  const [cfdiPhase, setCfdiPhase] = useState<CfdiImportPhase>('idle');
+  const [cfdiBatchProgress, setCfdiBatchProgress] = useState<CfdiBatchProgress | null>(null);
+  const [cfdiBatchResults, setCfdiBatchResults] = useState<CfdiBatchFileResult[]>([]);
+
+  const openCfdiImport = useCallback(() => {
+    setIsCfdiImportOpen(true);
+    setCfdiPhase('idle');
+    setCfdiBatchProgress(null);
+    setCfdiBatchResults([]);
+  }, []);
+
   const openExcelImport = useCallback(() => {
     setExcelImportMessage(null);
     setIsExcelImportOpen(true);
@@ -64,17 +73,24 @@ export function useImportFlow({
     setCfdiPreview(null);
     setCfdiImportError(null);
     setCfdiXsdMode(null);
+    setCfdiPhase('idle');
+    setCfdiBatchProgress(null);
+    setCfdiBatchResults([]);
+    setCfdiImporting(false);
+    setCfdiXsdValidating(false);
   }, []);
 
   const closeExcelImport = useCallback(() => {
     setIsExcelImportOpen(false);
   }, []);
 
-  const handleCfdiFile = useCallback((file: File | null) => {
-    if (!file) return;
+  /** Flujo 1 archivo: preview (sin cambio de comportamiento). */
+  const handleSingleCfdiFile = useCallback((file: File) => {
     setCfdiImportError(null);
     setCfdiPreview(null);
     setCfdiXsdMode(null);
+    setCfdiBatchResults([]);
+    setCfdiPhase('uploading');
     const reader = new FileReader();
     reader.onload = async () => {
       const text = String(reader.result || '');
@@ -87,20 +103,107 @@ export function useImportFlow({
           setCfdiImportError(
             [...xsd.errors, `(esquema: ${xsd.mode})`].filter(Boolean).join(' · ')
           );
+          setCfdiPhase('error');
           return;
         }
         const r = parseCfdiXml(text);
         if (r.ok === false) {
           setCfdiImportError(r.errors.join(' '));
+          setCfdiPhase('error');
           return;
         }
         setCfdiPreview(r.data);
+        setCfdiPhase('idle');
       } finally {
         setCfdiXsdValidating(false);
       }
     };
     reader.readAsText(file, 'UTF-8');
   }, []);
+
+  const runCfdiBatch = useCallback(
+    async (files: File[]) => {
+      if (!userId || files.length === 0) return;
+      setCfdiPreview(null);
+      setCfdiImportError(null);
+      setCfdiXsdMode(null);
+      setCfdiImporting(true);
+      setCfdiPhase('uploading');
+      setCfdiBatchResults([]);
+
+      try {
+        const inputs: Array<{ fileName: string; xmlText: string }> = [];
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          setCfdiBatchProgress({
+            phase: 'uploading',
+            current: i + 1,
+            total: files.length,
+            fileName: f.name,
+            message: `Leyendo ${i + 1}/${files.length}…`,
+          });
+          const xmlText = await f.text();
+          inputs.push({ fileName: f.name, xmlText });
+        }
+
+        setCfdiPhase('processing_ai');
+        const summary = await runCfdiBatchImport({
+          userId,
+          periodosCerrados,
+          highAmountReviewThreshold,
+          inputs,
+          classify: async (agentType, payload) => classify(agentType, payload),
+          onProgress: (p) => {
+            setCfdiBatchProgress(p);
+            setCfdiPhase(p.phase === 'uploading' ? 'uploading' : 'processing_ai');
+          },
+        });
+
+        setCfdiBatchResults(summary.results);
+        if (summary.committed === 0 && summary.failed > 0) {
+          setCfdiPhase('error');
+          setCfdiImportError(
+            `Ningún CFDI se importó. Revisa los errores por archivo (${summary.failed} fallido(s)).`
+          );
+        } else {
+          setCfdiPhase('success');
+          setCfdiImportError(null);
+        }
+      } catch (e) {
+        console.error(e);
+        setCfdiPhase('error');
+        setCfdiImportError(
+          e instanceof Error ? e.message : 'Error al importar el lote de CFDIs.'
+        );
+      } finally {
+        setCfdiImporting(false);
+      }
+    },
+    [userId, periodosCerrados, highAmountReviewThreshold, classify]
+  );
+
+  /** Entrada del input: 1 archivo → preview; N → batch automático. */
+  const handleCfdiFiles = useCallback(
+    (fileList: FileList | null) => {
+      if (!fileList?.length) return;
+      const files = Array.from(fileList);
+      if (files.length === 1) {
+        handleSingleCfdiFile(files[0]);
+        return;
+      }
+      void runCfdiBatch(files);
+    },
+    [handleSingleCfdiFile, runCfdiBatch]
+  );
+
+  /** Compat: un solo File | null (tests / callers antiguos). */
+  const handleCfdiFile = useCallback(
+    (file: File | null) => {
+      if (!file) return;
+      handleSingleCfdiFile(file);
+    },
+    [handleSingleCfdiFile]
+  );
 
   const runExcelImport = useCallback(
     async (fileList: FileList | null) => {
@@ -156,6 +259,7 @@ export function useImportFlow({
       fechaIso = new Date(d.fecha).toISOString();
     } catch {
       setCfdiImportError('Fecha inválida en el CFDI.');
+      setCfdiPhase('error');
       return;
     }
     if (isTransactionDateInClosedPeriod(fechaIso, periodosCerrados)) {
@@ -164,6 +268,7 @@ export function useImportFlow({
     }
     setCfdiImporting(true);
     setCfdiImportError(null);
+    setCfdiPhase('processing_ai');
     try {
       const tipo = mapTipoComprobanteToTxTipo(d.tipoComprobante);
       const iva_tasa = inferIvaTasaFromAmounts(d.subtotal, d.totalIvaTrasladado);
@@ -250,19 +355,15 @@ export function useImportFlow({
       await logAuditEntry('IMPORT_CFDI', 'transactions', { id: docRef.id, uuid: d.uuid });
       setIsCfdiImportOpen(false);
       setCfdiPreview(null);
+      setCfdiPhase('idle');
     } catch (err) {
       console.error(err);
       setCfdiImportError('No se pudo guardar la transacción.');
+      setCfdiPhase('error');
     } finally {
       setCfdiImporting(false);
     }
-  }, [
-    userId,
-    cfdiPreview,
-    periodosCerrados,
-    classify,
-    highAmountReviewThreshold,
-  ]);
+  }, [userId, cfdiPreview, periodosCerrados, classify, highAmountReviewThreshold]);
 
   return {
     isCfdiImportOpen,
@@ -271,6 +372,9 @@ export function useImportFlow({
     cfdiImporting,
     cfdiXsdMode,
     cfdiXsdValidating,
+    cfdiPhase,
+    cfdiBatchProgress,
+    cfdiBatchResults,
     isExcelImportOpen,
     excelImportMessage,
     excelImporting,
@@ -279,6 +383,7 @@ export function useImportFlow({
     closeCfdiImport,
     closeExcelImport,
     handleCfdiFile,
+    handleCfdiFiles,
     runExcelImport,
     importCfdiAsTransaction,
   };

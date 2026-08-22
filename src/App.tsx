@@ -85,7 +85,8 @@ import { generateExecutiveBriefing, askMonthQuestion } from './services/insights
 import { buildTaxPreview } from './services/taxCalculatorService';
 import { TaxPreviewCard } from './components/TaxPreviewCard';
 import { ImportModals } from './components/ImportModals';
-import { useImportFlow, type CfdiClassificationPayload } from './hooks/useImportFlow';
+import { useImportFlow } from './hooks/useImportFlow';
+import type { CfdiClassificationPayload } from './types/cfdiBatch';
 
 // --- Main App ---
 
@@ -3312,12 +3313,15 @@ export default function App() {
         cfdiImporting={importFlow.cfdiImporting}
         cfdiXsdMode={importFlow.cfdiXsdMode}
         cfdiXsdValidating={importFlow.cfdiXsdValidating}
+        cfdiPhase={importFlow.cfdiPhase}
+        cfdiBatchProgress={importFlow.cfdiBatchProgress}
+        cfdiBatchResults={importFlow.cfdiBatchResults}
         isExcelImportOpen={importFlow.isExcelImportOpen}
         excelImportMessage={importFlow.excelImportMessage}
         excelImporting={importFlow.excelImporting}
         onCloseCfdi={importFlow.closeCfdiImport}
         onCloseExcel={importFlow.closeExcelImport}
-        onCfdiFile={importFlow.handleCfdiFile}
+        onCfdiFiles={importFlow.handleCfdiFiles}
         onExcelFiles={importFlow.runExcelImport}
         onImportCfdi={importFlow.importCfdiAsTransaction}
       />

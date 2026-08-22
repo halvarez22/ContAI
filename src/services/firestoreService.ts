@@ -205,4 +205,42 @@ export async function commitExcelBatches(
   return { txCount, productCount };
 }
 
-export { serverTimestamp };
+/**
+ * Persiste borradores CFDI en writeBatch (chunks de 400).
+ * Devuelve documentId por cada draft en el mismo orden.
+ */
+export async function commitCfdiTransactionBatch(
+  drafts: Array<{ payload: DocumentData }>
+): Promise<{ ids: string[] }> {
+  const ids: string[] = [];
+  for (let i = 0; i < drafts.length; i += BATCH_CHUNK) {
+    const batch = writeBatch(db);
+    const chunk = drafts.slice(i, i + BATCH_CHUNK);
+    const chunkRefs = chunk.map(() => doc(collection(db, 'transactions')));
+    for (let j = 0; j < chunk.length; j++) {
+      batch.set(chunkRefs[j], {
+        ...chunk[j].payload,
+        creado_en: serverTimestamp(),
+      });
+      ids.push(chunkRefs[j].id);
+    }
+    await batch.commit();
+  }
+  return { ids };
+}
+
+/** Actualiza varios documentos en writeBatch (merge). */
+export async function commitTransactionUpdatesBatch(
+  updates: Array<{ id: string; payload: DocumentData }>
+): Promise<void> {
+  for (let i = 0; i < updates.length; i += BATCH_CHUNK) {
+    const batch = writeBatch(db);
+    const chunk = updates.slice(i, i + BATCH_CHUNK);
+    for (const u of chunk) {
+      batch.set(doc(db, 'transactions', u.id), u.payload, { merge: true });
+    }
+    await batch.commit();
+  }
+}
+
+export { serverTimestamp, BATCH_CHUNK };
