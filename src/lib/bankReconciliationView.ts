@@ -1,5 +1,5 @@
 /**
- * Vista pura de filas de conciliación (E5.3) — sin React / sin I/O.
+ * Vista pura de filas de conciliación (E5.3–E5.4) — sin React / sin I/O.
  */
 
 import type {
@@ -22,8 +22,10 @@ export type BankRowFilter =
 
 export function getBankRowViewStatus(
   hint: BankMatchSuggestion | undefined,
-  aiError: string | undefined
+  aiError: string | undefined,
+  sessionConfirmed = false
 ): BankRowViewStatus {
+  if (sessionConfirmed) return 'ready';
   if (aiError) return 'ai_error';
   if (hint?.isConflict) return 'conflict';
   if (hint?.transactionId) return 'ready';
@@ -34,11 +36,16 @@ export function filterBankRowsByStatus(
   rows: ParsedBankRow[],
   hints: BankMatchSuggestion[],
   errorByRowIndex: Record<number, string>,
-  filter: BankRowFilter
+  filter: BankRowFilter,
+  sessionConfirmed?: ReadonlySet<number>
 ): number[] {
   const indices: number[] = [];
   for (let i = 0; i < rows.length; i++) {
-    const status = getBankRowViewStatus(hints[i], errorByRowIndex[i]);
+    const status = getBankRowViewStatus(
+      hints[i],
+      errorByRowIndex[i],
+      sessionConfirmed?.has(i) ?? false
+    );
     if (filter === 'all' || status === filter) {
       indices.push(i);
     }
@@ -49,7 +56,8 @@ export function filterBankRowsByStatus(
 export function countBankRowsByStatus(
   rows: ParsedBankRow[],
   hints: BankMatchSuggestion[],
-  errorByRowIndex: Record<number, string>
+  errorByRowIndex: Record<number, string>,
+  sessionConfirmed?: ReadonlySet<number>
 ): Record<BankRowViewStatus, number> {
   const counts: Record<BankRowViewStatus, number> = {
     ready: 0,
@@ -58,7 +66,24 @@ export function countBankRowsByStatus(
     ai_error: 0,
   };
   for (let i = 0; i < rows.length; i++) {
-    counts[getBankRowViewStatus(hints[i], errorByRowIndex[i])] += 1;
+    counts[
+      getBankRowViewStatus(
+        hints[i],
+        errorByRowIndex[i],
+        sessionConfirmed?.has(i) ?? false
+      )
+    ] += 1;
   }
   return counts;
+}
+
+/** Filas resolubles manualmente (E5.4 §8.5A). */
+export function isManuallyResolvableStatus(
+  status: BankRowViewStatus,
+  sessionConfirmed = false
+): boolean {
+  if (sessionConfirmed) return false;
+  return (
+    status === 'conflict' || status === 'no_match' || status === 'ai_error'
+  );
 }

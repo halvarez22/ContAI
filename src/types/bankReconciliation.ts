@@ -17,7 +17,7 @@ export interface BankLedgerItem {
   concepto?: string;
 }
 
-export type BankSuggestionSource = 'heuristic' | 'ai';
+export type BankSuggestionSource = 'heuristic' | 'ai' | 'manual';
 
 export interface BankMatchSuggestion {
   bankRowIndex: number;
@@ -27,6 +27,19 @@ export interface BankMatchSuggestion {
   /** true si match ambiguo o varias filas → misma tx — no auto-confirmar */
   isConflict: boolean;
   suggestionSource?: BankSuggestionSource;
+}
+
+/** Override manual pendiente (solo en memoria de sesión hasta Confirmar). */
+export interface BankManualOverride {
+  bankRowIndex: number;
+  transactionId: string;
+  note?: string;
+}
+
+/** Candidato del ledger in-period para el picker E5.4. */
+export interface BankManualCandidate extends BankLedgerItem {
+  /** Score de proximidad 0–100 para ordenar en el picker */
+  proximityScore: number;
 }
 
 /** Propuesta tipada de Groq Conciliador (E5.2). */

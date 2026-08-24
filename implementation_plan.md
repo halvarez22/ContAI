@@ -1,10 +1,9 @@
-# Implementation Plan — Entregable 6.2.1 (Cliente SOAP Real del SAT)
+# Implementation Plan — Entregable 5.4 (Confirmación / resolución manual fila por fila)
 
 **Proyecto:** ContAI Fase 2  
-**Fecha:** 2026-08-22  
-**Estado:** **IMPLEMENTADO** (aprobación: 8.1A2 / 8.2A / 8.3A / 8.4A / 8.5A / 8.6A + zeroize / pin / partial warning)  
-**Precondiciones:** E6.2 `f4d997b`  
-**Fuera / siguiente:** Retenciones y Cloud KMS = E6.3; UI dedicada upload FIEL opcional.
+**Fecha:** 2026-08-24  
+**Estado:** **IMPLEMENTADO** (8.1A / 8.2A / 8.3A / 8.4A / 8.5A + búsqueda in-memory + invalidación overrides)  
+**Precondiciones:** E5.3 `aeef01e`
 
 ---
 
@@ -12,43 +11,41 @@
 
 | # | Decisión |
 |---|----------|
-| 8.1 | Advance desde poll frontend (`advanceSatDownload`) |
-| 8.2 | Vacío → `SAT_EMPTY` |
-| 8.3 | Re-auth/retry red 1× |
-| 8.4 | `ambos` = dos solicitudes + merge |
-| 8.5 | Timeouts + verify gap ≥2s (omitido en mock CI) |
-| 8.6 | Solo CFDI |
+| 8.1 | Panel bajo la tabla |
+| 8.2 | Aplicar → Confirmar |
+| 8.3 | `sessionConfirmed` (UI) + `bank_reconciled` (Firestore) |
+| 8.4 | score 100 + `suggestionSource: 'manual'` |
+| 8.5 | conflict + no_match + ai_error |
 
 ---
 
 ## Entregables
 
-- `@nodecfdi/sat-ws-descarga-masiva@2.0.0` (+ peers `cfdi-core`, `luxon`) versión fija
-- `realSatWsClient.ts`, `satWsFactory.ts`, `satErrorMap.ts`, `credentialLoader.ts`
-- `jobService`: `solicitarSatDownloadJob` + `advanceSatDownloadJob`
-- Callables: `advanceSatDownload`; `start` solo solicita
-- Frontend: poll llama `advanceSatDownloadJob`
-- Zeroize buffers post-uso; `warning` en job si paquete parcial
-- Tests CI con engine fake (sin red SAT); `docs/SAT_STAGING.md`
+- Tipos `BankManualOverride` / `BankManualCandidate` / source `manual`
+- `listManualCandidates` (solo ledger en memoria)
+- `applyManualOverrides` + `confirmSingleMatch` (audit `source: 'manual'`)
+- Hook: overrides + sessionConfirmed; rematch reaplica overrides
+- `BankManualMatchPanel` + filas clicables
+- Tests service/view
 
 ---
 
-## Criterios de aceptación
+## Criterios
 
-- [x] Nodecfdi pin + audit (sin críticas en dep directa; moderate transitivas firebase-admin)
-- [x] RealSatWsClient + timeouts/retries
-- [x] satErrorMap + tests
-- [x] job async solicitar → advance → download
-- [x] zeroize vault
-- [x] Tests sin red SAT
-- [x] Frontend advance en poll
-- [x] README + SAT_STAGING.md
+- [x] Tipos y source manual
+- [x] Búsqueda in-memory
+- [x] apply + markConflicts
+- [x] confirmSingle + audit source
+- [x] Hook overrides / sessionConfirmed
+- [x] UI dos pasos
+- [x] Cero Groq/SAT/CFDI
+- [x] Tests + lint
 
 ---
 
-## Anexo — Hitos
+## Anexo
 
 | Hito | Commit |
 |------|--------|
-| E6.2 Backend + MockWs | `f4d997b` |
-| E6.2.1 SOAP real | *(pendiente commit)* |
+| E5.3 UI | `aeef01e` |
+| E5.4 Manual | *(pendiente commit)* |

@@ -112,11 +112,11 @@ Checklist completo: [`docs/FASE1_CIERRE.md`](./docs/FASE1_CIERRE.md).
 
 ## Fuera de Fase 1 / Fase 2 en curso
 
-- **E5 Conciliación bancaria** — E5.1–E5.3 en `main` (heurística, IA edge cases, UI dedicada).
+- **E5 Conciliación bancaria** — E5.1–E5.4 (heurística, IA, UI, resolución manual fila a fila: aplicar → confirmar).
 - **E6.1 Descarga SAT (fundación)** — UI + provider **mock** + wire a `runCfdiBatchImport`. **No** habla al SAT ni maneja FIEL/CSD en el browser.
 - **E6.2 Backend SAT** — Cloud Functions: vault FIEL, jobs, MockWs, callables.
 - **E6.2.1 SOAP real** — `@nodecfdi/sat-ws-descarga-masiva` + `advanceSatDownload` (poll A2); `SAT_WS_MODE=real`. Retenciones / KMS = E6.3.
-- Multi-tenant real; NER PII avanzado; seguir reduciendo God Object residual de `App.tsx`.
+- Multi-tenant real; NER PII avanzado; dashboard ejecutivo (E7); seguir reduciendo God Object residual de `App.tsx`.
 
 ---
 

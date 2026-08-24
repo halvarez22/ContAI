@@ -8,6 +8,8 @@ import {
   suggestBankMatches,
   truncateBankMatchDesc,
   toBankLedgerItems,
+  listManualCandidates,
+  applyManualOverrides,
 } from './bankReconciliationService';
 import {
   BANK_AI_LOW_SCORE_THRESHOLD,
@@ -247,5 +249,64 @@ describe('buildBankReconcilePatch', () => {
 describe('truncateBankMatchDesc', () => {
   it('no altera textos cortos', () => {
     expect(truncateBankMatchDesc('hola')).toBe('hola');
+  });
+});
+
+describe('E5.4 listManualCandidates / applyManualOverrides', () => {
+  const ledger = toBankLedgerItems([
+    { id: 'tx1', monto: 1000, fecha: '2026-01-10T12:00:00.000Z', concepto: 'Renta oficina' },
+    { id: 'tx2', monto: 500, fecha: '2026-01-20T12:00:00.000Z', concepto: 'Luz CFE' },
+    { id: 'tx3', monto: 1000, fecha: '2026-06-01T12:00:00.000Z', concepto: 'Renta lejana' },
+  ]);
+  const bankRow = {
+    fecha: '2026-01-11T00:00:00.000Z',
+    monto: 1000,
+    descripcion: 'RENTA ENE',
+  };
+
+  it('lista candidatos solo del ledger en memoria y ordena por proximidad', () => {
+    const cands = listManualCandidates(bankRow, ledger, { limit: 10 });
+    expect(cands.every((c) => ledger.some((l) => l.id === c.id))).toBe(true);
+    expect(cands[0].id).toBe('tx1');
+    expect(cands.find((c) => c.id === 'tx3')).toBeUndefined();
+  });
+
+  it('filtra por query de texto sin tocar Firestore', () => {
+    const cands = listManualCandidates(bankRow, ledger, { query: 'cfe' });
+    expect(cands).toHaveLength(1);
+    expect(cands[0].id).toBe('tx2');
+  });
+
+  it('applyManualOverride pone score 100 / manual y markConflicts', () => {
+    const bank = [
+      bankRow,
+      { fecha: '2026-01-12T00:00:00.000Z', monto: 1000, descripcion: 'OTRA' },
+    ];
+    const base = suggestBankMatches(bank, ledger);
+    const overrides = new Map([
+      [0, { bankRowIndex: 0, transactionId: 'tx1', note: 'manual' }],
+      [1, { bankRowIndex: 1, transactionId: 'tx1' }],
+    ]);
+    const merged = applyManualOverrides(base, overrides);
+    expect(merged[0].suggestionSource).toBe('manual');
+    expect(merged[0].score).toBe(100);
+    expect(merged[0].isConflict).toBe(true);
+    expect(merged[1].isConflict).toBe(true);
+  });
+
+  it('override sobrevive a rematch (reaplicar sobre nueva base)', () => {
+    const bank = [bankRow];
+    const base1 = suggestBankMatches(bank, ledger);
+    const overrides = new Map([
+      [0, { bankRowIndex: 0, transactionId: 'tx2' }],
+    ]);
+    const after1 = applyManualOverrides(base1, overrides);
+    expect(after1[0].transactionId).toBe('tx2');
+    expect(after1[0].suggestionSource).toBe('manual');
+
+    const base2 = suggestBankMatches(bank, ledger);
+    const after2 = applyManualOverrides(base2, overrides);
+    expect(after2[0].transactionId).toBe('tx2');
+    expect(after2[0].score).toBe(100);
   });
 });

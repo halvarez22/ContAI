@@ -3,6 +3,7 @@ import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { cn, formatCurrency, formatDate } from '../lib/utils';
 import { useBankReconciliation } from '../hooks/useBankReconciliation';
+import { BankManualMatchPanel } from './BankManualMatchPanel';
 import type { BankLedgerItem } from '../types/bankReconciliation';
 import type { BankRowFilter } from '../lib/bankReconciliationView';
 import { getBankRowViewStatus } from '../lib/bankReconciliationView';
@@ -19,6 +20,18 @@ const FILTERS: Array<{ id: BankRowFilter; label: string }> = [
   { id: 'no_match', label: 'Sin match' },
   { id: 'ai_error', label: 'Error IA' },
 ];
+
+function sourceLabel(
+  source: string | undefined,
+  hasTx: boolean,
+  sessionConfirmed: boolean
+): string {
+  if (sessionConfirmed) return 'Confirmada';
+  if (source === 'manual') return 'Manual';
+  if (source === 'ai') return 'IA';
+  if (hasTx) return 'Heurística';
+  return '—';
+}
 
 export function BankReconciliationPanel({
   ledger,
@@ -40,8 +53,9 @@ export function BankReconciliationPanel({
             <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xl">
               CSV con columnas{' '}
               <span className="font-mono">fecha, monto, descripción</span>.
-              Heurística (±2% / ±4 días); IA solo en casos difíciles. Confirmación
-              siempre manual.
+              Heurística (±2% / ±4 días); IA en casos difíciles. Conflicto / sin
+              match: clic en la fila para resolver manualmente (aplicar →
+              confirmar).
               {periodLabel ? (
                 <span className="block mt-1 text-gray-400">
                   Periodo: {periodLabel}
@@ -141,11 +155,34 @@ export function BankReconciliationPanel({
                       const r = bank.csvPreview!.rows[i];
                       const h = bank.hints[i];
                       const err = bank.aiErrors[i];
-                      const status = getBankRowViewStatus(h, err);
+                      const confirmed = bank.sessionConfirmed.has(i);
+                      const status = getBankRowViewStatus(h, err, confirmed);
+                      const resolvable = bank.isRowResolvable(i);
+                      const selected = bank.selectedRowIndex === i;
                       return (
                         <tr
                           key={i}
-                          className="bg-white dark:bg-gray-950/40 hover:bg-gray-50/80 dark:hover:bg-gray-900/40"
+                          onClick={() => {
+                            if (resolvable) bank.selectRowForManual(i);
+                          }}
+                          onKeyDown={(e) => {
+                            if (
+                              resolvable &&
+                              (e.key === 'Enter' || e.key === ' ')
+                            ) {
+                              e.preventDefault();
+                              bank.selectRowForManual(i);
+                            }
+                          }}
+                          tabIndex={resolvable ? 0 : undefined}
+                          role={resolvable ? 'button' : undefined}
+                          className={cn(
+                            'bg-white dark:bg-gray-950/40',
+                            resolvable &&
+                              'cursor-pointer hover:bg-indigo-50/60 dark:hover:bg-indigo-950/30',
+                            selected &&
+                              'ring-1 ring-inset ring-indigo-300 dark:ring-indigo-700'
+                          )}
                         >
                           <td className="px-3 py-2 font-mono text-gray-400">
                             {i + 1}
@@ -163,15 +200,17 @@ export function BankReconciliationPanel({
                             {r.descripcion}
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap">
-                            {status === 'ai_error' && (
-                              <span
-                                className="text-amber-600"
-                                title={err}
-                              >
+                            {confirmed && (
+                              <span className="text-emerald-700 font-medium">
+                                Conciliada
+                              </span>
+                            )}
+                            {!confirmed && status === 'ai_error' && (
+                              <span className="text-amber-600" title={err}>
                                 Error IA
                               </span>
                             )}
-                            {status === 'conflict' && (
+                            {!confirmed && status === 'conflict' && (
                               <span
                                 className="text-amber-600 inline-flex items-center gap-1"
                                 title={h?.note}
@@ -179,19 +218,19 @@ export function BankReconciliationPanel({
                                 <AlertTriangle className="w-3 h-3" /> Conflicto
                               </span>
                             )}
-                            {status === 'ready' && (
+                            {!confirmed && status === 'ready' && (
                               <span className="text-emerald-600">Listo</span>
                             )}
-                            {status === 'no_match' && (
+                            {!confirmed && status === 'no_match' && (
                               <span className="text-gray-400">Sin match</span>
                             )}
                           </td>
                           <td className="px-3 py-2 text-gray-500">
-                            {h?.suggestionSource === 'ai'
-                              ? 'IA'
-                              : h?.transactionId
-                                ? 'Heurística'
-                                : '—'}
+                            {sourceLabel(
+                              h?.suggestionSource,
+                              Boolean(h?.transactionId),
+                              confirmed
+                            )}
                           </td>
                           <td
                             className="px-3 py-2 max-w-[200px] truncate text-gray-400"
@@ -207,6 +246,28 @@ export function BankReconciliationPanel({
               </table>
             </div>
 
+            {bank.selectedRowIndex != null &&
+              bank.selectedBankRow &&
+              bank.isRowResolvable(bank.selectedRowIndex) && (
+                <BankManualMatchPanel
+                  bankRowIndex={bank.selectedRowIndex}
+                  bankRow={bank.selectedBankRow}
+                  hint={bank.selectedHint ?? undefined}
+                  status={bank.selectedStatus}
+                  candidates={bank.manualCandidates}
+                  query={bank.candidateQuery}
+                  onQueryChange={bank.setCandidateQuery}
+                  pickedTxId={bank.pickedTxId}
+                  onPickTx={bank.setPickedTxId}
+                  canApply={bank.canApplyManual}
+                  canConfirm={bank.canConfirmSingle}
+                  confirming={bank.confirmingSingle}
+                  onApply={bank.handleApplyManual}
+                  onConfirm={() => void bank.handleConfirmSingle()}
+                  onClose={() => bank.selectRowForManual(null)}
+                />
+              )}
+
             <div className="flex flex-col sm:flex-row gap-2">
               <Button
                 className="flex-1"
@@ -215,6 +276,7 @@ export function BankReconciliationPanel({
                 disabled={
                   bank.aiEnriching ||
                   bank.confirming ||
+                  bank.confirmingSingle ||
                   bank.eligibleAiCount === 0
                 }
               >
@@ -225,6 +287,7 @@ export function BankReconciliationPanel({
                 onClick={() => void bank.handleConfirm()}
                 disabled={
                   bank.confirming ||
+                  bank.confirmingSingle ||
                   bank.aiEnriching ||
                   bank.readyCount === 0
                 }

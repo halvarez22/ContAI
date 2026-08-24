@@ -3,6 +3,7 @@ import {
   countBankRowsByStatus,
   filterBankRowsByStatus,
   getBankRowViewStatus,
+  isManuallyResolvableStatus,
 } from './bankReconciliationView';
 import type { BankMatchSuggestion, ParsedBankRow } from '../types/bankReconciliation';
 
@@ -50,6 +51,16 @@ describe('getBankRowViewStatus', () => {
       'no_match'
     );
   });
+
+  it('sessionConfirmed fuerza ready (badge Conciliada)', () => {
+    expect(
+      getBankRowViewStatus(
+        hint({ bankRowIndex: 0, isConflict: true }),
+        'err',
+        true
+      )
+    ).toBe('ready');
+  });
 });
 
 describe('filterBankRowsByStatus', () => {
@@ -77,6 +88,16 @@ describe('filterBankRowsByStatus', () => {
       3,
     ]);
   });
+
+  it('sessionConfirmed saca la fila de conflictos', () => {
+    const confirmed = new Set([1]);
+    expect(
+      filterBankRowsByStatus(rows, hints, errors, 'conflict', confirmed)
+    ).toEqual([]);
+    expect(
+      filterBankRowsByStatus(rows, hints, errors, 'ready', confirmed)
+    ).toEqual([0, 1]);
+  });
 });
 
 describe('countBankRowsByStatus', () => {
@@ -92,5 +113,15 @@ describe('countBankRowsByStatus', () => {
       no_match: 1,
       ai_error: 0,
     });
+  });
+});
+
+describe('isManuallyResolvableStatus', () => {
+  it('permite conflict / no_match / ai_error; no confirmed', () => {
+    expect(isManuallyResolvableStatus('conflict')).toBe(true);
+    expect(isManuallyResolvableStatus('no_match')).toBe(true);
+    expect(isManuallyResolvableStatus('ai_error')).toBe(true);
+    expect(isManuallyResolvableStatus('ready')).toBe(false);
+    expect(isManuallyResolvableStatus('conflict', true)).toBe(false);
   });
 });

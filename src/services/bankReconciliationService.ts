@@ -13,6 +13,8 @@ import type {
   BankAiMatchInput,
   BankConfirmSummary,
   BankLedgerItem,
+  BankManualCandidate,
+  BankManualOverride,
   BankMatchSuggestion,
   BankReconcileConfirm,
   ParsedBankRow,
@@ -339,7 +341,8 @@ export function buildBankReconcilePatch(confirm: BankReconcileConfirm): {
 }
 
 export async function confirmBankMatches(
-  confirms: BankReconcileConfirm[]
+  confirms: BankReconcileConfirm[],
+  auditExtras?: { source?: string }
 ): Promise<BankConfirmSummary> {
   const summary: BankConfirmSummary = {
     confirmed: 0,
@@ -369,11 +372,124 @@ export async function confirmBankMatches(
       bankRowIndex: c.bankRowIndex,
       score: c.score,
       bank_match_desc: truncateBankMatchDesc(c.bankDescription),
+      ...(auditExtras?.source ? { source: auditExtras.source } : {}),
     });
     summary.confirmed += 1;
   }
 
   return summary;
+}
+
+/**
+ * Candidatos del ledger del periodo (solo memoria). Sin Firestore.
+ * Con query: filtra por concepto/monto/fecha/id. Sin query: proximidad relajada.
+ */
+export function listManualCandidates(
+  bankRow: ParsedBankRow,
+  ledger: BankLedgerItem[],
+  opts?: { query?: string; limit?: number }
+): BankManualCandidate[] {
+  const limit = opts?.limit ?? 20;
+  const q = (opts?.query || '').trim().toLowerCase();
+  const bankDate = new Date(bankRow.fecha).getTime();
+  const scored: BankManualCandidate[] = [];
+
+  for (const tx of ledger) {
+    if (!tx.id) continue;
+    if (q) {
+      const hay = `${tx.concepto || ''} ${tx.monto} ${tx.fecha} ${tx.id}`.toLowerCase();
+      if (!hay.includes(q)) continue;
+    }
+
+    const m = Number(tx.monto) || 0;
+    const txDate = new Date(tx.fecha).getTime();
+    let proximityScore = 0;
+    if (!Number.isNaN(bankDate) && !Number.isNaN(txDate)) {
+      const dayDiff = Math.abs(bankDate - txDate) / (86400 * 1000);
+      const pctDiff = m === 0 ? 100 : (Math.abs(m - bankRow.monto) / m) * 100;
+      if (!q && (dayDiff > 14 || pctDiff > 15)) continue;
+      proximityScore = Math.max(0, 100 - dayDiff * 4 - pctDiff * 2);
+    }
+
+    scored.push({
+      id: tx.id,
+      monto: tx.monto,
+      fecha: tx.fecha,
+      concepto: tx.concepto,
+      proximityScore,
+    });
+  }
+
+  scored.sort((a, b) => b.proximityScore - a.proximityScore);
+  return scored.slice(0, limit);
+}
+
+/** Aplica overrides manuales y recalcula conflictos 1:N. */
+export function applyManualOverrides(
+  suggestions: BankMatchSuggestion[],
+  overrides: ReadonlyMap<number, BankManualOverride>
+): BankMatchSuggestion[] {
+  if (overrides.size === 0) {
+    return suggestions.map((s) => ({ ...s }));
+  }
+  const next = suggestions.map((s) => {
+    const o = overrides.get(s.bankRowIndex);
+    if (!o) return { ...s };
+    return {
+      bankRowIndex: s.bankRowIndex,
+      transactionId: o.transactionId,
+      score: 100,
+      note: o.note?.trim() || 'Match manual del contador',
+      isConflict: false,
+      suggestionSource: 'manual' as const,
+    };
+  });
+  return markConflicts(next);
+}
+
+/** Confirma una sola fila (E5.4). Reutiliza patch + audit con source. */
+export async function confirmSingleMatch(
+  bankRows: ParsedBankRow[],
+  suggestion: BankMatchSuggestion,
+  options?: { source?: string }
+): Promise<BankConfirmSummary> {
+  const source = options?.source ?? 'manual';
+  if (suggestion.isConflict) {
+    return {
+      confirmed: 0,
+      skippedConflict: 1,
+      skippedNoMatch: 0,
+      errors: ['La fila sigue en conflicto; elija otra transacción'],
+    };
+  }
+  if (!suggestion.transactionId) {
+    return {
+      confirmed: 0,
+      skippedConflict: 0,
+      skippedNoMatch: 1,
+      errors: ['Sin transacción seleccionada'],
+    };
+  }
+  const row = bankRows[suggestion.bankRowIndex];
+  if (!row) {
+    return {
+      confirmed: 0,
+      skippedConflict: 0,
+      skippedNoMatch: 0,
+      errors: ['Fila bancaria no encontrada'],
+    };
+  }
+  return confirmBankMatches(
+    [
+      {
+        bankRowIndex: suggestion.bankRowIndex,
+        transactionId: suggestion.transactionId,
+        score: suggestion.score,
+        bankDescription: row.descripcion,
+      },
+    ],
+    { source }
+  );
 }
 
 export async function confirmNonConflictMatches(
