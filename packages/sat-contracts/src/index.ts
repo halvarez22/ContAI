@@ -16,6 +16,8 @@ export interface SatDownloadRequest {
   /** YYYY-MM-DD */
   fechaFin: string;
   tipo: SatDownloadTipo;
+  /** Org activa del usuario (E8.1) — required for sat_ws callables */
+  organizationId?: string;
 }
 
 export interface SatCfdiPackage {

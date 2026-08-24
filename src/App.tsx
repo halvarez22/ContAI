@@ -52,8 +52,6 @@ import type { AgentDecision, AgentType } from './types/agentDecision';
 import { logAuditEntry } from './services/auditService';
 import {
   createUserProfile,
-  updateUserSettings,
-  toggleUserPeriodClosed,
   createProduct,
   createInventoryMovement,
   createTransaction,
@@ -62,6 +60,13 @@ import {
   setRecurring,
   serverTimestamp,
 } from './services/firestoreService';
+import {
+  updateOrganizationSettings,
+  toggleOrganizationPeriodClosed,
+} from './services/organizationService';
+import { useActiveOrganization } from './hooks/useActiveOrganization';
+import { OrgSwitcher } from './components/org/OrgSwitcher';
+import { OrgPickerScreen } from './components/org/OrgPickerScreen';
 import {
   filterTransactionsByMonth,
   filterTransactionsYtdThroughMonth,
@@ -156,6 +161,53 @@ export default function App() {
   const { mode: dashboardMode, setMode: setDashboardMode } = useDashboardMode();
   const { isDarkMode, toggleDarkMode } = useTheme();
   const navItems = getNavItems();
+  const {
+    summaries: orgSummaries,
+    activeOrganizationId,
+    activeOrg,
+    loading: orgLoading,
+    bootstrapping: orgBootstrapping,
+    needsOrgPicker,
+    setActiveOrganization,
+    createOrganization,
+  } = useActiveOrganization({
+    userId: user?.uid,
+    email: user?.email,
+    displayName: user?.displayName,
+  });
+
+  const prevOrgIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeOrganizationId) return;
+    if (prevOrgIdRef.current && prevOrgIdRef.current !== activeOrganizationId) {
+      setSelectedTransaction(null);
+      setChatMessages([]);
+      setChatInput('');
+      setFilterType('all');
+      setFilterStatus('all');
+      setFilterStartDate('');
+      setFilterEndDate('');
+      setFilterProvider('');
+      setFilterTag('');
+      setIsManualTxModalOpen(false);
+      setIsEditTxModalOpen(false);
+      setIsConfirmModalOpen(false);
+      setIsRejectModalOpen(false);
+    }
+    prevOrgIdRef.current = activeOrganizationId;
+  }, [activeOrganizationId]);
+
+  useEffect(() => {
+    if (!activeOrg) return;
+    setEmpresaNombre(activeOrg.nombre);
+    setEmpresaRfc(activeOrg.rfc);
+    setAccountCatalog(
+      activeOrg.cuentas_contables.length > 0
+        ? activeOrg.cuentas_contables
+        : DEFAULT_ACCOUNT_CATALOG
+    );
+    setPeriodosCerrados(activeOrg.periodos_cerrados);
+  }, [activeOrg]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -177,31 +229,8 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-
-    const unsubUser = onSnapshot(
-      doc(db, 'users', user.uid),
-      (snap) => {
-        const data = snap.data();
-        const list = data?.cuentas_contables;
-        if (Array.isArray(list) && list.length > 0) {
-          const cleaned = list.map((s: unknown) => String(s).trim()).filter(Boolean);
-          setAccountCatalog(cleaned.length > 0 ? cleaned : DEFAULT_ACCOUNT_CATALOG);
-        } else {
-          setAccountCatalog(DEFAULT_ACCOUNT_CATALOG);
-        }
-        setEmpresaNombre(String(data?.empresa_nombre ?? '').trim());
-        setEmpresaRfc(String(data?.empresa_rfc ?? '').trim());
-        const pc = data?.periodos_cerrados;
-        setPeriodosCerrados(Array.isArray(pc) ? pc.map((x: unknown) => String(x)) : []);
-      },
-      (err) => console.error('No se pudo leer perfil de usuario:', err)
-    );
-
-    return () => unsubUser();
-  }, [user]);
-
+  // Perfil de usuario: preferencias de org en useActiveOrganization.
+  // (sin listener duplicado aquí)
   useEffect(() => {
     if (activeTab === 'settings' && prevActiveTabRef.current !== 'settings') {
       settingsCatalogDirtyRef.current = false;
@@ -231,12 +260,21 @@ export default function App() {
     const rfc = draftEmpresaRfc.trim().toUpperCase();
     setIsSavingSettings(true);
     try {
-      await updateUserSettings(user.uid, {
+      if (!activeOrganizationId) {
+        alert('Selecciona una organización antes de guardar.');
+        return;
+      }
+      await updateOrganizationSettings(activeOrganizationId, {
         cuentas_contables: lines,
-        empresa_nombre: nombre,
-        empresa_rfc: rfc,
+        nombre,
+        rfc,
       });
-      await logAuditEntry('UPDATE_SETTINGS', 'users', { cuentas: lines.length, empresa: Boolean(nombre), rfc: Boolean(rfc) });
+      await logAuditEntry('UPDATE_SETTINGS', 'organizations', {
+        cuentas: lines.length,
+        empresa: Boolean(nombre),
+        rfc: Boolean(rfc),
+        organization_id: activeOrganizationId,
+      });
       settingsCatalogDirtyRef.current = false;
     } catch (e) {
       console.error('No se pudo guardar la configuración:', e);
@@ -247,9 +285,19 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !activeOrganizationId) {
+      setTransactions([]);
+      setAuditLogs([]);
+      setRecurringTransactions([]);
+      setProducts([]);
+      setInventoryMovements([]);
+      return;
+    }
 
-    const qTransactions = query(collection(db, 'transactions'), where('usuario_id', '==', user.uid));
+    const qTransactions = query(
+      collection(db, 'transactions'),
+      where('organization_id', '==', activeOrganizationId)
+    );
     const unsubTransactions = onSnapshot(
       qTransactions,
       (snapshot) => {
@@ -281,7 +329,10 @@ export default function App() {
       }
     );
 
-    const qRecurring = query(collection(db, 'recurring_transactions'), where('usuario_id', '==', user.uid));
+    const qRecurring = query(
+      collection(db, 'recurring_transactions'),
+      where('organization_id', '==', activeOrganizationId)
+    );
     const unsubRecurring = onSnapshot(
       qRecurring,
       (snapshot) => {
@@ -299,7 +350,10 @@ export default function App() {
       }
     );
 
-    const qProducts = query(collection(db, 'products'), where('usuario_id', '==', user.uid));
+    const qProducts = query(
+      collection(db, 'products'),
+      where('organization_id', '==', activeOrganizationId)
+    );
     const unsubProducts = onSnapshot(
       qProducts,
       (snapshot) => {
@@ -310,7 +364,10 @@ export default function App() {
       () => setProducts([])
     );
 
-    const qInv = query(collection(db, 'inventory_movements'), where('usuario_id', '==', user.uid));
+    const qInv = query(
+      collection(db, 'inventory_movements'),
+      where('organization_id', '==', activeOrganizationId)
+    );
     const unsubInv = onSnapshot(
       qInv,
       (snapshot) => {
@@ -328,7 +385,7 @@ export default function App() {
       unsubProducts();
       unsubInv();
     };
-  }, [user]);
+  }, [user, activeOrganizationId]);
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
@@ -385,6 +442,7 @@ export default function App() {
 
   const importFlow = useImportFlow({
     userId: user?.uid,
+    organizationId: activeOrganizationId ?? undefined,
     periodosCerrados,
     classify: triggerAgent,
     highAmountReviewThreshold: HIGH_AMOUNT_REVIEW_THRESHOLD,
@@ -392,7 +450,7 @@ export default function App() {
 
   const saveProduct = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !activeOrganizationId) return;
     const fd = new FormData(e.currentTarget);
     const codigo = String(fd.get('codigo') || '').trim();
     const descripcion = String(fd.get('descripcion') || '').trim();
@@ -401,7 +459,7 @@ export default function App() {
       return;
     }
     try {
-      await createProduct(user.uid, {
+      await createProduct(user.uid, activeOrganizationId, {
         codigo,
         descripcion,
         unidad: String(fd.get('unidad') || '').trim() || 'PZA',
@@ -416,7 +474,7 @@ export default function App() {
 
   const saveInventoryMovement = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !activeOrganizationId) return;
     const fd = new FormData(e.currentTarget);
     const product_id = String(fd.get('product_id') || '');
     const tipoMov = String(fd.get('tipo_mov') || 'entrada');
@@ -432,7 +490,7 @@ export default function App() {
       return;
     }
     try {
-      await createInventoryMovement(user.uid, {
+      await createInventoryMovement(user.uid, activeOrganizationId, {
         product_id,
         tipo: tipoMov,
         cantidad,
@@ -473,12 +531,15 @@ export default function App() {
   };
 
   const togglePeriodoCerrado = async () => {
-    if (!user) return;
+    if (!user || !activeOrganizationId) return;
     const key = periodKey(periodYear, periodMonth);
     const cerrado = periodosCerrados.includes(key);
     try {
-      await toggleUserPeriodClosed(user.uid, key, cerrado);
-      await logAuditEntry(cerrado ? 'OPEN_PERIOD' : 'CLOSE_PERIOD', 'users', { periodo: key });
+      await toggleOrganizationPeriodClosed(activeOrganizationId, key, cerrado);
+      await logAuditEntry(cerrado ? 'OPEN_PERIOD' : 'CLOSE_PERIOD', 'organizations', {
+        periodo: key,
+        organization_id: activeOrganizationId,
+      });
     } catch (e) {
       console.error(e);
       alert('No se pudo actualizar el cierre del periodo.');
@@ -554,7 +615,10 @@ export default function App() {
 
   const saveManualTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !activeOrganizationId) {
+      alert('Selecciona una organización antes de capturar.');
+      return;
+    }
 
     const formData = new FormData(e.currentTarget);
     const rawTags = String(formData.get('tags') || '');
@@ -568,7 +632,7 @@ export default function App() {
     const fiscalExtra = fiscalPayloadFromForm(formData, tipoTx, montoNum);
 
     const transactionData = {
-      organization_id: 'org_main',
+      organization_id: activeOrganizationId,
       usuario_id: user.uid,
       tipo: tipoTx,
       monto: montoNum,
@@ -654,9 +718,10 @@ export default function App() {
 
   const saveRecurringTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!user || !activeOrganizationId) return;
     const formData = new FormData(e.currentTarget);
     const data = {
-      organization_id: 'org_main',
+      organization_id: activeOrganizationId,
       concepto: formData.get('concepto') as string,
       monto: Number(formData.get('monto')),
       tipo: formData.get('tipo') as string,
@@ -1091,7 +1156,7 @@ export default function App() {
     }
   };
 
-  if (loading) {
+  if (loading || (user && (orgLoading || orgBootstrapping))) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
@@ -1121,6 +1186,20 @@ export default function App() {
     );
   }
 
+  if (needsOrgPicker) {
+    return (
+      <OrgPickerScreen
+        summaries={orgSummaries}
+        onSelect={async (id) => {
+          await setActiveOrganization(id);
+        }}
+        onCreate={async (nombre, rfc) => {
+          await createOrganization(nombre, rfc);
+        }}
+      />
+    );
+  }
+
   return (
     <>
       <AppShell
@@ -1140,6 +1219,16 @@ export default function App() {
         onMobileClose={() => setIsMobileMenuOpen(false)}
         empresaNombre={empresaNombre}
         empresaRfc={empresaRfc}
+        orgSwitcher={
+          <OrgSwitcher
+            summaries={orgSummaries}
+            activeOrganizationId={activeOrganizationId}
+            onSelect={(id) => {
+              void setActiveOrganization(id);
+            }}
+            disabled={orgLoading || orgBootstrapping}
+          />
+        }
         onLogout={() => {
           void handleLogout();
         }}
@@ -1216,6 +1305,7 @@ export default function App() {
               {activeTab === 'sat_download' && (
                 <SatDownloadSection
                   userId={user?.uid}
+                  organizationId={activeOrganizationId ?? undefined}
                   defaultRfc={empresaRfc || 'XAXX010101000'}
                   periodosCerrados={periodosCerrados}
                   highAmountReviewThreshold={HIGH_AMOUNT_REVIEW_THRESHOLD}

@@ -15,7 +15,6 @@ import {
   commitTransactionUpdatesBatch,
   serverTimestamp,
   BATCH_CHUNK,
-  orgMain,
 } from './firestoreService';
 import { logAuditEntry } from './auditService';
 import type {
@@ -44,6 +43,7 @@ export function chunkArray<T>(items: T[], size: number): T[][] {
 
 export function buildCfdiTransactionDraft(
   userId: string,
+  organizationId: string,
   fileName: string,
   d: CfdiExtracted
 ): { ok: true; draft: CfdiTransactionDraft } | { ok: false; error: string } {
@@ -67,7 +67,7 @@ export function buildCfdiTransactionDraft(
   const draft: CfdiTransactionDraft = {
     fileName,
     payload: {
-      organization_id: orgMain(),
+      organization_id: organizationId,
       usuario_id: userId,
       tipo,
       monto: d.total,
@@ -179,6 +179,7 @@ export async function parseCfdiXmlBatch(
 
 export type RunCfdiBatchParams = {
   userId: string;
+  organizationId: string;
   periodosCerrados: string[];
   highAmountReviewThreshold: number;
   inputs: ParsedXmlInput[];
@@ -195,12 +196,17 @@ export async function runCfdiBatchImport(
 ): Promise<CfdiBatchImportSummary> {
   const {
     userId,
+    organizationId,
     periodosCerrados,
     highAmountReviewThreshold,
     inputs,
     classify,
     onProgress,
   } = params;
+
+  if (!organizationId) {
+    throw new Error('organizationId es obligatorio para importar CFDI.');
+  }
 
   const results: CfdiBatchFileResult[] = [];
   onProgress?.({
@@ -222,7 +228,7 @@ export async function runCfdiBatchImport(
 
   const built: CfdiTransactionDraft[] = [];
   for (const p of parsed) {
-    const b = buildCfdiTransactionDraft(userId, p.fileName, p.data);
+    const b = buildCfdiTransactionDraft(userId, organizationId, p.fileName, p.data);
     if (b.ok === false) {
       results.push({ fileName: p.fileName, ok: false, error: b.error });
     } else {

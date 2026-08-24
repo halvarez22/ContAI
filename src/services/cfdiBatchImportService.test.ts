@@ -50,7 +50,7 @@ describe('chunkArray', () => {
 
 describe('buildCfdiTransactionDraft', () => {
   it('arma draft pendiente con clasificación tipada', () => {
-    const r = buildCfdiTransactionDraft('user1', 'a.xml', sampleCfdi());
+    const r = buildCfdiTransactionDraft('user1', 'org1', 'a.xml', sampleCfdi());
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.draft.payload.status).toBe('pendiente');
@@ -65,11 +65,13 @@ describe('partitionDraftsByClosedPeriod', () => {
   it('omite drafts en periodos cerrados y acepta el resto', () => {
     const ok = buildCfdiTransactionDraft(
       'u',
+      'org1',
       'ok.xml',
       sampleCfdi({ fecha: '2026-03-10T10:00:00' })
     );
     const closed = buildCfdiTransactionDraft(
       'u',
+      'org1',
       'closed.xml',
       sampleCfdi({ fecha: '2026-01-05T10:00:00' })
     );

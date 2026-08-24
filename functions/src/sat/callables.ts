@@ -30,7 +30,6 @@ import { resolveSatWsClient } from './satWsFactory';
 import { SatWsClientError } from './realSatWsClient';
 import { mapSatFailure } from './satErrorMap';
 
-const ORG = 'org_main';
 const MAX_JOBS_PER_HOUR = 10;
 const JOBS = 'sat_download_jobs';
 const CREDS = 'sat_credentials';
@@ -55,6 +54,31 @@ function assertAuth(uid: string | undefined): string {
     throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
   }
   return uid;
+}
+
+function memberDocId(userId: string, organizationId: string): string {
+  return `${userId}_${organizationId}`;
+}
+
+async function assertOrgMember(
+  uid: string,
+  organizationId: string
+): Promise<string> {
+  const orgId = String(organizationId || '').trim();
+  if (!orgId) {
+    throw new HttpsError('invalid-argument', 'organizationId requerido.');
+  }
+  const snap = await getFirestore()
+    .collection('organization_members')
+    .doc(memberDocId(uid, orgId))
+    .get();
+  if (!snap.exists || snap.data()?.activo === false) {
+    throw new HttpsError(
+      'permission-denied',
+      'No eres miembro activo de esa organización.'
+    );
+  }
+  return orgId;
 }
 
 function validateRequest(req: SatDownloadRequest): void {
@@ -109,6 +133,10 @@ export const uploadSatCredential = onCall(
   { memory: '256MiB', timeoutSeconds: 60 },
   async (request) => {
     const uid = assertAuth(request.auth?.uid);
+    const orgId = await assertOrgMember(
+      uid,
+      String(request.data?.organizationId || '')
+    );
     const cerBase64 = String(request.data?.cerBase64 || '');
     const keyBase64 = String(request.data?.keyBase64 || '');
     const password = request.data?.password
@@ -133,9 +161,9 @@ export const uploadSatCredential = onCall(
       zeroizeBuffer(passBuf);
     }
 
-    await db.collection(CREDS).doc(ORG).set(
+    await db.collection(CREDS).doc(orgId).set(
       {
-        organization_id: ORG,
+        organization_id: orgId,
         uploaded_by: uid,
         uploaded_at: new Date().toISOString(),
         cer_b64: cerBase64,
@@ -161,14 +189,18 @@ export const startSatDownload = onCall(
   { memory: '512MiB', timeoutSeconds: 120 },
   async (request): Promise<StartSatDownloadResponse> => {
     const uid = assertAuth(request.auth?.uid);
-    const body = request.data as SatDownloadRequest;
+    const body = request.data as SatDownloadRequest & { organizationId?: string };
     validateRequest(body);
+    const orgId = await assertOrgMember(
+      uid,
+      String(body.organizationId || (request.data as { organizationId?: string })?.organizationId || '')
+    );
 
     const db = getFirestore();
     const hourAgo = new Date(Date.now() - 3600_000).toISOString();
     const recent = await db
       .collection(JOBS)
-      .where('organization_id', '==', ORG)
+      .where('organization_id', '==', orgId)
       .where('created_at', '>=', hourAgo)
       .limit(MAX_JOBS_PER_HOUR + 1)
       .get();
@@ -183,7 +215,7 @@ export const startSatDownload = onCall(
 
     let wsBundle;
     try {
-      wsBundle = await resolveSatWsClient({ organizationId: ORG });
+      wsBundle = await resolveSatWsClient({ organizationId: orgId });
     } catch (e) {
       if (e instanceof SatWsClientError) {
         const m = e.mapped;
@@ -201,7 +233,7 @@ export const startSatDownload = onCall(
     const store = firestoreStore();
     const job = await createQueuedJob({
       jobId,
-      organizationId: ORG,
+      organizationId: orgId,
       userId: uid,
       request: {
         rfc: body.rfc.trim().toUpperCase(),
@@ -243,6 +275,7 @@ export const advanceSatDownload = onCall(
     if (job.usuario_id !== uid) {
       throw new HttpsError('permission-denied', 'No autorizado para este job.');
     }
+    const orgId = await assertOrgMember(uid, String(job.organization_id || ''));
 
     if (job.status === 'ready' || job.status === 'failed' || job.status === 'expired') {
       return { job, packagesSignedUrl: await signedUrlFor(job) };
@@ -251,7 +284,7 @@ export const advanceSatDownload = onCall(
     let wsBundle;
     try {
       wsBundle = await resolveSatWsClient({
-        organizationId: ORG,
+        organizationId: orgId,
         mode: job.provider === 'sat_ws' ? 'real' : 'mock',
       });
     } catch (e) {

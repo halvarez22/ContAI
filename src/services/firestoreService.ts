@@ -1,13 +1,11 @@
 /**
- * Único punto de escrituras Firestore para ContAI (Entregable 1).
- * Lecturas / onSnapshot permanecen en App — sin cambio de lifecycle.
- * organization_id permanece hardcodeado como 'org_main' en los callers.
+ * Único punto de escrituras Firestore para ContAI.
+ * Lecturas / onSnapshot permanecen en App.
+ * organizationId es obligatorio en escrituras de negocio (E8.1).
  */
 
 import {
   addDoc,
-  arrayRemove,
-  arrayUnion,
   collection,
   doc,
   serverTimestamp,
@@ -18,12 +16,7 @@ import {
 import { db } from '../firebase';
 import type { ProductDraft, TransactionDraft } from '../lib/excelContaiImport';
 
-const ORG_MAIN = 'org_main';
 const BATCH_CHUNK = 400;
-
-export function orgMain(): string {
-  return ORG_MAIN;
-}
 
 export async function createUserProfile(
   uid: string,
@@ -38,6 +31,7 @@ export async function createUserProfile(
   });
 }
 
+/** @deprecated Prefer updateOrganizationSettings (E8.1). Conservado para compat. */
 export async function updateUserSettings(
   uid: string,
   data: {
@@ -56,27 +50,13 @@ export async function updateUserSettings(
   );
 }
 
-export async function toggleUserPeriodClosed(
-  uid: string,
-  periodKey: string,
-  currentlyClosed: boolean
-): Promise<void> {
-  await setDoc(
-    doc(db, 'users', uid),
-    {
-      periodos_cerrados: currentlyClosed ? arrayRemove(periodKey) : arrayUnion(periodKey),
-      actualizado_en: serverTimestamp(),
-    },
-    { merge: true }
-  );
-}
-
 export async function createProduct(
   userId: string,
+  organizationId: string,
   data: { codigo: string; descripcion: string; unidad: string }
 ): Promise<void> {
   await addDoc(collection(db, 'products'), {
-    organization_id: ORG_MAIN,
+    organization_id: organizationId,
     usuario_id: userId,
     codigo: data.codigo,
     descripcion: data.descripcion,
@@ -87,6 +67,7 @@ export async function createProduct(
 
 export async function createInventoryMovement(
   userId: string,
+  organizationId: string,
   data: {
     product_id: string;
     tipo: string;
@@ -97,7 +78,7 @@ export async function createInventoryMovement(
   }
 ): Promise<void> {
   await addDoc(collection(db, 'inventory_movements'), {
-    organization_id: ORG_MAIN,
+    organization_id: organizationId,
     usuario_id: userId,
     product_id: data.product_id,
     tipo: data.tipo,
@@ -126,9 +107,7 @@ export async function setTransaction(
   await setDoc(doc(db, 'transactions', id), payload);
 }
 
-export async function createRecurring(
-  payload: DocumentData
-): Promise<void> {
+export async function createRecurring(payload: DocumentData): Promise<void> {
   await addDoc(collection(db, 'recurring_transactions'), payload);
 }
 
@@ -144,13 +123,16 @@ export async function setRecurring(
   }
 }
 
-/** Commit Excel drafts (misma semántica que excelImportService). */
+/** Commit Excel drafts. organizationId obligatorio. */
 export async function commitExcelBatches(
   userId: string,
   txs: TransactionDraft[],
   products: ProductDraft[],
-  organizationId = ORG_MAIN
+  organizationId: string
 ): Promise<{ txCount: number; productCount: number }> {
+  if (!organizationId) {
+    throw new Error('organizationId es obligatorio para importar Excel.');
+  }
   const byCodigo = new Map<string, ProductDraft>();
   for (const p of products) byCodigo.set(p.codigo, p);
   const uniqueProducts = [...byCodigo.values()];
@@ -205,10 +187,6 @@ export async function commitExcelBatches(
   return { txCount, productCount };
 }
 
-/**
- * Persiste borradores CFDI en writeBatch (chunks de 400).
- * Devuelve documentId por cada draft en el mismo orden.
- */
 export async function commitCfdiTransactionBatch(
   drafts: Array<{ payload: DocumentData }>
 ): Promise<{ ids: string[] }> {
@@ -229,7 +207,6 @@ export async function commitCfdiTransactionBatch(
   return { ids };
 }
 
-/** Actualiza varios documentos en writeBatch (merge). */
 export async function commitTransactionUpdatesBatch(
   updates: Array<{ id: string; payload: DocumentData }>
 ): Promise<void> {

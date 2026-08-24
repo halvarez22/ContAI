@@ -18,6 +18,7 @@ export type AppShellProps = {
   onMobileClose: () => void;
   empresaNombre: string;
   empresaRfc: string;
+  orgSwitcher?: ReactNode;
   onLogout: () => void;
   mode: DashboardMode;
   onModeChange: (mode: DashboardMode) => void;
@@ -44,6 +45,7 @@ export function AppShell({
   onMobileClose,
   empresaNombre,
   empresaRfc,
+  orgSwitcher,
   onLogout,
   mode,
   onModeChange,
@@ -84,6 +86,7 @@ export function AppShell({
           title={title}
           empresaNombre={empresaNombre}
           empresaRfc={empresaRfc}
+          orgSwitcher={orgSwitcher}
           mode={mode}
           onModeChange={onModeChange}
           isDarkMode={isDarkMode}

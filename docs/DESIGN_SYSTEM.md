@@ -73,8 +73,22 @@ Iconos: **Lucide** (ya en el producto). Charts: **Recharts** vía wrapper `Chart
 | E7.1 Vista ejecutiva | `ExecutiveDashboardView` |
 | E7.2 Vista operativa | `OperationalDashboardView` |
 | E7.3 Secciones | `AppTabRouter` + `*Section` en `src/components/sections/` |
+| E8.1 Multi-org | `OrgSwitcher`, `organizationService`, listeners por `organization_id` |
 
-## Secciones migradas (E7.3)
+## Multi-organización (E8.1)
+
+| Pieza | Ruta |
+|-------|------|
+| Tipos | `src/types/organization.ts` |
+| Service | `src/services/organizationService.ts` |
+| Hook | `src/hooks/useActiveOrganization.ts` |
+| UI | `src/components/org/OrgSwitcher.tsx`, `OrgPickerScreen.tsx` |
+| Rules | `firestore.rules` — membership `{uid}_{orgId}` |
+| Indexes | `firestore.indexes.json` |
+
+## Roadmap
+
+E0.1 ✅ → E0.2 ✅ → E7.1–E7.3 ✅ → **E8.1 ✅** → E8.2 invitaciones / E9.1 / E10.1.
 
 | Pieza | Ruta |
 |-------|------|

@@ -8,6 +8,7 @@ import { cn } from '../lib/utils';
 
 export type SatDownloadPanelProps = {
   userId: string | undefined;
+  organizationId: string | undefined;
   defaultRfc: string;
   periodosCerrados: string[];
   highAmountReviewThreshold: number;

@@ -31,6 +31,7 @@ export type ClassifyFn = (
 
 export type UseImportFlowParams = {
   userId: string | undefined;
+  organizationId: string | undefined;
   periodosCerrados: string[];
   classify: ClassifyFn;
   highAmountReviewThreshold: number;
@@ -38,6 +39,7 @@ export type UseImportFlowParams = {
 
 export function useImportFlow({
   userId,
+  organizationId,
   periodosCerrados,
   classify,
   highAmountReviewThreshold,
@@ -147,8 +149,12 @@ export function useImportFlow({
         }
 
         setCfdiPhase('processing_ai');
+        if (!organizationId) {
+          throw new Error('Selecciona una organización antes de importar.');
+        }
         const summary = await runCfdiBatchImport({
           userId,
+          organizationId,
           periodosCerrados,
           highAmountReviewThreshold,
           inputs,
@@ -179,7 +185,7 @@ export function useImportFlow({
         setCfdiImporting(false);
       }
     },
-    [userId, periodosCerrados, highAmountReviewThreshold, classify]
+    [userId, organizationId, periodosCerrados, highAmountReviewThreshold, classify]
   );
 
   /** Entrada del input: 1 archivo → preview; N → batch automático. */
@@ -208,6 +214,10 @@ export function useImportFlow({
   const runExcelImport = useCallback(
     async (fileList: FileList | null) => {
       if (!fileList?.length || !userId) return;
+      if (!organizationId) {
+        setExcelImportMessage('Selecciona una organización antes de importar.');
+        return;
+      }
       setExcelImporting(true);
       setExcelImportMessage(null);
       try {
@@ -229,7 +239,12 @@ export function useImportFlow({
           }
           return true;
         });
-        const { txCount, productCount } = await commitExcelImport(userId, txs, merged.products);
+        const { txCount, productCount } = await commitExcelImport(
+          userId,
+          txs,
+          merged.products,
+          organizationId
+        );
         setExcelImportMessage(
           [
             `Listo: ${txCount} transacciones, ${productCount} productos.`,
@@ -248,11 +263,11 @@ export function useImportFlow({
         setExcelImporting(false);
       }
     },
-    [userId, periodosCerrados]
+    [userId, organizationId, periodosCerrados]
   );
 
   const importCfdiAsTransaction = useCallback(async () => {
-    if (!userId || !cfdiPreview) return;
+    if (!userId || !cfdiPreview || !organizationId) return;
     const d = cfdiPreview;
     let fechaIso: string;
     try {
@@ -281,7 +296,7 @@ export function useImportFlow({
         : `CFDI importado${d.uuid ? ` · ${d.uuid.slice(0, 8)}…` : ''}`;
 
       const docRef = await createTransaction({
-        organization_id: 'org_main',
+        organization_id: organizationId,
         usuario_id: userId,
         tipo,
         monto: d.total,
@@ -334,7 +349,7 @@ export function useImportFlow({
           policy_review_reason: requiresPolicyReview
             ? `Monto mayor a ${highAmountReviewThreshold}`
             : null,
-          organization_id: 'org_main',
+          organization_id: organizationId,
           usuario_id: userId,
           iva_tasa,
           egreso_acredita_iva: tipo === 'egreso',
@@ -363,7 +378,7 @@ export function useImportFlow({
     } finally {
       setCfdiImporting(false);
     }
-  }, [userId, cfdiPreview, periodosCerrados, classify, highAmountReviewThreshold]);
+  }, [userId, organizationId, cfdiPreview, periodosCerrados, classify, highAmountReviewThreshold]);
 
   return {
     isCfdiImportOpen,

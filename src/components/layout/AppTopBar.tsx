@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Menu, Moon, Sun, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { ViewModeToggle } from './ViewModeToggle';
@@ -7,6 +8,7 @@ export type AppTopBarProps = {
   title: string;
   empresaNombre: string;
   empresaRfc: string;
+  orgSwitcher?: ReactNode;
   mode: DashboardMode;
   onModeChange: (mode: DashboardMode) => void;
   isDarkMode: boolean;
@@ -22,6 +24,7 @@ export function AppTopBar({
   title,
   empresaNombre,
   empresaRfc,
+  orgSwitcher,
   mode,
   onModeChange,
   isDarkMode,
@@ -62,7 +65,9 @@ export function AppTopBar({
         </h2>
       </div>
 
-      {(empresaNombre || empresaRfc) && (
+      {orgSwitcher ? (
+        <div className="flex-1 min-w-0 flex justify-center px-2">{orgSwitcher}</div>
+      ) : (empresaNombre || empresaRfc) ? (
         <div className="flex-1 min-w-0 hidden md:flex flex-col items-center justify-center px-2 text-center">
           {empresaNombre ? (
             <p className="text-xs font-semibold text-ink truncate max-w-md lg:max-w-lg">
@@ -75,7 +80,7 @@ export function AppTopBar({
             </p>
           ) : null}
         </div>
-      )}
+      ) : null}
 
       <div className="flex items-center gap-2 lg:gap-3 flex-shrink-0">
         <ViewModeToggle mode={mode} onModeChange={onModeChange} />

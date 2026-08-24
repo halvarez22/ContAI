@@ -1,49 +1,39 @@
-# Implementation Plan — Entregable 7.3 (Migración de Secciones bajo el Dashboard)
+# Implementation Plan — Entregable 8.1 (Multi-Empresa / Multi-RFC)
 
-**Proyecto:** ContAI Fase 3  
+**Proyecto:** ContAI Fase 4  
 **Fecha:** 2026-08-24  
-**Estado:** IMPLEMENTADO (E7.3) — aprobado §8.1–8.6(A) 2026-08-24  
-**Precondiciones:** E7.2 (`87b7a0c`) en `main`  
-**Objetivo:** Centralizar tabs prioritarias en `AppTabRouter` + Section Views; reducir God Object `App.tsx`.  
-**Commit objetivo:** `feat: migrate dashboard sections to AppTabRouter (E7.3)`
+**Estado:** IMPLEMENTADO (E8.1) — aprobado §8.1–8.8(A) 2026-08-24  
+**Commit objetivo:** `feat: add multi-organization isolation with org switcher (E8.1)`
+
+## Resultado
+
+### Creados
+- `src/types/organization.ts` (+ tests)
+- `src/services/organizationService.ts` — ensurePersonalOrg (transacción idempotente), backfill chunks, createOrg
+- `src/hooks/useActiveOrganization.ts`
+- `src/components/org/OrgSwitcher.tsx` (+ test)
+- `src/components/org/OrgPickerScreen.tsx` (+ test)
+- `firestore.indexes.json`
+
+### Modificados
+- `firestore.rules` — membership via `organization_members/{uid}_{orgId}`
+- `firestoreService.ts` — organizationId obligatorio; sin `orgMain()`
+- `App.tsx` — listeners por `organization_id`; settings/periodos en org; OrgSwitcher; reset al switch
+- Import CFDI/Excel/SAT — organizationId activo
+- `functions/src/sat/callables.ts` — `assertOrgMember` + org del request/job
+
+### Guardrails
+1. ✅ `ensurePersonalOrg` transacción sobre `personal_{uid}` + member `uid_orgId`
+2. ✅ Backfill chunks 400; `org_migrated_at` solo al vaciar
+3. ✅ Rules `get(.../organization_members/$(uid + '_' + orgId))`
 
 ---
 
-## Resultado de implementación
+## Roadmap
 
-### Archivos creados
-- `src/types/appSections.ts` + `appSections.test.ts`
-- `src/components/layout/AppTabRouter.tsx` + test
-- `src/components/sections/PeriodSelectorCard.tsx` + test
-- `src/components/sections/OverviewSection.tsx`
-- `src/components/sections/TransactionsSection.tsx` + test (DataTable)
-- `src/components/sections/ReconciliationSection.tsx` + test
-- `src/components/sections/SatDownloadSection.tsx` + test
-- `src/components/sections/FiscalSection.tsx` + test
-
-### Archivos modificados
-- `src/App.tsx` — 5 tabs migradas a `AppTabRouter`; `isNavTabId` en navegación; tabs secundarias inline
-- `docs/DESIGN_SYSTEM.md`
-
-### Guardrails auditor
-1. ✅ `key` estable en `AppTabRouter` (`overview-${dashboardMode}` | `activeTab`)
-2. ✅ `isNavTabId` / `isMigratedNavTabId` type guards
-3. ✅ `PeriodSelectorCard` puramente controlado
-
-### Verificación
-- `tsc --noEmit` OK
-- **101/101 tests** (88 previos + 13 nuevos E7.3)
-- Cero cambios en `useBankReconciliation`, `useSatDownload`, servicios de negocio
-
----
-
-## Anexo — Roadmap Fase 3
-
-| ID | Entregable | Estado |
-|----|------------|--------|
-| E0.1 | Design System | ✅ |
-| E0.2 | Shell / toggle | ✅ |
-| E7.1 | Vista ejecutiva | ✅ |
-| E7.2 | Vista operativa | ✅ |
-| **E7.3** | Migración secciones | ✅ IMPLEMENTADO |
-| E7.3.1 | Tabs secundarias (analysis, inventory, …) | pendiente |
+| ID | Estado |
+|----|--------|
+| Fase 3 | ✅ |
+| **E8.1** | ✅ IMPLEMENTADO |
+| E8.2 Invitaciones | pendiente |
+| E9.1 / E10.1 | pendiente |

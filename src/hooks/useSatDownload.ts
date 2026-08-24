@@ -16,6 +16,7 @@ import type { CfdiBatchFileResult, CfdiBatchImportSummary } from '../types/cfdiB
 
 export type UseSatDownloadParams = {
   userId: string | undefined;
+  organizationId: string | undefined;
   defaultRfc: string;
   periodosCerrados: string[];
   highAmountReviewThreshold: number;
@@ -25,6 +26,7 @@ export type UseSatDownloadParams = {
 
 export function useSatDownload({
   userId,
+  organizationId,
   defaultRfc,
   periodosCerrados,
   highAmountReviewThreshold,
@@ -53,12 +55,18 @@ export function useSatDownload({
       setMessage('Debes iniciar sesión para importar CFDIs.');
       return;
     }
+    if (!organizationId) {
+      setPhase('error');
+      setMessage('Selecciona una organización antes de descargar del SAT.');
+      return;
+    }
 
     const req: SatDownloadRequest = {
       rfc: rfc.trim() || defaultRfc,
       fechaInicio,
       fechaFin,
       tipo,
+      organizationId,
     };
 
     setPhase('requesting');
@@ -94,6 +102,7 @@ export function useSatDownload({
 
       const summary = await runCfdiBatchImport({
         userId,
+        organizationId: organizationId!,
         periodosCerrados,
         highAmountReviewThreshold,
         inputs: packagesToBatchInputs(download.packages),
@@ -147,6 +156,7 @@ export function useSatDownload({
     periodosCerrados,
     highAmountReviewThreshold,
     classify,
+    organizationId,
   ]);
 
   return {

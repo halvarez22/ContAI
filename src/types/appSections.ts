@@ -110,6 +110,7 @@ export type ReconciliationSectionProps = {
 
 export type SatDownloadSectionProps = {
   userId: string | undefined;
+  organizationId: string | undefined;
   defaultRfc: string;
   periodosCerrados: string[];
   highAmountReviewThreshold: number;

@@ -6,7 +6,7 @@ export async function commitExcelImport(
   userId: string,
   txs: TransactionDraft[],
   products: ProductDraft[],
-  organizationId = 'org_main'
+  organizationId: string
 ): Promise<{ txCount: number; productCount: number }> {
   const { txCount, productCount } = await commitExcelBatches(
     userId,

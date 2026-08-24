@@ -14,6 +14,7 @@ describe('SatDownloadSection', () => {
     render(
       <SatDownloadSection
         userId="u1"
+        organizationId="org1"
         defaultRfc="XAXX010101000"
         periodosCerrados={[]}
         highAmountReviewThreshold={50000}
