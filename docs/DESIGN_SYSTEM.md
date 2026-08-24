@@ -57,7 +57,7 @@ Iconos: **Lucide** (ya en el producto). Charts: **Recharts** vía wrapper `Chart
 | Modo | `useDashboardMode` → `localStorage` (`contai.dashboardMode`) |
 | Tema | `useTheme` → clase `dark` en `<html>` |
 
-**Modo Operativo/Ejecutivo:** solo estado de contexto en E0.2; no cambia contenido de tabs (E7.1/E7.2).
+**Modo Operativo/Ejecutivo:** E7.1 consume `'ejecutivo'` en `overview` vía `ExecutiveDashboardView`; `'operativo'` mantiene el panel actual (E7.2 lo extraerá).
 
 **Checklist a11y shell:**
 
@@ -66,6 +66,12 @@ Iconos: **Lucide** (ya en el producto). Charts: **Recharts** vía wrapper `Chart
 - [ ] Focus visible en botones ghost del TopBar
 - [ ] Overlay móvil cierra con click (aria-hidden)
 
+## Consumo en producto
+
+| Entregable | Uso |
+|------------|-----|
+| E7.1 Vista ejecutiva | `PageHeader`, `StatCard`×4, `Chart`, `Alert`, `Button`, `Badge`, `Skeleton` vía `ExecutiveDashboardView` |
+
 ## Roadmap
 
-E0.1 ✅ → E0.2 (shell) → E7.1 ejecutiva → E7.2 operativa → E7.3 migración secciones.
+E0.1 ✅ → E0.2 ✅ → E7.1 (vista ejecutiva) → E7.2 operativa → E7.3 migración secciones.

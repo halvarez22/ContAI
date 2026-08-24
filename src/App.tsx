@@ -73,7 +73,9 @@ import { buildFiscalSnapshot, parseIvaTasa } from './lib/fiscal';
 import { isPeriodClosed, isTransactionDateInClosedPeriod, periodKey } from './lib/periodClose';
 import { generateExecutiveBriefing, askMonthQuestion } from './services/insightsService';
 import { buildTaxPreview } from './services/taxCalculatorService';
+import { buildExecutiveSnapshot } from './services/executiveDashboardService';
 import { TaxPreviewCard } from './components/TaxPreviewCard';
+import { ExecutiveDashboardView } from './components/ExecutiveDashboardView';
 import { DesignSystemGallery } from './components/DesignSystemGallery';
 import { ImportModals } from './components/ImportModals';
 import { BankReconciliationPanel } from './components/BankReconciliationPanel';
@@ -983,6 +985,25 @@ export default function App() {
     });
   }, [transactionsInPeriod, transactions, periodYear, periodMonth]);
 
+  const executiveSnapshot = useMemo(
+    () =>
+      buildExecutiveSnapshot({
+        allTransactions: transactions,
+        periodTransactions: transactionsInPeriod,
+        periodYear,
+        periodMonth,
+        tax: {
+          periodoLabel: taxPreview.periodoLabel,
+          ivaSaldoNeto: taxPreview.iva.saldoNeto,
+          isrEstimadoYtd: taxPreview.isr.isrEstimado,
+          lineasSinDesglose: taxPreview.iva.lineasSinDesglose,
+          disclaimer: taxPreview.disclaimer,
+          warnings: taxPreview.warnings,
+        },
+      }),
+    [transactions, transactionsInPeriod, periodYear, periodMonth, taxPreview]
+  );
+
   const periodoActualCerrado = useMemo(
     () => isPeriodClosed(periodosCerrados, periodYear, periodMonth),
     [periodosCerrados, periodYear, periodMonth]
@@ -1108,7 +1129,7 @@ export default function App() {
           <AnimatePresence mode="wait">
             {activeTab === 'overview' && (
               <motion.div 
-                key="overview"
+                key={`overview-${dashboardMode}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
@@ -1161,6 +1182,18 @@ export default function App() {
                   </div>
                 </Card>
 
+                {dashboardMode === 'ejecutivo' ? (
+                  <ExecutiveDashboardView
+                    kpis={executiveSnapshot.kpis}
+                    trend={executiveSnapshot.trend}
+                    disclaimer={taxPreview.disclaimer}
+                    briefingLoading={executiveLoading}
+                    onGenerateBriefing={() => {
+                      void runExecutiveBriefing();
+                    }}
+                  />
+                ) : (
+                  <>
                 {/* Stats */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
                   {[
@@ -1244,6 +1277,8 @@ export default function App() {
                     </div>
                   </Card>
                 </div>
+                  </>
+                )}
               </motion.div>
             )}
 

@@ -1,261 +1,249 @@
-# Implementation Plan — Entregable 0.2 (Shell / Navegación)
+# Implementation Plan — Entregable 7.1 (Vista Ejecutiva del Dashboard)
 
 **Proyecto:** ContAI Fase 3  
 **Fecha:** 2026-08-24  
-**Estado:** IMPLEMENTADO (E0.2) — aprobado §8.1–8.6(A) 2026-08-24  
-**Precondiciones:** E0.1 APPROVED en `main` (`cb840e0`) — tokens, `ui/`, Gallery DEV, a11y smoke  
-**Objetivo:** Reestructurar el **contenedor visual** post-auth (Sidebar + TopBar + área de contenido) para consumir tokens E0.1, con toggle **Operativo / Ejecutivo** en TopBar (estado de contexto para E7.1–E7.2), **sin** cambiar la lógica ni el comportamiento de las tabs existentes.  
-**Fuera de alcance E0.2:** Vistas Ejecutiva/Operativa reales (E7.1–E7.2), migración masiva de estilos *dentro* de cada tab (E7.3), React Router, Storybook, Conciliación/SAT/Import/Fiscal business, Cloud Functions, multi-tenant, nuevos primitivos `ui/` no listados.
+**Estado:** IMPLEMENTADO (E7.1) — aprobado §8.1–8.6(A) 2026-08-24  
+**Precondiciones:** E0.1 (`cb840e0`) + E0.2 (`0f0e76b`) en `main` — tokens, `ui/`, AppShell, `useDashboardMode`  
+**Objetivo:** Cuando `dashboardMode === 'ejecutivo'` y la tab activa es `overview`, renderizar una **vista ejecutiva** de KPIs macro (IVA, flujo neto, conciliación persistida, tendencia) usando únicamente componentes E0.1, alimentada por agregaciones **deterministas** sobre datos ya cargados + briefing Groq **bajo demanda** (insights existentes).  
+**Fuera de alcance E7.1:** Vista operativa (E7.2), migración masiva de tabs (E7.3), nueva ruta/nav item, auto-fetch Groq al montar, reescribir Conciliación/SAT/Import, cambiar `navItems` de producto, Storybook, Cloud Functions.
 
 ---
 
-## 0. Opinión profesional (contexto)
+## 0. Opinión profesional
 
-E0.1 dejó tokens y primitivos; el chrome de `App.tsx` (~líneas 1100–1286) sigue con `indigo-*` / `gray-*` ad hoc. E0.2 debe **extraer y tokenizar solo el layout**, no reescribir 3k+ líneas de pantallas.
+E0.2 dejó el toggle como **estado puro**. E7.1 es el primer consumidor real de `'ejecutivo'`. Debe ser **estrecho**: un componente de presentación + un builder de métricas puro. El overview actual (KPIs indigo ad hoc + “Operación en campo”) permanece como vista **operativa** implícita cuando `mode === 'operativo'` — su extracción formal es E7.2.
 
-El toggle Operativo/Ejecutivo es **infraestructura de contexto**, no el dashboard nuevo: en E0.2 el switch es visible, accesible y persistente; **no** sustituye el contenido de `overview` (eso es E7.x).
+**Anti-patrón a evitar:** meter agregaciones y JSX en `App.tsx` (God Object). `App` solo bifurca y pasa props ya memorizados.
 
 ---
 
-## 1. Principio APO (anti-megaplan)
+## 1. Principio APO
 
 ```
-E0.1  tokens + ui/          ✅ cerrado
-E0.2  shell (Sidebar+TopBar+toggle)   ← este plan
-E7.1  vista ejecutiva (consume mode + StatCard/Chart)
-E7.2  vista operativa
-E7.3  migración secciones bajo shell
+E0.1  Design System     ✅
+E0.2  Shell + toggle    ✅
+E7.1  Vista ejecutiva   ← este plan
+E7.2  Vista operativa   (extrae el overview actual)
+E7.3  Migración secciones
 ```
-
-**Prohibido en E0.2:** inventar rutas de producto, rediseñar Conciliación/SAT, reescribir KPIs del Panel General, agregar shadcn.
 
 ---
 
-## 2. Diagnóstico técnico actual (grafo de impacto)
+## 2. Diagnóstico técnico (grafo de impacto)
 
-### 2.1 Flujo UI actual (post-auth)
+### 2.1 Flujo actual
 
 ```
 App.tsx
-  ├─ state: activeTab, isSidebarOpen, isMobileMenuOpen, isDarkMode, user, empresa*
-  ├─ chrome inline:
-  │    ├─ overlay móvil
-  │    ├─ <aside> nav (tabs hardcode + DEV design_system)
-  │    └─ <header> título tab + dark toggle + avatar
-  └─ <main> → bloques {activeTab === '…'} (overview…settings)  ← NO tocar lógica
+  useDashboardMode() → dashboardMode  (TopBar only hoy)
+  activeTab === 'overview' → JSX operativo inline (stats indigo, TaxPreviewCard, IA reciente, capturar TX)
+  taxPreview = useMemo(buildTaxPreview(...))
+  transactionsInPeriod / monthlyIncome / monthlyExpenses
+  periodContextPack → generateExecutiveBriefing (hoy desde análisis / modal, no overview ejecutivo)
 ```
 
-### 2.2 Qué viola / deuda
+### 2.2 Fuentes de datos disponibles (sin nuevos backends)
 
-| Pieza | Problema |
-|-------|----------|
-| Sidebar / header | Hardcodes `indigo-*`, `gray-*`, `bg-white dark:bg-gray-900` |
-| Nav items | Array inline en `App.tsx`; duplicación título tab en header |
-| Dark mode | OK funcional (`localStorage` + clase `dark`); UI del toggle no tokenizada |
-| View mode | **No existe** — requerido para preparar E7.1/E7.2 |
+| Fuente | API existente | Uso E7.1 |
+|--------|---------------|----------|
+| Fiscal IVA/ISR | `taxCalculatorService.buildTaxPreview` | KPI IVA neto; hint ISR |
+| Periodo | `filterTransactionsByMonth` / YTD | Flujo neto; serie chart |
+| Conciliación | campo persistido `bank_reconciled` en TX (vía `bankReconciliationService` patches) | % conciliado bancario del periodo |
+| Briefing | `insightsService.generateExecutiveBriefing(periodContextPack)` | Botón “Generar briefing” (no al montar) |
+| UI | `StatCard`, `Chart`, `PageHeader`, `Alert`, `Card`, `Button`, `Badge` | Layout ejecutivo |
 
-### 2.3 Efectos secundarios (módulos afectados)
+**No** usar el estado de sesión CSV de `useBankReconciliation` (vive solo en tab Conciliación) — no es fuente estable para el dashboard.
 
-| Módulo | Impacto E0.2 |
-|--------|----------------|
-| `App.tsx` | Sustituir chrome por `<AppShell />`; conservar estado de negocio y `activeTab` |
-| Nuevos `layout/*` | Solo presentación; **cero** Firebase/Groq |
-| `docs/DESIGN_SYSTEM.md` | Documentar Shell + ViewMode |
-| Tabs / paneles | **Sin cambio de comportamiento**; IDs de tab idénticos |
-| Gallery DEV | Sigue bajo `import.meta.env.DEV` (doble guarda) |
-| Login pre-auth | Fuera de shell (ya tokenizado en E0.1) — no reabrir |
+### 2.3 Efectos secundarios
+
+| Módulo | Impacto |
+|--------|---------|
+| `App.tsx` | Bifurcar overview: `ejecutivo` → `<ExecutiveDashboardView />`; `operativo` → JSX actual **sin cambios** |
+| Nuevos archivos | Ver §3 |
+| `useDashboardMode` | Solo lectura; sin cambio de API |
+| Services Groq/Firestore | Sin nuevos endpoints; briefing reusa `insightsService` |
+| Tabs no-overview | **Cero** |
 
 ---
 
-## 3. Alcance cerrado — LISTA DE ARCHIVOS
+## 3. Alcance cerrado — archivos
 
-### 3.1 Crear (exactamente estos)
+### 3.1 Crear (exactamente)
 
 | Ruta | Responsabilidad única |
 |------|------------------------|
-| `src/types/dashboardMode.ts` | Tipo `DashboardMode = 'operativo' \| 'ejecutivo'` + clave storage |
-| `src/hooks/useDashboardMode.ts` | Estado + persistencia `localStorage` (default `'operativo'`) |
-| `src/components/layout/navItems.ts` | Lista tipada de tabs (mismo `id`/`label`/`icon` actuales + DEV item) |
-| `src/components/layout/AppSidebar.tsx` | Brand, empresa, nav, logout; tokens; collapse/móvil vía props |
-| `src/components/layout/AppTopBar.tsx` | Título, empresa (desktop), toggle Operativo/Ejecutivo, dark, avatar |
-| `src/components/layout/AppShell.tsx` | Compone overlay + Sidebar + TopBar + `children` (área contenido) |
-| `src/components/layout/ViewModeToggle.tsx` | Control accesible Operativo/Ejecutivo (usa `Button`/`Badge` de `ui/`) |
-| `src/components/layout/AppShell.test.tsx` | Smoke: render shell + axe leve / assert toggle + DEV nav ausente sin DEV |
+| `src/types/executiveDashboard.ts` | Contratos `ExecutiveKpis`, `ExecutiveTrendPoint` (sin `any`) |
+| `src/services/executiveDashboardService.ts` | Agregaciones puras: KPIs + serie N meses; **sin** React/JSX |
+| `src/services/executiveDashboardService.test.ts` | Unit tests de agregaciones |
+| `src/components/ExecutiveDashboardView.tsx` | UI ejecutiva (props in → JSX); llama briefing vía callback prop |
+| `src/components/ExecutiveDashboardView.test.tsx` | Smoke render + axe leve (jsdom) |
 
-**No crear:** `Sidebar.tsx` genérico en `ui/` (el plan E0.1 reservó API de producto en layout, no otro primitivo).
-
-### 3.2 Modificar (exactamente estos)
+### 3.2 Modificar (exactamente)
 
 | Ruta | Cambio |
 |------|--------|
-| `src/App.tsx` | Montar `AppShell` con props; eliminar JSX inline de aside/header/overlay; **conservar** todos los bloques `activeTab === …` |
-| `docs/DESIGN_SYSTEM.md` | Sección Shell E0.2 + ViewMode + checklist a11y TopBar |
-| `implementation_plan.md` | Este documento (estado al cerrar → IMPLEMENTADO) |
-| `README.md` | Una línea: link Shell / nota E0.2 (opcional mínima) |
+| `src/App.tsx` | En bloque `activeTab === 'overview'`: if `dashboardMode === 'ejecutivo'` render `ExecutiveDashboardView` con props; else overview actual intacto. Selector de periodo **compartido** arriba de ambas vistas (o prop `periodControls` — ver §8.3). |
+| `docs/DESIGN_SYSTEM.md` | Nota: consumo StatCard/Chart/PageHeader en E7.1 |
+| `implementation_plan.md` | Este doc → IMPLEMENTADO al cerrar |
+| `README.md` | Una línea opcional E7.1 |
 
-### 3.3 Prohibido modificar en E0.2
+### 3.3 Prohibido tocar
 
-- `src/components/Bank*`, `SatDownloadPanel`, `ImportModals`, `TaxPreviewCard` (salvo regresión accidental)
-- `src/services/**`, `src/hooks/useImportFlow*`, `functions/**`
-- Contenido interno de tabs (overview KPIs, tablas, modales)
-- `src/styles/tokens.css` (salvo bug crítico descubierto → **parar** y re-plan)
+- `BankReconciliationPanel`, SAT, Import, `TaxPreviewCard` API  
+- `functions/**`, tokens.css (salvo bug → parar)  
+- Extraer overview operativo a otro archivo (eso es **E7.2**)
 
 ---
 
-## 4. Contratos de componentes (TypeScript first)
-
-### 4.1 `DashboardMode`
+## 4. Contratos y KPIs (lista cerrada = 4)
 
 ```ts
-export type DashboardMode = 'operativo' | 'ejecutivo';
-export const DASHBOARD_MODE_STORAGE_KEY = 'contai.dashboardMode';
+export type ExecutiveKpis = {
+  periodoLabel: string;
+  ivaSaldoNeto: number;
+  flujoCajaNeto: number;           // ingresos - egresos del periodo
+  pctBankReconciled: number;       // 0–100; TX con bank_reconciled === true / total periodo
+  isrEstimadoYtd: number;          // informativo
+  txCount: number;
+  bankReconciledCount: number;
+  warnings: string[];              // p.ej. sin TX, IVA sin desglose
+};
+
+export type ExecutiveTrendPoint = {
+  mes: string;                     // ej. "Mar 2026"
+  ingresos: number;
+  egresos: number;
+};
 ```
 
-### 4.2 `navItems.ts`
+| KPI | Cálculo | Componente |
+|-----|---------|------------|
+| 1. IVA neto periodo | `taxPreview.iva.saldoNeto` | `StatCard` tone brand |
+| 2. Flujo de caja neto | `ingresos - egresos` | `StatCard` success/danger |
+| 3. % conciliado bancario | `bank_reconciled` persistido | `StatCard` |
+| 4. ISR estimado YTD | `taxPreview.isr.isrEstimado` | `StatCard` |
 
-- Misma lista actual de IDs:  
-  `overview | transactions | analysis | reconciliation | sat_download | fiscal | inventory | recurring | audit | settings`  
-  + `design_system` **solo** si `import.meta.env.DEV`.
-- Export: `getNavItems(): NavItem[]` (o constante + filtro DEV).
+**Chart:** últimos **6** meses (incluyendo periodo seleccionado) → `Chart type="line"` ingresos/egresos.
 
-### 4.3 `AppSidebar` (props)
+**Alert:** disclaimer fiscal (`taxPreview.disclaimer`) + si `lineasSinDesglose > 0` warning.
 
-| Prop | Tipo | Notas |
-|------|------|-------|
-| `items` | `NavItem[]` | |
-| `activeTab` | `string` | |
-| `onNavigate` | `(id: string) => void` | cierra móvil |
-| `collapsed` | `boolean` | desktop rail |
-| `mobileOpen` | `boolean` | |
-| `onMobileClose` | `() => void` | |
-| `empresaNombre` / `empresaRfc` | `string` | |
-| `onLogout` | `() => void` | |
+**PageHeader:** título “Vista ejecutiva” + descripción del periodo + actions (botón briefing).
 
-Tokens: `bg-surface`, `border-border`, item activo `bg-brand-muted text-brand`, etc. Lucide icons sin cambio de librería.
-
-### 4.4 `AppTopBar` (props)
-
-| Prop | Tipo | Notas |
-|------|------|-------|
-| `title` | `string` | derivado de `activeTab` vía mapa labels |
-| `empresaNombre` / `empresaRfc` | `string` | |
-| `mode` / `onModeChange` | `DashboardMode` | toggle |
-| `isDarkMode` / `onToggleDark` | | |
-| `userDisplayName` / `userPhotoURL` | | |
-| `onOpenMobileNav` / `onToggleCollapsed` | | |
-
-### 4.5 `AppShell`
-
-Recibe props de Sidebar+TopBar + `children`.  
-Root: `bg-surface-elevated text-ink` (reemplaza `bg-gray-50 dark:bg-gray-950`).
-
-Banner móvil empresa (hoy `indigo-50`) → tokens (`bg-brand-muted`).
-
-### 4.6 Toggle Operativo/Ejecutivo — comportamiento E0.2 (FIJO salvo §8)
-
-| Comportamiento | E0.2 |
-|----------------|------|
-| Visible en TopBar | Sí |
-| Persistencia `localStorage` | Sí |
-| Default | `'operativo'` |
-| Cambia contenido de tabs | **No** (solo estado + UI) |
-| Consume en overview | Diferido a E7.1/E7.2 |
-| Exponer a `App` | `const { mode, setMode } = useDashboardMode()` disponible para E7 |
-
-Opcional UX (recomendado): `Badge` sutil “Modo: Operativo” junto al toggle — sin cards de marketing.
+**Briefing Groq:**  
+- Botón “Generar borrador ejecutivo” → `onGenerateBriefing()` prop  
+- `App` reutiliza handler/`generateExecutiveBriefing` + estado modal o panel inline en la vista  
+- **Prohibido** llamar Groq en `useEffect` de montaje (economía tokens / E2)
 
 ---
 
-## 5. Migración no destructiva (contrato)
+## 5. Arquitectura de capas
 
-1. **IDs de tab** idénticos → cero rotura de estado/`useEffect` ligados a `activeTab`.  
-2. **Handlers** (`handleLogout`, dark mode, etc.) permanecen en `App` o se pasan por props — sin mover Firebase a layout.  
-3. **Contenido** de cada tab: copy-paste estructural cero; solo deja de vivir *debajo* del chrome extraído.  
-4. **Gallery DEV**: doble guarda se mantiene al construir `navItems` y al renderizar el bloque `design_system`.  
-5. **Motion**: conservar `motion`/`AnimatePresence` del overlay y animación de ancho del aside (comportamiento UX actual).
+```
+App.tsx (orquesta)
+  ├─ useMemo → executiveDashboardService.buildExecutiveSnapshot(...)
+  └─ ExecutiveDashboardView (UI)
+        ├─ PageHeader / StatCard×4 / Chart / Alert / Button
+        └─ onGenerateBriefing → App → insightsService (existente)
+```
+
+```ts
+// ❌ BAD — componente habla con Groq
+await generateExecutiveBriefing(pack)
+
+// ✅ GOOD — vista recibe callback; App/hook orquesta service
+props.onGenerateBriefing()
+```
+
+`executiveDashboardService` **no** importa `groqAIService` ni Firebase.
+
+### 5.1 Rendimiento
+
+- `buildExecutiveSnapshot` / `buildTrendSeries` síncronos y O(n) sobre arrays ya filtrados.  
+- En `App`: un `useMemo` dependiente de `[transactions, periodYear, periodMonth, taxPreview, …]`.  
+- Chart: máx. 6 puntos × 2 series — trivial.  
+- No bloquear UI con trabajo async salvo briefing explícito.
 
 ---
 
-## 6. Consumo exclusivo de `ui/` (E0.1)
+## 6. Bifurcación en `overview` (contrato UX)
 
-Shell/layout **debe** usar donde aplique:
+| `dashboardMode` | Contenido `overview` |
+|-----------------|----------------------|
+| `'operativo'` | Overview actual (sin cambios de markup en E7.1) |
+| `'ejecutivo'` | `ExecutiveDashboardView` |
 
-- `Button` (ghost/icon actions, logout secondary/danger si cabe)
-- `Badge` (modo / DEV)
-- `Card` solo si un bloque del chrome lo requiere (preferir no cardificar el TopBar)
-- `PageHeader` **no** obligatorio en cada tab en E0.2 (evitar migrar pantallas); documentar uso futuro
-
-**Prohibido:** añadir `indigo-*` nuevos en layout; shadcn; tipografía distinta a tokens.
+- Toggle TopBar ya persiste; **no** crear tab nueva.  
+- Periodo (año/mes): **compartido** — el ejecutivo debe respetar el mismo `periodYear`/`periodMonth` que el resto de la app.
 
 ---
 
-## 7. Accesibilidad y pruebas
+## 7. Pruebas
 
-| Tipo | Alcance E0.2 |
-|------|----------------|
-| Unit / smoke | `AppShell.test.tsx`: toggle cambia `mode`; nav DEV no en prod mock; axe smoke del TopBar+toggle |
-| Manual | Collapse desktop, drawer móvil, focus-visible en nav y toggle, contraste dark |
-| Suite | `npm run lint` + `npm test` verdes (baseline 65+ nuevos) |
-| Docs | Checklist en `DESIGN_SYSTEM.md` |
+| Tipo | Alcance |
+|------|---------|
+| Unit | `executiveDashboardService`: flujo neto, %, serie 6 meses, edge `txCount===0` |
+| Smoke UI | `ExecutiveDashboardView` render con fixtures + axe smoke |
+| Suite | `npm test` + `npm run lint` verdes (74 + nuevos) |
+| Manual | Toggle Operativo↔Ejecutivo en overview; briefing on-demand; dark mode tokens |
 
 ---
 
 ## 8. Preguntas críticas (resolver antes de APROBADO)
 
-### 8.1 ¿El toggle cambia algo visual en overview en E0.2?
+### 8.1 ¿Dónde vive el selector de periodo en modo ejecutivo?
 
-- **(A) Solo estado + control en TopBar** — contenido overview idéntico. **Recomendado (anti-scope-creep).**  
-- **(B)** Mostrar un `Alert` informativo en overview según modo (“Vista ejecutiva llegará en E7.1”).  
-- **(C)** Empezar a bifurcar overview ya (→ se convierte en E7 anticipado; **rechazado** por APO).
+- **(A) Barra de periodo compartida encima de la bifurcación** (mismo Card selector para ambos modos). **Recomendado.**  
+- **(B)** Selector duplicado dentro de `ExecutiveDashboardView`.  
+- **(C)** Solo TopBar (sin selector mes) — rompería consistencia con métricas actuales.
 
-### 8.2 Persistencia del modo
+### 8.2 ¿Briefing en modal existente o panel inline?
 
-- **(A) `localStorage`** — **recomendado.**  
-- **(B)** Solo React state (se pierde al refresh).  
-- **(C)** Firestore perfil usuario (overkill Fase 3 temprana).
+- **(A) Reutilizar modal de borrador ejecutivo ya en `App.tsx`.** **Recomendado** (cero UI nueva de modal).  
+- **(B)** Panel colapsable dentro de `ExecutiveDashboardView`.  
+- **(C)** Ambos.
 
-### 8.3 ¿Extraer `AppShell` o solo Sidebar/TopBar?
+### 8.3 ¿KPI de “% conciliación” con qué definición?
 
-- **(A) AppShell + Sidebar + TopBar** — **recomendado** (un punto de montaje en `App`).  
-- **(B)** Solo dos componentes; chrome root queda en `App`.
+- **(A) `%` de TX del periodo con `bank_reconciled === true`.** **Recomendado** (dato persistido, estable).  
+- **(B)** `%` con `status === 'conciliado'` (incluye import Excel no bancario — más laxo).  
+- **(C)** Métricas de sesión CSV del panel (acopla E7.1 a Conciliación — **rechazado**).
 
-### 8.4 ¿Mover dark mode a un hook `useTheme`?
+### 8.4 ¿Series del Chart?
 
-- **(A) Sí, `useTheme.ts` junto a `useDashboardMode`** — limpia `App`. **Recomendado.**  
-- **(B)** Dejar dark mode en `App` (menos archivos).
+- **(A) 6 meses ingresos/egresos.** **Recomendado.**  
+- **(B) Solo mes actual (barras por semana).**  
+- **(C) IVA por mes (requiere N× buildTaxPreview — más costo CPU).**
 
-### 8.5 Animaciones Motion en sidebar
+### 8.5 ¿Mostrar TaxPreviewCard compact en ejecutivo?
 
-- **(A) Conservar comportamiento actual** — **recomendado.**  
-- **(B)** Simplificar a CSS-only (riesgo de regresión UX móvil).
+- **(A) No** — KPIs + Alert disclaimer bastan; evita duplicar IVA. **Recomendado.**  
+- **(B) Sí, debajo del chart.**
 
-### 8.6 ¿Incluir `PageHeader` en cada tab en E0.2?
+### 8.6 ¿Tests de `useTheme` en este entregable?
 
-- **(A) No** — solo shell; títulos siguen en TopBar. **Recomendado.**  
-- **(B)** Sí en overview solamente.  
-- **(C)** Sí en todas las tabs (scope creep → E7.3).
+- **(A) No** — observación no bloqueante de E0.2 diferida. **Recomendado.**  
+- **(B) Sí, smoke mínimo en E7.1 (scope creep menor).**
 
 ---
 
 ## 9. Criterios de aceptación (DoD)
 
-- [ ] Chrome post-auth vive en `layout/*`; tokens (`bg-surface`, `text-ink`, `bg-brand-muted`, …); cero `indigo-*` / `bg-gray-50` en Sidebar/TopBar/AppShell.  
-- [ ] Todas las tabs existentes navegan y renderizan igual (smoke manual o checklist).  
-- [ ] Toggle Operativo/Ejecutivo en TopBar; persistencia según §8.2; **no** cambia contenido de tabs (si §8.1A).  
-- [ ] Gallery DEV: doble guarda intacta.  
-- [ ] `AppShell.test.tsx` + suite verde; `tsc --noEmit` limpio.  
-- [ ] `docs/DESIGN_SYSTEM.md` actualizado.  
-- [ ] Commit + push solo tras verificación (mensaje tipo `feat: extract tokenized AppShell with operativo/ejecutivo toggle (E0.2)`).
+- [ ] `dashboardMode === 'ejecutivo'` + `overview` → `ExecutiveDashboardView`; operativo → overview previo intacto.  
+- [ ] 4 KPIs + Chart 6 meses + Alert disclaimer vía `ui/` E0.1.  
+- [ ] Agregaciones en `executiveDashboardService` (puro); `useMemo` en App.  
+- [ ] Briefing Groq solo on-demand; sin fetch al montar.  
+- [ ] Cero `any` en tipos nuevos; capas components/services respetadas.  
+- [ ] Tests service + smoke vista; lint/tsc; suite ≥74 + nuevos.  
+- [ ] Commit + push tras verificación (`feat: add executive dashboard view with macro KPIs (E7.1)`).
 
 ---
 
 ## 10. Orden de ejecución (tras APROBADO)
 
-1. Tipos + `useDashboardMode` (+ `useTheme` si §8.4A).  
-2. `navItems.ts` + `ViewModeToggle` + `AppSidebar` + `AppTopBar` + `AppShell`.  
-3. Cablear `App.tsx` (sustituir chrome; pasar `children` = bloques tab actuales).  
-4. Tests + docs.  
-5. Lint/suite; **parar** (no E7.1).
+1. Tipos + `executiveDashboardService` + tests unitarios.  
+2. `ExecutiveDashboardView` + smoke.  
+3. Bifurcar overview en `App.tsx` + cablear briefing.  
+4. Docs; lint/suite; **parar** (no E7.2).
 
 ---
 
@@ -263,11 +251,11 @@ Shell/layout **debe** usar donde aplique:
 
 Responder con:
 
-- `APROBADO: Ejecutar Entregable 0.2` + letras **§8.1–8.6**  
+- `APROBADO: Ejecutar Entregable 7.1` + letras **§8.1–8.6**  
 - o `APROBADO CON CAMBIOS: …`  
 - o `RECHAZADO: …`
 
-**Sin esa frase, no se escribe código de E0.2.**
+**Sin esa frase, no se escribe código de E7.1.**
 
 ---
 
@@ -276,7 +264,7 @@ Responder con:
 | ID | Entregable | Estado |
 |----|------------|--------|
 | E0.1 | Design System | ✅ `cb840e0` |
-| **E0.2** | Shell / nav + toggle (este plan) | ✅ IMPLEMENTADO |
-| E7.1 | Vista ejecutiva | pendiente |
+| E0.2 | Shell / toggle | ✅ `0f0e76b` |
+| **E7.1** | Vista ejecutiva | ✅ IMPLEMENTADO |
 | E7.2 | Vista operativa | pendiente |
 | E7.3 | Migración secciones | pendiente |
