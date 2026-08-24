@@ -22,7 +22,6 @@ import {
   BrainCircuit,
   AlertTriangle,
   CheckCircle2,
-  Clock,
   ChevronRight,
   X,
   Download,
@@ -74,8 +73,10 @@ import { isPeriodClosed, isTransactionDateInClosedPeriod, periodKey } from './li
 import { generateExecutiveBriefing, askMonthQuestion } from './services/insightsService';
 import { buildTaxPreview } from './services/taxCalculatorService';
 import { buildExecutiveSnapshot } from './services/executiveDashboardService';
+import { buildOperationalSnapshot } from './services/operationalDashboardService';
 import { TaxPreviewCard } from './components/TaxPreviewCard';
 import { ExecutiveDashboardView } from './components/ExecutiveDashboardView';
+import { OperationalDashboardView } from './components/OperationalDashboardView';
 import { DesignSystemGallery } from './components/DesignSystemGallery';
 import { ImportModals } from './components/ImportModals';
 import { BankReconciliationPanel } from './components/BankReconciliationPanel';
@@ -940,18 +941,6 @@ export default function App() {
     return `${monthNames[periodMonth]} ${periodYear}`;
   }, [periodMonth, periodYear]);
 
-  const monthlyIncome = transactionsInPeriod
-    .filter((tx) => tx.tipo === 'ingreso')
-    .reduce((acc, tx) => acc + Number(tx.monto || 0), 0);
-  const monthlyExpenses = transactionsInPeriod
-    .filter((tx) => tx.tipo === 'egreso')
-    .reduce((acc, tx) => acc + Number(tx.monto || 0), 0);
-  const pendingCount = transactionsInPeriod.filter((tx) => tx.status === 'pendiente' || tx.status === 'revisión').length;
-  const alertsCount = transactionsInPeriod.filter((tx) => tx.status === 'revisión').length;
-  const classifiedTransactions = transactionsInPeriod
-    .filter((tx) => tx.account_name || tx.agente_ia_decision || tx.confidence_score)
-    .slice(0, 3);
-
   const riskRankings = useMemo(
     () => computeRiskRankings(transactionsInPeriod, HIGH_AMOUNT_REVIEW_THRESHOLD),
     [transactionsInPeriod]
@@ -1002,6 +991,37 @@ export default function App() {
         },
       }),
     [transactions, transactionsInPeriod, periodYear, periodMonth, taxPreview]
+  );
+
+  const highRiskHints = useMemo(
+    () =>
+      riskRankings
+        .filter((r) => r.severity === 'high' || r.severity === 'critical')
+        .map((r) => ({
+          transactionId: r.transactionId,
+          severity: r.severity as 'high' | 'critical',
+        })),
+    [riskRankings]
+  );
+
+  const operationalSnapshot = useMemo(
+    () =>
+      buildOperationalSnapshot({
+        periodTransactions: transactionsInPeriod.map((tx) => ({
+          id: String(tx.id),
+          fecha: tx.fecha,
+          tipo: tx.tipo,
+          monto: tx.monto,
+          status: tx.status,
+          account_name: tx.account_name,
+          proveedor: tx.proveedor,
+          concepto: tx.concepto,
+          bank_reconciled: tx.bank_reconciled,
+        })),
+        periodoLabel: taxPreview.periodoLabel,
+        highRiskHints,
+      }),
+    [transactionsInPeriod, taxPreview.periodoLabel, highRiskHints]
   );
 
   const periodoActualCerrado = useMemo(
@@ -1193,91 +1213,14 @@ export default function App() {
                     }}
                   />
                 ) : (
-                  <>
-                {/* Stats */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-                  {[
-                    { label: 'Ingresos (periodo)', value: formatCurrency(monthlyIncome), trend: `${transactionsInPeriod.filter((tx) => tx.tipo === 'ingreso').length} tx`, icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-                    { label: 'Egresos (periodo)', value: formatCurrency(monthlyExpenses), trend: `${transactionsInPeriod.filter((tx) => tx.tipo === 'egreso').length} tx`, icon: Receipt, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-                    { label: 'Pendientes', value: String(pendingCount), trend: pendingCount > 0 ? 'Atención' : 'OK', icon: Clock, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
-                    { label: 'Alertas', value: String(alertsCount), trend: alertsCount > 0 ? 'Crítico' : 'Sin alertas', icon: AlertTriangle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/20' },
-                  ].map((stat, i) => (
-                    <Card key={i} className="p-4 lg:p-6">
-                      <div className="flex items-start justify-between">
-                        <div className={cn('p-2 lg:p-3 rounded-xl', stat.bg)}>
-                          <stat.icon className={cn('w-5 h-5 lg:w-6 lg:h-6', stat.color)} />
-                        </div>
-                        <span className={cn('text-[10px] lg:text-xs font-bold px-2 py-1 rounded-full', 
-                          stat.trend.includes('+') ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 
-                          stat.trend === 'Crítico' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-                        )}>
-                          {stat.trend}
-                        </span>
-                      </div>
-                      <div className="mt-3 lg:mt-4">
-                        <p className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
-                        <h3 className="text-xl lg:text-2xl font-bold text-gray-900 dark:text-white mt-1">{stat.value}</h3>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-
-                <TaxPreviewCard preview={taxPreview} variant="compact" />
-
-                {/* IA Activity */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
-                  <Card className="lg:col-span-2 p-4 lg:p-6">
-                    <div className="flex items-center justify-between mb-4 lg:mb-6">
-                      <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2 text-sm lg:text-base">
-                        <BrainCircuit className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                        Actividad reciente de IA
-                      </h3>
-                      <Badge variant={classifiedTransactions.length > 0 ? 'success' : 'default'}>
-                        {classifiedTransactions.length > 0 ? 'Activa' : 'Sin actividad'}
-                      </Badge>
-                    </div>
-                    <div className="space-y-3 lg:space-y-4">
-                      {classifiedTransactions.length === 0 && (
-                        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-sm text-gray-500 dark:text-gray-400">
-                          Aun no hay transacciones clasificadas.
-                        </div>
-                      )}
-                      {classifiedTransactions.map((tx) => (
-                        <div key={tx.id} className="flex items-center justify-between p-3 lg:p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
-                          <div className="flex items-center gap-3 lg:gap-4">
-                            <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                            <div>
-                              <p className="text-sm lg:font-semibold text-gray-900 dark:text-white truncate max-w-[200px]">{tx.proveedor || tx.concepto}</p>
-                              <p className="text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 truncate max-w-[220px]">{tx.account_name || 'Sin cuenta'} • {tx.status}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs lg:text-sm font-bold text-gray-900 dark:text-white">{tx.confidence_score ? `${(tx.confidence_score * 100).toFixed(1)}%` : 'N/A'}</p>
-                            <p className="text-[8px] lg:text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider">Confianza</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-
-                  <Card className="p-4 lg:p-6">
-                    <h3 className="font-bold text-gray-900 dark:text-white mb-4 text-sm lg:text-base">Operación en campo</h3>
-                    <div className="space-y-2 lg:space-y-3">
-                      <Button className="w-full justify-start text-sm" onClick={() => setIsManualTxModalOpen(true)}>
-                        <Plus className="w-4 h-4" />
-                        Capturar Transacción
-                      </Button>
-                      <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-xs text-gray-600 dark:text-gray-300">
-                        Simulación desactivada. Usa "Capturar Transacción" para registrar operaciones reales.
-                      </div>
-                      <Button variant="secondary" className="w-full justify-start text-sm" onClick={generateMonthlyReport}>
-                        <History className="w-4 h-4" />
-                        Reporte
-                      </Button>
-                    </div>
-                  </Card>
-                </div>
-                  </>
+                  <OperationalDashboardView
+                    snapshot={operationalSnapshot}
+                    onNavigateTab={setActiveTab}
+                    onOpenManualTx={() => setIsManualTxModalOpen(true)}
+                    onOpenCfdiImport={() => importFlow.openCfdiImport()}
+                    onOpenExcelImport={() => importFlow.openExcelImport()}
+                    onTaskAction={() => setActiveTab('transactions')}
+                  />
                 )}
               </motion.div>
             )}

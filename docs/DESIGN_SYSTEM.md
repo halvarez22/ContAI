@@ -70,8 +70,9 @@ Iconos: **Lucide** (ya en el producto). Charts: **Recharts** vía wrapper `Chart
 
 | Entregable | Uso |
 |------------|-----|
-| E7.1 Vista ejecutiva | `PageHeader`, `StatCard`×4, `Chart`, `Alert`, `Button`, `Badge`, `Skeleton` vía `ExecutiveDashboardView` |
+| E7.1 Vista ejecutiva | `ExecutiveDashboardView` |
+| E7.2 Vista operativa | `OperationalDashboardView` — `DataTable`, `StatCard`, CTAs |
 
 ## Roadmap
 
-E0.1 ✅ → E0.2 ✅ → E7.1 (vista ejecutiva) → E7.2 operativa → E7.3 migración secciones.
+E0.1 ✅ → E0.2 ✅ → E7.1 ✅ → E7.2 (vista operativa) → E7.3 migración secciones.

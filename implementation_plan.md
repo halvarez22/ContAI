@@ -1,179 +1,184 @@
-# Implementation Plan — Entregable 7.1 (Vista Ejecutiva del Dashboard)
+# Implementation Plan — Entregable 7.2 (Vista Operativa del Dashboard)
 
 **Proyecto:** ContAI Fase 3  
 **Fecha:** 2026-08-24  
-**Estado:** IMPLEMENTADO (E7.1) — aprobado §8.1–8.6(A) 2026-08-24  
-**Precondiciones:** E0.1 (`cb840e0`) + E0.2 (`0f0e76b`) en `main` — tokens, `ui/`, AppShell, `useDashboardMode`  
-**Objetivo:** Cuando `dashboardMode === 'ejecutivo'` y la tab activa es `overview`, renderizar una **vista ejecutiva** de KPIs macro (IVA, flujo neto, conciliación persistida, tendencia) usando únicamente componentes E0.1, alimentada por agregaciones **deterministas** sobre datos ya cargados + briefing Groq **bajo demanda** (insights existentes).  
-**Fuera de alcance E7.1:** Vista operativa (E7.2), migración masiva de tabs (E7.3), nueva ruta/nav item, auto-fetch Groq al montar, reescribir Conciliación/SAT/Import, cambiar `navItems` de producto, Storybook, Cloud Functions.
+**Estado:** IMPLEMENTADO (E7.2) — aprobado §8.1–8.6(A) 2026-08-24  
+**Precondiciones:** E0.1–E0.2 + E7.1 (`79d6e45`) en `main` — shell, toggle, `ExecutiveDashboardView`  
+**Objetivo:** Cuando `dashboardMode === 'operativo'` y `activeTab === 'overview'`, reemplazar el JSX operativo inline actual por **`OperationalDashboardView`**: lista de tareas del día (pendientes / revisión / sin clasificar / riesgos) + alertas + acciones rápidas, consumiendo solo datos **persistidos ya en memoria** y componentes E0.1.  
+**Fuera de alcance E7.2:** Vista ejecutiva (ya E7.1), E7.3 migración de otras tabs, levantar estado de sesión CSV de Conciliación a App, listar jobs SAT vía nuevos listeners Firestore, Groq on-demand nuevo, cambiar `navItems`, Storybook, Cloud Functions.
 
 ---
 
 ## 0. Opinión profesional
 
-E0.2 dejó el toggle como **estado puro**. E7.1 es el primer consumidor real de `'ejecutivo'`. Debe ser **estrecho**: un componente de presentación + un builder de métricas puro. El overview actual (KPIs indigo ad hoc + “Operación en campo”) permanece como vista **operativa** implícita cuando `mode === 'operativo'` — su extracción formal es E7.2.
+E7.1 demostró el patrón correcto: **service puro + vista props-in + bifurcación en overview**. E7.2 debe hacer lo mismo con el brazo `operativo`.
 
-**Anti-patrón a evitar:** meter agregaciones y JSX en `App.tsx` (God Object). `App` solo bifurca y pasa props ya memorizados.
+**Hallazgo crítico del grafo real (no inventar datos):**
+
+| Fuente pedida por lineamientos | ¿Disponible en overview hoy? |
+|--------------------------------|------------------------------|
+| TX sin clasificar / `pendiente` / `revisión` | **Sí** — en `transactions` / `transactionsInPeriod` |
+| `isConflict: true` (conciliación) | **No en overview** — solo vive en sesión de `useBankReconciliation` (tab Conciliación, CSV cargado) |
+| Jobs SAT pendientes | **No listados en App** — solo callables `get/advance` por `jobId`; no hay `listJobs` en cliente |
+
+Por tanto E7.2 debe usar **proxies persistidos** para conciliación/SAT (conteos + CTAs de navegación), no acoplar la vista al estado efímero del panel bancario ni inventar un listado de jobs. Ver §8.1–8.2.
 
 ---
 
 ## 1. Principio APO
 
 ```
-E0.1  Design System     ✅
-E0.2  Shell + toggle    ✅
-E7.1  Vista ejecutiva   ← este plan
-E7.2  Vista operativa   (extrae el overview actual)
+E7.1  Vista ejecutiva     ✅
+E7.2  Vista operativa     ← este plan
 E7.3  Migración secciones
 ```
 
+**Prohibido:** reescribir Conciliación/SAT; montar `useBankReconciliation` en overview; auto-Groq.
+
 ---
 
-## 2. Diagnóstico técnico (grafo de impacto)
+## 2. Diagnóstico (grafo de impacto)
 
-### 2.1 Flujo actual
+### 2.1 Hoy (`operativo`)
+
+```
+overview + operativo → JSX inline:
+  StatCards indigo ad hoc (ingresos/egresos/pendientes/alertas)
+  TaxPreviewCard compact
+  “Actividad IA” + “Operación en campo”
+```
+
+### 2.2 Flujo objetivo
 
 ```
 App.tsx
-  useDashboardMode() → dashboardMode  (TopBar only hoy)
-  activeTab === 'overview' → JSX operativo inline (stats indigo, TaxPreviewCard, IA reciente, capturar TX)
-  taxPreview = useMemo(buildTaxPreview(...))
-  transactionsInPeriod / monthlyIncome / monthlyExpenses
-  periodContextPack → generateExecutiveBriefing (hoy desde análisis / modal, no overview ejecutivo)
+  period selector (compartido, ya E7.1)
+  dashboardMode === 'operativo'
+    → useMemo(operationalDashboardService.buildOperationalSnapshot(...))
+    → <OperationalDashboardView tasks/alerts/counts + callbacks />
+  dashboardMode === 'ejecutivo'
+    → ExecutiveDashboardView (sin cambios)
 ```
-
-### 2.2 Fuentes de datos disponibles (sin nuevos backends)
-
-| Fuente | API existente | Uso E7.1 |
-|--------|---------------|----------|
-| Fiscal IVA/ISR | `taxCalculatorService.buildTaxPreview` | KPI IVA neto; hint ISR |
-| Periodo | `filterTransactionsByMonth` / YTD | Flujo neto; serie chart |
-| Conciliación | campo persistido `bank_reconciled` en TX (vía `bankReconciliationService` patches) | % conciliado bancario del periodo |
-| Briefing | `insightsService.generateExecutiveBriefing(periodContextPack)` | Botón “Generar briefing” (no al montar) |
-| UI | `StatCard`, `Chart`, `PageHeader`, `Alert`, `Card`, `Button`, `Badge` | Layout ejecutivo |
-
-**No** usar el estado de sesión CSV de `useBankReconciliation` (vive solo en tab Conciliación) — no es fuente estable para el dashboard.
 
 ### 2.3 Efectos secundarios
 
 | Módulo | Impacto |
 |--------|---------|
-| `App.tsx` | Bifurcar overview: `ejecutivo` → `<ExecutiveDashboardView />`; `operativo` → JSX actual **sin cambios** |
-| Nuevos archivos | Ver §3 |
-| `useDashboardMode` | Solo lectura; sin cambio de API |
-| Services Groq/Firestore | Sin nuevos endpoints; briefing reusa `insightsService` |
-| Tabs no-overview | **Cero** |
+| `App.tsx` | Sustituir bloque `<>…</>` operativo por `<OperationalDashboardView />`; callbacks `setActiveTab`, import, captura |
+| Nuevos `types` / `service` / `view` | Ver §3 |
+| E7.1 / shell / services fiscales | **Cero** |
+| `useBankReconciliation` / `SatDownloadPanel` | **No montar** en overview |
 
 ---
 
-## 3. Alcance cerrado — archivos
+## 3. Archivos — lista cerrada
 
-### 3.1 Crear (exactamente)
+### 3.1 Crear
 
-| Ruta | Responsabilidad única |
-|------|------------------------|
-| `src/types/executiveDashboard.ts` | Contratos `ExecutiveKpis`, `ExecutiveTrendPoint` (sin `any`) |
-| `src/services/executiveDashboardService.ts` | Agregaciones puras: KPIs + serie N meses; **sin** React/JSX |
-| `src/services/executiveDashboardService.test.ts` | Unit tests de agregaciones |
-| `src/components/ExecutiveDashboardView.tsx` | UI ejecutiva (props in → JSX); llama briefing vía callback prop |
-| `src/components/ExecutiveDashboardView.test.tsx` | Smoke render + axe leve (jsdom) |
+| Ruta | Responsabilidad |
+|------|-----------------|
+| `src/types/operationalDashboard.ts` | `OperationalTask`, `OperationalAlert`, `OperationalSnapshot`, kinds tipados (sin `any`) |
+| `src/services/operationalDashboardService.ts` | Agregación pura O(n) de tareas/contadores/alertas |
+| `src/services/operationalDashboardService.test.ts` | Unit tests (filtros, vacío, límites) |
+| `src/components/OperationalDashboardView.tsx` | UI: PageHeader, StatCard, DataTable, Alert, Button |
+| `src/components/OperationalDashboardView.test.tsx` | Smoke render + empty + axe leve |
 
-### 3.2 Modificar (exactamente)
+### 3.2 Modificar
 
 | Ruta | Cambio |
 |------|--------|
-| `src/App.tsx` | En bloque `activeTab === 'overview'`: if `dashboardMode === 'ejecutivo'` render `ExecutiveDashboardView` con props; else overview actual intacto. Selector de periodo **compartido** arriba de ambas vistas (o prop `periodControls` — ver §8.3). |
-| `docs/DESIGN_SYSTEM.md` | Nota: consumo StatCard/Chart/PageHeader en E7.1 |
+| `src/App.tsx` | `operativo` → `OperationalDashboardView` + `useMemo` snapshot; quitar JSX operativo inline |
+| `docs/DESIGN_SYSTEM.md` | Nota consumo operativo |
 | `implementation_plan.md` | Este doc → IMPLEMENTADO al cerrar |
-| `README.md` | Una línea opcional E7.1 |
+| `README.md` | Línea opcional |
 
-### 3.3 Prohibido tocar
+### 3.3 Prohibido
 
-- `BankReconciliationPanel`, SAT, Import, `TaxPreviewCard` API  
-- `functions/**`, tokens.css (salvo bug → parar)  
-- Extraer overview operativo a otro archivo (eso es **E7.2**)
+- Cambiar `ExecutiveDashboardView` / `executiveDashboardService`  
+- Modificar lógica de tabs Conciliación/SAT/Import  
+- Nuevos primitivos `ui/`  
 
 ---
 
-## 4. Contratos y KPIs (lista cerrada = 4)
+## 4. Contratos y tareas (lista cerrada de kinds)
 
 ```ts
-export type ExecutiveKpis = {
+export type OperationalTaskKind =
+  | 'revision'        // status === 'revisión'
+  | 'pending'         // status === 'pendiente'
+  | 'unclassified'    // !account_name (trim vacío)
+  | 'high_risk';      // severity high|critical vía computeRiskRankings (reuso)
+
+export type OperationalTask = {
+  id: string;
+  kind: OperationalTaskKind;
+  title: string;
+  subtitle: string;
+  amount?: number;
+  severity?: 'info' | 'warning' | 'danger';
+};
+
+export type OperationalCounts = {
+  revision: number;
+  pending: number;
+  unclassified: number;
+  highRisk: number;
+  totalTasks: number;
+};
+
+export type OperationalSnapshot = {
   periodoLabel: string;
-  ivaSaldoNeto: number;
-  flujoCajaNeto: number;           // ingresos - egresos del periodo
-  pctBankReconciled: number;       // 0–100; TX con bank_reconciled === true / total periodo
-  isrEstimadoYtd: number;          // informativo
-  txCount: number;
-  bankReconciledCount: number;
-  warnings: string[];              // p.ej. sin TX, IVA sin desglose
-};
-
-export type ExecutiveTrendPoint = {
-  mes: string;                     // ej. "Mar 2026"
-  ingresos: number;
-  egresos: number;
+  counts: OperationalCounts;
+  tasks: OperationalTask[];     // top N (default 15)
+  alerts: Array<{ variant: 'info'|'warning'|'error'; title: string; body: string }>;
+  isEmpty: boolean;             // period sin TX o sin tareas
 };
 ```
 
-| KPI | Cálculo | Componente |
-|-----|---------|------------|
-| 1. IVA neto periodo | `taxPreview.iva.saldoNeto` | `StatCard` tone brand |
-| 2. Flujo de caja neto | `ingresos - egresos` | `StatCard` success/danger |
-| 3. % conciliado bancario | `bank_reconciled` persistido | `StatCard` |
-| 4. ISR estimado YTD | `taxPreview.isr.isrEstimado` | `StatCard` |
+### 4.1 Reglas de inclusión (periodo seleccionado)
 
-**Chart:** últimos **6** meses (incluyendo periodo seleccionado) → `Chart type="line"` ingresos/egresos.
+1. Una TX puede generar **una** tarea (prioridad: `revision` > `high_risk` > `pending` > `unclassified`).  
+2. Single pass O(n) sobre `transactionsInPeriod` (+ ranking ya memorizado o calculado dentro del service con el mismo threshold).  
+3. Cap `MAX_TASKS = 15`; contadores reflejan totales reales (no solo top N).
 
-**Alert:** disclaimer fiscal (`taxPreview.disclaimer`) + si `lineasSinDesglose > 0` warning.
+### 4.2 Conciliación y SAT (sin sesión / sin listJobs)
 
-**PageHeader:** título “Vista ejecutiva” + descripción del periodo + actions (botón briefing).
-
-**Briefing Groq:**  
-- Botón “Generar borrador ejecutivo” → `onGenerateBriefing()` prop  
-- `App` reutiliza handler/`generateExecutiveBriefing` + estado modal o panel inline en la vista  
-- **Prohibido** llamar Groq en `useEffect` de montaje (economía tokens / E2)
+| Necesidad auditor | Enfoque E7.2 (recomendado §8) |
+|-------------------|-------------------------------|
+| Conflictos bancarios | **No** `isConflict` de sesión. CTA “Ir a Conciliación” + StatCard opcional `% sin bank_reconciled` del periodo (dato persistido, coherente con E7.1). |
+| Jobs SAT pendientes | **No** listener nuevo. CTA “Descarga SAT” → `onNavigate('sat_download')`. |
 
 ---
 
-## 5. Arquitectura de capas
+## 5. UI (`OperationalDashboardView`) — E0.1 only
 
-```
-App.tsx (orquesta)
-  ├─ useMemo → executiveDashboardService.buildExecutiveSnapshot(...)
-  └─ ExecutiveDashboardView (UI)
-        ├─ PageHeader / StatCard×4 / Chart / Alert / Button
-        └─ onGenerateBriefing → App → insightsService (existente)
-```
+| Bloque | Componentes |
+|--------|-------------|
+| Header | `PageHeader` título “Vista operativa” + Badge |
+| Contadores | `StatCard` ×3–4: Revisión, Pendientes, Sin clasificar, (opcional) Alto riesgo |
+| Alertas del día | `Alert` por cada item en `alerts` (ej. “N en revisión”, periodo vacío) |
+| Tareas | `DataTable` columnas: Tipo, Concepto, Monto, Acción |
+| Acciones rápidas | `Button`: Capturar TX, Importar CFDI/Excel, Conciliación, Descarga SAT, (opcional) Transacciones |
+
+Callbacks (App orquesta; vista sin Firebase/Groq):
 
 ```ts
-// ❌ BAD — componente habla con Groq
-await generateExecutiveBriefing(pack)
-
-// ✅ GOOD — vista recibe callback; App/hook orquesta service
-props.onGenerateBriefing()
+onNavigateTab: (id: string) => void
+onOpenManualTx: () => void
+onOpenCfdiImport: () => void
+onOpenExcelImport: () => void
+onSelectTask?: (taskId: string) => void  // opcional: abrir detalle / ir a transactions
 ```
 
-`executiveDashboardService` **no** importa `groqAIService` ni Firebase.
-
-### 5.1 Rendimiento
-
-- `buildExecutiveSnapshot` / `buildTrendSeries` síncronos y O(n) sobre arrays ya filtrados.  
-- En `App`: un `useMemo` dependiente de `[transactions, periodYear, periodMonth, taxPreview, …]`.  
-- Chart: máx. 6 puntos × 2 series — trivial.  
-- No bloquear UI con trabajo async salvo briefing explícito.
+**TaxPreviewCard / bloque “Actividad IA”:** se **retiran** del overview operativo (pasan a ser ruido frente a tareas). Fiscal detallado sigue en tab Fiscal; briefing en modo ejecutivo. Ver §8.3.
 
 ---
 
-## 6. Bifurcación en `overview` (contrato UX)
+## 6. Rendimiento
 
-| `dashboardMode` | Contenido `overview` |
-|-----------------|----------------------|
-| `'operativo'` | Overview actual (sin cambios de markup en E7.1) |
-| `'ejecutivo'` | `ExecutiveDashboardView` |
-
-- Toggle TopBar ya persiste; **no** crear tab nueva.  
-- Periodo (año/mes): **compartido** — el ejecutivo debe respetar el mismo `periodYear`/`periodMonth` que el resto de la app.
+- `buildOperationalSnapshot` síncrono, una pasada (+ sort estable por severity).  
+- `useMemo` en App deps: `[transactionsInPeriod, periodYear, periodMonth, taxPreview.periodoLabel, HIGH_AMOUNT_REVIEW_THRESHOLD]` (o `riskRankings` si se reutiliza el memo existente).  
+- DataTable ≤ 15 filas — sin virtualización.
 
 ---
 
@@ -181,69 +186,70 @@ props.onGenerateBriefing()
 
 | Tipo | Alcance |
 |------|---------|
-| Unit | `executiveDashboardService`: flujo neto, %, serie 6 meses, edge `txCount===0` |
-| Smoke UI | `ExecutiveDashboardView` render con fixtures + axe smoke |
-| Suite | `npm test` + `npm run lint` verdes (74 + nuevos) |
-| Manual | Toggle Operativo↔Ejecutivo en overview; briefing on-demand; dark mode tokens |
+| Unit | Prioridad de kinds, vacío, cap 15, contadores vs lista |
+| Smoke UI | Render, empty Alert, click CTA (vi.fn), axe |
+| Suite | lint + tests ≥ 81 + nuevos |
 
 ---
 
-## 8. Preguntas críticas (resolver antes de APROBADO)
+## 8. Preguntas críticas
 
-### 8.1 ¿Dónde vive el selector de periodo en modo ejecutivo?
+### 8.1 ¿Conflictos de conciliación (`isConflict`)?
 
-- **(A) Barra de periodo compartida encima de la bifurcación** (mismo Card selector para ambos modos). **Recomendado.**  
-- **(B)** Selector duplicado dentro de `ExecutiveDashboardView`.  
-- **(C)** Solo TopBar (sin selector mes) — rompería consistencia con métricas actuales.
+- **(A) No usar sesión CSV; CTA Conciliación + métrica persistida `bank_reconciled`.** **Recomendado (anti-acoplamiento).**  
+- **(B)** Levantar `useBankReconciliation` a `App` solo para leer conflictos (acopla overview a CSV; frágil si no hay archivo).  
+- **(C)** Omitir cualquier señal de conciliación en E7.2.
 
-### 8.2 ¿Briefing en modal existente o panel inline?
+### 8.2 ¿Jobs SAT pendientes?
 
-- **(A) Reutilizar modal de borrador ejecutivo ya en `App.tsx`.** **Recomendado** (cero UI nueva de modal).  
-- **(B)** Panel colapsable dentro de `ExecutiveDashboardView`.  
-- **(C)** Ambos.
+- **(A) Solo CTA navegación a `sat_download`.** **Recomendado.**  
+- **(B)** Nuevo listado Firestore de `sat_download_jobs` en App (nuevo grafo → re-plan).  
+- **(C)** Mostrar fase del último run si se eleva `useSatDownload` a App (pesado).
 
-### 8.3 ¿KPI de “% conciliación” con qué definición?
+### 8.3 ¿Conservar TaxPreviewCard compact en operativo?
 
-- **(A) `%` de TX del periodo con `bank_reconciled === true`.** **Recomendado** (dato persistido, estable).  
-- **(B)** `%` con `status === 'conciliado'` (incluye import Excel no bancario — más laxo).  
-- **(C)** Métricas de sesión CSV del panel (acopla E7.1 a Conciliación — **rechazado**).
+- **(A) No** — foco en tareas; IVA queda en ejecutivo/Fiscal. **Recomendado.**  
+- **(B) Sí**, debajo de la tabla.  
+- **(C)** Solo un StatCard “IVA neto” sin card completa.
 
-### 8.4 ¿Series del Chart?
+### 8.4 ¿Acción al click de una fila de tarea?
 
-- **(A) 6 meses ingresos/egresos.** **Recomendado.**  
-- **(B) Solo mes actual (barras por semana).**  
-- **(C) IVA por mes (requiere N× buildTaxPreview — más costo CPU).**
+- **(A) `onNavigateTab('transactions')` + filtro futuro diferido (E7.3).** **Recomendado simple.**  
+- **(B)** Abrir modal de detalle si `selectedTransaction` se setea por id.  
+- **(C)** Sin acción en fila (solo CTAs globales).
 
-### 8.5 ¿Mostrar TaxPreviewCard compact en ejecutivo?
+### 8.5 ¿Incluir `high_risk` vía `computeRiskRankings`?
 
-- **(A) No** — KPIs + Alert disclaimer bastan; evita duplicar IVA. **Recomendado.**  
-- **(B) Sí, debajo del chart.**
+- **(A) Sí** — reutiliza lib existente, valor operativo claro. **Recomendado.**  
+- **(B) No** — solo status/account_name.  
+- **(C)** Solo montos > threshold hardcode (duplica lógica).
 
-### 8.6 ¿Tests de `useTheme` en este entregable?
+### 8.6 ¿Selector de periodo?
 
-- **(A) No** — observación no bloqueante de E0.2 diferida. **Recomendado.**  
-- **(B) Sí, smoke mínimo en E7.1 (scope creep menor).**
+- **(A) Mantener compartido arriba de la bifurcación (como E7.1).** **Recomendado / ya fijo.**  
+- **(B)** Mover dentro de la vista operativa.
 
 ---
 
 ## 9. Criterios de aceptación (DoD)
 
-- [ ] `dashboardMode === 'ejecutivo'` + `overview` → `ExecutiveDashboardView`; operativo → overview previo intacto.  
-- [ ] 4 KPIs + Chart 6 meses + Alert disclaimer vía `ui/` E0.1.  
-- [ ] Agregaciones en `executiveDashboardService` (puro); `useMemo` en App.  
-- [ ] Briefing Groq solo on-demand; sin fetch al montar.  
-- [ ] Cero `any` en tipos nuevos; capas components/services respetadas.  
-- [ ] Tests service + smoke vista; lint/tsc; suite ≥74 + nuevos.  
-- [ ] Commit + push tras verificación (`feat: add executive dashboard view with macro KPIs (E7.1)`).
+- [ ] `dashboardMode === 'operativo'` + overview → `OperationalDashboardView`; ejecutivo intacto.  
+- [ ] JSX operativo indigo ad hoc eliminado de `App.tsx`.  
+- [ ] Service puro + `useMemo`; DataTable/StatCard/Alert/Button/PageHeader E0.1.  
+- [ ] Tareas desde TX del periodo (revision/pending/unclassified[/high_risk]); empty state claro.  
+- [ ] CTAs: captura, import, conciliación, SAT (navegación); sin Groq al montar.  
+- [ ] Sin montar hook de conciliación ni listJobs SAT en overview (salvo §8 B).  
+- [ ] Tests service + smoke; lint/tsc; suite verde.  
+- [ ] Commit + push tras verificación (`feat: add operational dashboard with daily task queue (E7.2)`).
 
 ---
 
 ## 10. Orden de ejecución (tras APROBADO)
 
-1. Tipos + `executiveDashboardService` + tests unitarios.  
-2. `ExecutiveDashboardView` + smoke.  
-3. Bifurcar overview en `App.tsx` + cablear briefing.  
-4. Docs; lint/suite; **parar** (no E7.2).
+1. Tipos + `operationalDashboardService` + tests.  
+2. `OperationalDashboardView` + smoke.  
+3. Cablear App (reemplazo bloque operativo + callbacks).  
+4. Docs; lint/suite; **parar** (no E7.3).
 
 ---
 
@@ -251,11 +257,11 @@ props.onGenerateBriefing()
 
 Responder con:
 
-- `APROBADO: Ejecutar Entregable 7.1` + letras **§8.1–8.6**  
+- `APROBADO: Ejecutar Entregable 7.2` + letras **§8.1–8.6**  
 - o `APROBADO CON CAMBIOS: …`  
 - o `RECHAZADO: …`
 
-**Sin esa frase, no se escribe código de E7.1.**
+**Sin esa frase, no se escribe código de E7.2.**
 
 ---
 
@@ -265,6 +271,6 @@ Responder con:
 |----|------------|--------|
 | E0.1 | Design System | ✅ `cb840e0` |
 | E0.2 | Shell / toggle | ✅ `0f0e76b` |
-| **E7.1** | Vista ejecutiva | ✅ IMPLEMENTADO |
-| E7.2 | Vista operativa | pendiente |
+| E7.1 | Vista ejecutiva | ✅ `79d6e45` |
+| **E7.2** | Vista operativa | ✅ IMPLEMENTADO |
 | E7.3 | Migración secciones | pendiente |
