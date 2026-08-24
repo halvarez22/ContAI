@@ -15,11 +15,8 @@ import {
   getDoc,
 } from 'firebase/firestore';
 import { 
-  LayoutDashboard, 
   Receipt, 
   History, 
-  Settings, 
-  LogOut, 
   Plus, 
   ShieldCheck, 
   BrainCircuit,
@@ -27,10 +24,8 @@ import {
   CheckCircle2,
   Clock,
   ChevronRight,
-  Menu,
   X,
   Download,
-  Repeat,
   Eye,
   Info,
   Edit2,
@@ -41,13 +36,9 @@ import {
   PieChart,
   Search,
   Tag,
-  Activity,
   Upload,
   Sparkles,
   MessageSquare,
-  Package,
-  Percent,
-  Palette,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './firebase';
@@ -55,6 +46,8 @@ import { cn, formatCurrency, formatDate } from './lib/utils';
 import { Button } from './components/ui/Button';
 import { Card } from './components/ui/Card';
 import { Badge } from './components/ui/Badge';
+import { AppShell } from './components/layout/AppShell';
+import { getNavItems, getNavTitle } from './components/layout/navItems';
 import { executeAgent, AGENT_TYPES } from './services/groqAIService';
 import type { AgentDecision, AgentType } from './types/agentDecision';
 import { logAuditEntry } from './services/auditService';
@@ -86,6 +79,8 @@ import { ImportModals } from './components/ImportModals';
 import { BankReconciliationPanel } from './components/BankReconciliationPanel';
 import { SatDownloadPanel } from './components/SatDownloadPanel';
 import { useImportFlow } from './hooks/useImportFlow';
+import { useDashboardMode } from './hooks/useDashboardMode';
+import { useTheme } from './hooks/useTheme';
 import { toBankLedgerItems } from './hooks/useBankReconciliation';
 import type { CfdiClassificationPayload } from './types/cfdiBatch';
 import type { BankLedgerItem } from './types/bankReconciliation';
@@ -153,23 +148,9 @@ export default function App() {
   const [products, setProducts] = useState<any[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<any[]>([]);
   const [periodosCerrados, setPeriodosCerrados] = useState<string[]>([]);
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') === 'dark' || 
-        (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDarkMode]);
+  const { mode: dashboardMode, setMode: setDashboardMode } = useDashboardMode();
+  const { isDarkMode, toggleDarkMode } = useTheme();
+  const navItems = getNavItems();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -1098,194 +1079,32 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex text-gray-900 dark:text-gray-100 overflow-x-hidden">
-      {/* Mobile Sidebar Overlay */}
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Sidebar */}
-      <motion.aside 
-        initial={false}
-        animate={{ 
-          width: isSidebarOpen ? 280 : 80,
-          x: typeof window !== 'undefined' && window.innerWidth < 1024 
-            ? (isMobileMenuOpen ? 0 : -280) 
-            : 0
+    <>
+      <AppShell
+        navItems={navItems}
+        activeTab={activeTab}
+        title={getNavTitle(activeTab, navItems)}
+        onNavigate={(id) => {
+          setActiveTab(id);
+          setIsMobileMenuOpen(false);
         }}
-        className={cn(
-          "bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col fixed lg:sticky top-0 h-screen z-50 lg:z-20 transition-all duration-300",
-          !isSidebarOpen && "lg:w-20"
-        )}
+        sidebarCollapsed={!isSidebarOpen}
+        onToggleCollapsed={() => setIsSidebarOpen((open) => !open)}
+        mobileOpen={isMobileMenuOpen}
+        onMobileOpen={() => setIsMobileMenuOpen(true)}
+        onMobileClose={() => setIsMobileMenuOpen(false)}
+        empresaNombre={empresaNombre}
+        empresaRfc={empresaRfc}
+        onLogout={() => {
+          void handleLogout();
+        }}
+        mode={dashboardMode}
+        onModeChange={setDashboardMode}
+        isDarkMode={isDarkMode}
+        onToggleDark={toggleDarkMode}
+        userDisplayName={user.displayName}
+        userPhotoURL={user.photoURL}
       >
-        <div className="p-6 flex items-center justify-between lg:justify-start gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shrink-0">
-              <ShieldCheck className="w-6 h-6 text-white" />
-            </div>
-            {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
-              <span className="font-bold text-xl text-gray-900 dark:text-white">ContAI</span>
-            )}
-          </div>
-          <button 
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (empresaNombre || empresaRfc) && (
-          <div className="px-4 pb-2 -mt-2">
-            <div className="rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
-              {empresaNombre ? (
-                <p className="text-xs font-semibold text-gray-900 dark:text-white leading-tight line-clamp-2">{empresaNombre}</p>
-              ) : null}
-              {empresaRfc ? (
-                <p className="text-[10px] font-mono text-gray-500 dark:text-gray-400 mt-1">RFC {empresaRfc}</p>
-              ) : null}
-            </div>
-          </div>
-        )}
-
-        <nav className="flex-1 px-4 space-y-2 mt-4">
-          {[
-            { id: 'overview', icon: LayoutDashboard, label: 'Panel General' },
-            { id: 'transactions', icon: Receipt, label: 'Transacciones' },
-            { id: 'analysis', icon: Activity, label: 'Análisis' },
-            { id: 'reconciliation', icon: Upload, label: 'Conciliación' },
-            { id: 'sat_download', icon: Download, label: 'Descarga SAT' },
-            { id: 'fiscal', icon: Percent, label: 'Fiscal' },
-            { id: 'inventory', icon: Package, label: 'Inventario' },
-            { id: 'recurring', icon: Repeat, label: 'Recurrentes' },
-            { id: 'audit', icon: History, label: 'Bitácora' },
-            { id: 'settings', icon: Settings, label: 'Configuración' },
-            ...(import.meta.env.DEV
-              ? [{ id: 'design_system', icon: Palette, label: 'Design System' }]
-              : []),
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                setActiveTab(item.id);
-                setIsMobileMenuOpen(false);
-              }}
-              className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
-                activeTab === item.id 
-                  ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400' 
-                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200'
-              )}
-            >
-              <item.icon className="w-5 h-5 shrink-0" />
-              {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
-                <span className="font-medium">{item.label}</span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        <div className="p-4 border-t border-gray-100 dark:border-gray-800">
-          <button
-            onClick={handleLogout}
-            className={cn(
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 dark:text-gray-400 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors',
-            )}
-          >
-            <LogOut className="w-5 h-5 shrink-0" />
-            {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
-              <span className="font-medium">Cerrar Sesión</span>
-            )}
-          </button>
-        </div>
-      </motion.aside>
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 w-full">
-        <header className="min-h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between gap-2 px-4 lg:px-8 py-2 sticky top-0 z-10">
-          <div className="flex items-center gap-2 lg:gap-4 min-w-0 flex-shrink">
-            <button 
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 dark:text-gray-400"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <button 
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="hidden lg:block p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 dark:text-gray-400"
-            >
-              {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
-            <h2 className="text-sm lg:text-lg font-semibold text-gray-900 dark:text-white truncate max-w-[150px] sm:max-w-none">
-              {activeTab === 'overview' && 'Panel General'}
-              {activeTab === 'transactions' && 'Transacciones'}
-              {activeTab === 'analysis' && 'Análisis'}
-              {activeTab === 'reconciliation' && 'Conciliación'}
-              {activeTab === 'sat_download' && 'Descarga SAT (Beta)'}
-              {activeTab === 'fiscal' && 'Administración fiscal'}
-              {activeTab === 'inventory' && 'Inventario'}
-              {activeTab === 'recurring' && 'Transacciones Recurrentes'}
-              {activeTab === 'audit' && 'Bitácora'}
-              {activeTab === 'settings' && 'Configuración'}
-              {activeTab === 'design_system' && 'Design System'}
-            </h2>
-          </div>
-
-          {(empresaNombre || empresaRfc) && (
-            <div className="flex-1 min-w-0 hidden md:flex flex-col items-center justify-center px-2 text-center">
-              {empresaNombre ? (
-                <p className="text-xs font-semibold text-gray-900 dark:text-white truncate max-w-md lg:max-w-lg">{empresaNombre}</p>
-              ) : null}
-              {empresaRfc ? (
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 font-mono mt-0.5">RFC {empresaRfc}</p>
-              ) : null}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 lg:gap-4 flex-shrink-0">
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 dark:text-gray-400 transition-colors"
-            >
-              {isDarkMode ? (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 9h-1m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 5a7 7 0 100 14 7 7 0 000-14z" /></svg>
-              ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
-              )}
-            </button>
-            <div className="text-right hidden md:block">
-              <p className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[100px]">{user.displayName}</p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">Admin</p>
-            </div>
-            <img 
-              src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} 
-              className="w-8 h-8 lg:w-10 lg:h-10 rounded-full border border-gray-200 dark:border-gray-700"
-              alt="Avatar"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        </header>
-
-        {(empresaNombre || empresaRfc) && (
-          <div className="md:hidden px-4 py-2 bg-indigo-50/80 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/40 text-center">
-            {empresaNombre ? (
-              <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">{empresaNombre}</p>
-            ) : null}
-            {empresaRfc ? (
-              <p className="text-[10px] font-mono text-indigo-700 dark:text-indigo-300 mt-0.5">RFC {empresaRfc}</p>
-            ) : null}
-          </div>
-        )}
-
-        <div className="p-4 lg:p-8 overflow-x-hidden">
           <AnimatePresence mode="wait">
             {activeTab === 'overview' && (
               <motion.div 
@@ -2211,8 +2030,7 @@ export default function App() {
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
-      </main>
+      </AppShell>
 
       {/* Processing Overlay */}
       <AnimatePresence>
@@ -3385,6 +3203,6 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   );
 }

@@ -1,311 +1,282 @@
-# Implementation Plan — Entregable 0.1 (Sistema de Diseño ContAI)
+# Implementation Plan — Entregable 0.2 (Shell / Navegación)
 
-**Proyecto:** ContAI Fase 3 (fundación visual)  
+**Proyecto:** ContAI Fase 3  
 **Fecha:** 2026-08-24  
-**Estado:** IMPLEMENTADO (E0.1) — aprobado por dictamen auditor 2026-08-24  
-**Precondiciones:** Fase 2 operativa en `main` (E5.4 `405e063`, E6.2.1 `cad23d7`)  
-**Objetivo:** Establecer un **sistema de diseño fintech** (tokens + componentes base documentados) estilo Mercury/Ramp, sobre el cual se construirán E0.2 (shell) y E7.x (dashboard), **sin** rediseñar la navegación ni el dashboard en este entregable.  
-**Fuera de alcance E0.1:** Nueva sidebar/shell (E0.2), vistas Ejecutiva/Operativa (E7.1–E7.2), migración de tabs (E7.3), Storybook, refactor masivo de `App.tsx`, cambio de librería de iconos, multi-tenant.
+**Estado:** IMPLEMENTADO (E0.2) — aprobado §8.1–8.6(A) 2026-08-24  
+**Precondiciones:** E0.1 APPROVED en `main` (`cb840e0`) — tokens, `ui/`, Gallery DEV, a11y smoke  
+**Objetivo:** Reestructurar el **contenedor visual** post-auth (Sidebar + TopBar + área de contenido) para consumir tokens E0.1, con toggle **Operativo / Ejecutivo** en TopBar (estado de contexto para E7.1–E7.2), **sin** cambiar la lógica ni el comportamiento de las tabs existentes.  
+**Fuera de alcance E0.2:** Vistas Ejecutiva/Operativa reales (E7.1–E7.2), migración masiva de estilos *dentro* de cada tab (E7.3), React Router, Storybook, Conciliación/SAT/Import/Fiscal business, Cloud Functions, multi-tenant, nuevos primitivos `ui/` no listados.
 
 ---
 
-## 0. Opinión profesional del agente (contexto estratégico)
+## 0. Opinión profesional (contexto)
 
-**Coincido con el diagnóstico del auditor:** las cuatro decisiones (dashboard como producto, doble vista, Mercury/Ramp, design system primero) **elevan el alcance a Fase 3**, no a un solo E7.1. Intentar “el dashboard” sin tokens/componentes reproduciría la deuda visual que ya tenemos (`indigo-*` ad hoc, tipografía por defecto del sistema, `ui/` mínimo).
+E0.1 dejó tokens y primitivos; el chrome de `App.tsx` (~líneas 1100–1286) sigue con `indigo-*` / `gray-*` ad hoc. E0.2 debe **extraer y tokenizar solo el layout**, no reescribir 3k+ líneas de pantallas.
 
-**Sobre el ritmo propuesto (E0.1 → E0.2 → E7.1 → E7.2 → E7.3):** es el orden correcto. E0.1 debe ser **deliberadamente estrecho**: cimientos, no producto completo. Si E0.1 intenta también la shell, se convierte en megaplan (violación APO).
-
-**Hallazgos del código actual (grafo real):**
-
-| Pieza | Estado hoy |
-|-------|------------|
-| Tailwind | v4 vía `@import "tailwindcss"` en `src/index.css` (casi vacío) |
-| `src/components/ui/` | Solo `Button`, `Card`, `Badge` (hardcode `indigo`/`gray`) |
-| Iconos | `lucide-react` ya en uso en toda la app |
-| Charts | **Ninguna** dependencia (`recharts`/`nivo`/`tremor` ausentes) |
-| Fuentes | Sin Inter/JetBrains; `index.html` sin font-face |
-| Dark mode | Ya usado masivamente (`dark:` en paneles); sin tokens semánticos |
-| Nav | Tabs en `App.tsx` (“Panel General”, Análisis, Conciliación, …) — **no tocar en E0.1** |
-
-**Riesgo a gestionar:** migrar *todas* las pantallas a tokens en E0.1 es scope creep. E0.1 = **definir tokens + enriquecer `ui/` + documentar + aplicar en 1–2 superficies demo** (p. ej. `TaxPreviewCard` o un `DesignSystemGallery` interno). La migración masiva de `App.tsx` queda para E0.2/E7.3.
+El toggle Operativo/Ejecutivo es **infraestructura de contexto**, no el dashboard nuevo: en E0.2 el switch es visible, accesible y persistente; **no** sustituye el contenido de `overview` (eso es E7.x).
 
 ---
 
 ## 1. Principio APO (anti-megaplan)
 
 ```
-E0.1  tokens + ui primitives + Chart wrapper stub + docs
-E0.2  shell / nav (consume tokens)
-E7.1  vista ejecutiva (consume StatCard + Chart)
+E0.1  tokens + ui/          ✅ cerrado
+E0.2  shell (Sidebar+TopBar+toggle)   ← este plan
+E7.1  vista ejecutiva (consume mode + StatCard/Chart)
 E7.2  vista operativa
-E7.3  consolidación de secciones
+E7.3  migración secciones bajo shell
 ```
 
-**Prohibido en E0.1:** mover tabs, inventar rutas nuevas como producto, reescribir Conciliación/SAT.
+**Prohibido en E0.2:** inventar rutas de producto, rediseñar Conciliación/SAT, reescribir KPIs del Panel General, agregar shadcn.
 
 ---
 
-## 2. Arquitectura de tokens
+## 2. Diagnóstico técnico actual (grafo de impacto)
 
-### 2.1 Dónde viven — **CSS variables + `@theme` en CSS (Tailwind 4)**
+### 2.1 Flujo UI actual (post-auth)
 
-| Capa | Archivo | Rol |
-|------|---------|-----|
-| Fuente de verdad | `src/styles/tokens.css` | `:root` / `.dark` → `--color-brand`, `--color-surface`, `--font-sans`, `--font-mono`, `--radius-*`, … |
-| Bridge Tailwind 4 | `src/index.css` | `@import "./styles/tokens.css";` + bloque `@theme { … }` mapeando a utilidades (`bg-brand`, `text-ink`, `font-mono`, …) |
-| Tipado charts (opcional) | `src/styles/tokens.ts` | Solo claves/colores que Recharts necesite en JS |
+```
+App.tsx
+  ├─ state: activeTab, isSidebarOpen, isMobileMenuOpen, isDarkMode, user, empresa*
+  ├─ chrome inline:
+  │    ├─ overlay móvil
+  │    ├─ <aside> nav (tabs hardcode + DEV design_system)
+  │    └─ <header> título tab + dark toggle + avatar
+  └─ <main> → bloques {activeTab === '…'} (overview…settings)  ← NO tocar lógica
+```
 
-**No** se introduce un `tailwind.config.ts` clásico como fuente de verdad (Tailwind 4 en este repo ya opera desde CSS). Si hace falta un archivo de config mínimo para Vite, no duplica la paleta.
+### 2.2 Qué viola / deuda
 
-### 2.2 Paleta propuesta (Mercury/Ramp × ContAI fiscal)
+| Pieza | Problema |
+|-------|----------|
+| Sidebar / header | Hardcodes `indigo-*`, `gray-*`, `bg-white dark:bg-gray-900` |
+| Nav items | Array inline en `App.tsx`; duplicación título tab en header |
+| Dark mode | OK funcional (`localStorage` + clase `dark`); UI del toggle no tokenizada |
+| View mode | **No existe** — requerido para preparar E7.1/E7.2 |
 
-| Token | Uso | Notas |
-|-------|-----|--------|
-| `--color-brand` | CTA primario | Azul profundo (no indigo genérico saturado) |
-| `--color-brand-muted` | fondos suaves | |
-| `--color-success` | conciliado / OK | Verde esmeralda |
-| `--color-warning` | revisión / conflicto | Ámbar |
-| `--color-danger` | error / rechazo | Rojo contenido |
-| `--color-ink` / `--color-ink-muted` | texto | Grises elegantes |
-| `--color-surface` / `--color-surface-elevated` / `--color-border` | cards / divisores | |
-| `--font-sans` | UI | Inter |
-| `--font-mono` | montos, RFC, UUID | JetBrains Mono |
-| `--radius-*`, `--shadow-*`, `--space-*` | ritmo | |
+### 2.3 Efectos secundarios (módulos afectados)
 
-Carga de fuentes: `@fontsource/inter` + `@fontsource/jetbrains-mono` (o link Google Fonts en `index.html` — preferir **fontsource** para builds offline/Vercel predecibles).
-
-### 2.3 Dark mode en E0.1
-
-**Recomendación §8:** soportar **claro + oscuro desde E0.1 a nivel de tokens** (ya hay `dark:` en la app). No construir toggle nuevo de producto si ya existe en shell; solo definir `.dark { … }` en tokens. Si no hay toggle global claro, documentar que la clase `dark` en `<html>` sigue el mecanismo actual.
-
----
-
-## 3. Componentes base (`src/components/ui/`) — LISTA CERRADA
-
-### 3.1 Refactor (API de props **sin cambios**)
-
-| Archivo | Cambio interno |
-|---------|----------------|
-| `Button.tsx` | Variants → tokens; props públicas idénticas |
-| `Card.tsx` | Surface/border → tokens; props públicas idénticas |
-| `Badge.tsx` | Variants → tokens; props públicas idénticas |
-
-### 3.2 Crear (exactamente estos 7; **no** “y más”)
-
-| Archivo | Props tipadas (mínimo) |
-|---------|------------------------|
-| `Input.tsx` | `label?`, `error?`, `hint?` + attrs nativos |
-| `Alert.tsx` | `variant: 'info'\|'success'\|'warning'\|'error'`, `title?`, `children` |
-| `StatCard.tsx` | `label`, `value`, `delta?`, `tone?`, `hint?` |
-| `PageHeader.tsx` | `title`, `description?`, `actions?: ReactNode` |
-| `DataTable.tsx` | genérico tipado `columns` / `rows` (MVP, sin virtualización) |
-| `Chart.tsx` | wrapper Recharts: `type: 'line'\|'bar'`, `data`, `xKey`, `series[]` |
-| `Skeleton.tsx` | `className?` |
-
-### 3.3 Gallery (definición cerrada)
-
-**No Storybook. No React Router** (el repo no tiene router).
-
-- Archivo: `src/components/DesignSystemGallery.tsx`
-- Activación: ítem de sidebar **solo si** `import.meta.env.DEV`, `id: 'design_system'`, label `Design System`
-- Render: cuando `activeTab === 'design_system'` en `App.tsx` (diff mínimo: 1 ítem nav + 1 bloque condicional)
-- Contenido: todos los componentes de §3.1–3.2 con variantes
-- En **producción** (`vite build`): el ítem no existe; cero impacto usuarios
-
-### 3.4 Pantallas demo a migrar (exactamente 2)
-
-| # | Superficie | Qué se migra |
-|---|------------|--------------|
-| 1 | `src/components/TaxPreviewCard.tsx` | Cards/Badges/StatCard + tokens (fiscal compact/detailed) |
-| 2 | Bloque **login pre-auth** en `App.tsx` (card “Iniciar sesión” / Google) | `Card` + `Button` + tipografía tokens; **sin** tocar post-login ni tabs |
-
-**Prohibido migrar en E0.1:** Conciliación, SAT, Import CFDI, shell completa, settings completo, overview KPI inventados.
-
-### 3.5 Layout stubs
-
-`Sidebar` / `TopBar` **no se crean como componentes de producto en E0.1** (E0.2). Solo se documentan como API futura en `docs/DESIGN_SYSTEM.md`.
+| Módulo | Impacto E0.2 |
+|--------|----------------|
+| `App.tsx` | Sustituir chrome por `<AppShell />`; conservar estado de negocio y `activeTab` |
+| Nuevos `layout/*` | Solo presentación; **cero** Firebase/Groq |
+| `docs/DESIGN_SYSTEM.md` | Documentar Shell + ViewMode |
+| Tabs / paneles | **Sin cambio de comportamiento**; IDs de tab idénticos |
+| Gallery DEV | Sigue bajo `import.meta.env.DEV` (doble guarda) |
+| Login pre-auth | Fuera de shell (ya tokenizado en E0.1) — no reabrir |
 
 ---
 
-## 4. Integración con el stack actual
+## 3. Alcance cerrado — LISTA DE ARCHIVOS
 
-| Tecnología | Decisión |
-|------------|----------|
-| Tailwind v4 | Tokens → `@theme`; utilidades semánticas |
-| shadcn/ui | **No adoptar en E0.1** (ver §8.3): ya hay `ui/` propio; shadcn implica Radix + CLI + convenciones que diluyen APO |
-| Lucide | **Mantener** (ya en package.json) |
-| `cn()` en `lib/utils` | Seguir usándolo |
-| Capas ContAI | `ui/` = presentación pura; **prohibido** Firestore/Groq en componentes ui |
+### 3.1 Crear (exactamente estos)
 
----
+| Ruta | Responsabilidad única |
+|------|------------------------|
+| `src/types/dashboardMode.ts` | Tipo `DashboardMode = 'operativo' \| 'ejecutivo'` + clave storage |
+| `src/hooks/useDashboardMode.ts` | Estado + persistencia `localStorage` (default `'operativo'`) |
+| `src/components/layout/navItems.ts` | Lista tipada de tabs (mismo `id`/`label`/`icon` actuales + DEV item) |
+| `src/components/layout/AppSidebar.tsx` | Brand, empresa, nav, logout; tokens; collapse/móvil vía props |
+| `src/components/layout/AppTopBar.tsx` | Título, empresa (desktop), toggle Operativo/Ejecutivo, dark, avatar |
+| `src/components/layout/AppShell.tsx` | Compone overlay + Sidebar + TopBar + `children` (área contenido) |
+| `src/components/layout/ViewModeToggle.tsx` | Control accesible Operativo/Ejecutivo (usa `Button`/`Badge` de `ui/`) |
+| `src/components/layout/AppShell.test.tsx` | Smoke: render shell + axe leve / assert toggle + DEV nav ausente sin DEV |
 
-## 5. Accesibilidad (WCAG 2.1 AA)
+**No crear:** `Sidebar.tsx` genérico en `ui/` (el plan E0.1 reservó API de producto en layout, no otro primitivo).
 
-Obligatorio en E0.1 para componentes nuevos/evolucionados:
-
-- Contraste tokens (texto ink sobre surface ≥ 4.5:1; UI components ≥ 3:1).
-- `focus-visible` ring con token `--color-focus` (no quitar outline).
-- `Button`/`Input`: estados `disabled` anunciables; labels asociados (`htmlFor`).
-- `Alert`: `role="alert"` o `status` según variante.
-- `DataTable`: `<th scope>`, teclado en filas interactivas si aplica.
-- Prueba puntual con **axe-core** en gallery (devDependency) — 1 smoke test, no suite completa AA en CI aún.
-
----
-
-## 6. Documentación
-
-**Recomendación:** `docs/DESIGN_SYSTEM.md` (auditor) + sección por componente (props, variantes, do/don’t).
-
-- **No Storybook en E0.1** (peso de tooling alto; YAGNI hasta que haya equipo de diseño).  
-- Gallery DEV opcional como “living docs”.  
-- README: enlace a `docs/DESIGN_SYSTEM.md`.
-
----
-
-## 7. Estrategia de pruebas (concreta)
-
-| Tipo | Herramienta | Alcance E0.1 |
-|------|-------------|--------------|
-| Unit / smoke | Vitest + `@testing-library/react` | `Button`, `Alert`, `StatCard` (roles, variants) |
-| a11y | `vitest-axe` (o `jest-axe` vía vitest) | 1–2 tests: `Alert` + `Button` sin violaciones critical |
-| Manual | Gallery DEV | Checklist contraste focus en `docs/DESIGN_SYSTEM.md` |
-| Regresión | `npm test` + `npm run lint` | Suite Fase 2 intacta; cero functions/SAT/Groq business |
-
-**No** Storybook, **no** Percy, **no** e2e Playwright obligatorio en E0.1.
-
----
-
-## 8. Preguntas críticas
-
-### 8.1 ¿Librería de gráficas?
-
-- **(A) Recharts** — ligera, idiomatic React, suficiente para line/bar E7.1. **Recomendado.**  
-- **(B) Nivo** — más potente, más peso.  
-- **(C) Tremor** — bonito pero acopla diseño ajeno al nuestro.  
-- **(D) Posponer Chart a E7.1** — E0.1 solo deja interfaz `Chart` stub.  
-
-**Recomendación:** **(A)** instalar Recharts en E0.1 con wrapper vacío usable, para no rediseñar API en E7.1.
-
-### 8.2 ¿Iconos?
-
-- **(A) Seguir con Lucide** — **recomendado** (cero migración).  
-- **(B) Heroicons** — costo sin beneficio.
-
-### 8.3 ¿shadcn/ui como base?
-
-- **(A) No; evolucionar `src/components/ui/` propio** — **recomendado**.  
-- **(B) Adoptar shadcn selectivo** (solo Dialog/Dropdown futuros).  
-- **(C) Migración total a shadcn** — rechazado (megaplan).
-
-### 8.4 ¿Dark mode?
-
-- **(A) Tokens claro+oscuro desde E0.1** — **recomendado**.  
-- **(B) Solo claro en E0.1**.
-
-### 8.5 ¿Alcance de adopción visual en E0.1? → **FIJO**
-
-- Gallery DEV (`design_system` tab) + exactamente **`TaxPreviewCard.tsx`** + **bloque login pre-auth en `App.tsx`**.
-- Cero Conciliación / SAT / settings completo / shell.
-
----
-
-## 8bis. Migración de `Button` / `Card` / `Badge` (contrato)
-
-| Regla | Detalle |
-|-------|---------|
-| API pública | **100% compatible**: mismas props (`variant`, `className`, `children`, …) |
-| Cambio | Solo classNames internos → tokens / utilidades semánticas |
-| Regresión | Consumidores actuales (`BankReconciliationPanel`, `SatDownloadPanel`, etc.) **no requieren cambios** |
-| Breaking | **Prohibido** renombrar variants (`primary`/`secondary`/`ghost`/`danger` se mantienen) |
-
-### 8.6 ¿Inter + JetBrains Mono?
-
-- **(A) Sí, como pide el brief Mercury/Ramp ContAI** — **recomendado para producto app**.  
-- **(B) Otra pareja (Geist / IBM Plex)**.  
-*Nota:* reglas de marketing “evitar Inter” aplican a landings brand-led; ContAI app fintech prioriza legibilidad operativa.
-
----
-
-## 9. Archivos a crear / modificar (exactos)
-
-### Crear
-
-| Ruta | Responsabilidad |
-|------|-----------------|
-| `src/styles/tokens.css` | Variables semánticas light/dark |
-| `src/styles/tokens.ts` | (opcional) export de claves para charts |
-| `src/components/ui/Input.tsx` | Input tipado |
-| `src/components/ui/Alert.tsx` | Alert tipado |
-| `src/components/ui/StatCard.tsx` | KPI card |
-| `src/components/ui/PageHeader.tsx` | Header de página |
-| `src/components/ui/DataTable.tsx` | Tabla genérica mínima |
-| `src/components/ui/Chart.tsx` | Wrapper Recharts |
-| `src/components/ui/Skeleton.tsx` | Placeholder |
-| `src/components/DesignSystemGallery.tsx` | Gallery DEV (opcional según §8.5) |
-| `docs/DESIGN_SYSTEM.md` | Documentación |
-| Tests `src/components/ui/*.test.tsx` | Smoke de 2–3 componentes |
-
-### Modificar
+### 3.2 Modificar (exactamente estos)
 
 | Ruta | Cambio |
 |------|--------|
-| `src/index.css` | Import tokens + `@theme` |
-| `index.html` | `lang="es"`; preconnect fonts si no fontsource |
-| `package.json` | deps: `@fontsource/inter`, `@fontsource/jetbrains-mono`, `recharts` (si §8.1A) |
-| `src/components/ui/Button.tsx` / `Card.tsx` / `Badge.tsx` | Tokens |
-| `README.md` | Link design system |
-| `implementation_plan.md` | Este documento |
-| 1 componente producto (si §8.5A) | p. ej. `TaxPreviewCard.tsx` |
+| `src/App.tsx` | Montar `AppShell` con props; eliminar JSX inline de aside/header/overlay; **conservar** todos los bloques `activeTab === …` |
+| `docs/DESIGN_SYSTEM.md` | Sección Shell E0.2 + ViewMode + checklist a11y TopBar |
+| `implementation_plan.md` | Este documento (estado al cerrar → IMPLEMENTADO) |
+| `README.md` | Una línea: link Shell / nota E0.2 (opcional mínima) |
 
-### No modificar
+### 3.3 Prohibido modificar en E0.2
 
-- `functions/`, SAT, Groq service, conciliación business logic  
-- Estructura de tabs / `App.tsx` nav (salvo mount gallery DEV mínimo)
-
----
-
-## 10. Criterios de aceptación
-
-- [ ] `tokens.css` con paleta brand/success/warning + fonts sans/mono + dark.  
-- [ ] `Button`/`Card`/`Badge` consumen tokens (sin `indigo-600` hardcode en variants base).  
-- [ ] Nuevos: `Input`, `Alert`, `StatCard`, `PageHeader`, `DataTable`, `Chart` (o stub), `Skeleton`.  
-- [ ] `docs/DESIGN_SYSTEM.md` con uso y a11y.  
-- [ ] Lucide sin cambio de librería; Recharts solo vía `Chart.tsx`.  
-- [ ] Suite existente verde; tests smoke de ui.  
-- [ ] Cero cambio de flujos Conciliación/SAT/Import.  
-- [ ] README enlaza el design system.
+- `src/components/Bank*`, `SatDownloadPanel`, `ImportModals`, `TaxPreviewCard` (salvo regresión accidental)
+- `src/services/**`, `src/hooks/useImportFlow*`, `functions/**`
+- Contenido interno de tabs (overview KPIs, tablas, modales)
+- `src/styles/tokens.css` (salvo bug crítico descubierto → **parar** y re-plan)
 
 ---
 
-## 11. Orden de ejecución (tras APROBADO)
+## 4. Contratos de componentes (TypeScript first)
 
-1. Tokens + fonts + `@theme`.  
-2. Refactor `Button`/`Card`/`Badge`.  
-3. Nuevos ui + `Chart` wrapper.  
-4. Docs + gallery DEV.  
-5. Migración acotada §8.5.  
-6. Lint/test; **parar** (no E0.2).
+### 4.1 `DashboardMode`
+
+```ts
+export type DashboardMode = 'operativo' | 'ejecutivo';
+export const DASHBOARD_MODE_STORAGE_KEY = 'contai.dashboardMode';
+```
+
+### 4.2 `navItems.ts`
+
+- Misma lista actual de IDs:  
+  `overview | transactions | analysis | reconciliation | sat_download | fiscal | inventory | recurring | audit | settings`  
+  + `design_system` **solo** si `import.meta.env.DEV`.
+- Export: `getNavItems(): NavItem[]` (o constante + filtro DEV).
+
+### 4.3 `AppSidebar` (props)
+
+| Prop | Tipo | Notas |
+|------|------|-------|
+| `items` | `NavItem[]` | |
+| `activeTab` | `string` | |
+| `onNavigate` | `(id: string) => void` | cierra móvil |
+| `collapsed` | `boolean` | desktop rail |
+| `mobileOpen` | `boolean` | |
+| `onMobileClose` | `() => void` | |
+| `empresaNombre` / `empresaRfc` | `string` | |
+| `onLogout` | `() => void` | |
+
+Tokens: `bg-surface`, `border-border`, item activo `bg-brand-muted text-brand`, etc. Lucide icons sin cambio de librería.
+
+### 4.4 `AppTopBar` (props)
+
+| Prop | Tipo | Notas |
+|------|------|-------|
+| `title` | `string` | derivado de `activeTab` vía mapa labels |
+| `empresaNombre` / `empresaRfc` | `string` | |
+| `mode` / `onModeChange` | `DashboardMode` | toggle |
+| `isDarkMode` / `onToggleDark` | | |
+| `userDisplayName` / `userPhotoURL` | | |
+| `onOpenMobileNav` / `onToggleCollapsed` | | |
+
+### 4.5 `AppShell`
+
+Recibe props de Sidebar+TopBar + `children`.  
+Root: `bg-surface-elevated text-ink` (reemplaza `bg-gray-50 dark:bg-gray-950`).
+
+Banner móvil empresa (hoy `indigo-50`) → tokens (`bg-brand-muted`).
+
+### 4.6 Toggle Operativo/Ejecutivo — comportamiento E0.2 (FIJO salvo §8)
+
+| Comportamiento | E0.2 |
+|----------------|------|
+| Visible en TopBar | Sí |
+| Persistencia `localStorage` | Sí |
+| Default | `'operativo'` |
+| Cambia contenido de tabs | **No** (solo estado + UI) |
+| Consume en overview | Diferido a E7.1/E7.2 |
+| Exponer a `App` | `const { mode, setMode } = useDashboardMode()` disponible para E7 |
+
+Opcional UX (recomendado): `Badge` sutil “Modo: Operativo” junto al toggle — sin cards de marketing.
 
 ---
 
-## 12. Aprobación requerida
+## 5. Migración no destructiva (contrato)
+
+1. **IDs de tab** idénticos → cero rotura de estado/`useEffect` ligados a `activeTab`.  
+2. **Handlers** (`handleLogout`, dark mode, etc.) permanecen en `App` o se pasan por props — sin mover Firebase a layout.  
+3. **Contenido** de cada tab: copy-paste estructural cero; solo deja de vivir *debajo* del chrome extraído.  
+4. **Gallery DEV**: doble guarda se mantiene al construir `navItems` y al renderizar el bloque `design_system`.  
+5. **Motion**: conservar `motion`/`AnimatePresence` del overlay y animación de ancho del aside (comportamiento UX actual).
+
+---
+
+## 6. Consumo exclusivo de `ui/` (E0.1)
+
+Shell/layout **debe** usar donde aplique:
+
+- `Button` (ghost/icon actions, logout secondary/danger si cabe)
+- `Badge` (modo / DEV)
+- `Card` solo si un bloque del chrome lo requiere (preferir no cardificar el TopBar)
+- `PageHeader` **no** obligatorio en cada tab en E0.2 (evitar migrar pantallas); documentar uso futuro
+
+**Prohibido:** añadir `indigo-*` nuevos en layout; shadcn; tipografía distinta a tokens.
+
+---
+
+## 7. Accesibilidad y pruebas
+
+| Tipo | Alcance E0.2 |
+|------|----------------|
+| Unit / smoke | `AppShell.test.tsx`: toggle cambia `mode`; nav DEV no en prod mock; axe smoke del TopBar+toggle |
+| Manual | Collapse desktop, drawer móvil, focus-visible en nav y toggle, contraste dark |
+| Suite | `npm run lint` + `npm test` verdes (baseline 65+ nuevos) |
+| Docs | Checklist en `DESIGN_SYSTEM.md` |
+
+---
+
+## 8. Preguntas críticas (resolver antes de APROBADO)
+
+### 8.1 ¿El toggle cambia algo visual en overview en E0.2?
+
+- **(A) Solo estado + control en TopBar** — contenido overview idéntico. **Recomendado (anti-scope-creep).**  
+- **(B)** Mostrar un `Alert` informativo en overview según modo (“Vista ejecutiva llegará en E7.1”).  
+- **(C)** Empezar a bifurcar overview ya (→ se convierte en E7 anticipado; **rechazado** por APO).
+
+### 8.2 Persistencia del modo
+
+- **(A) `localStorage`** — **recomendado.**  
+- **(B)** Solo React state (se pierde al refresh).  
+- **(C)** Firestore perfil usuario (overkill Fase 3 temprana).
+
+### 8.3 ¿Extraer `AppShell` o solo Sidebar/TopBar?
+
+- **(A) AppShell + Sidebar + TopBar** — **recomendado** (un punto de montaje en `App`).  
+- **(B)** Solo dos componentes; chrome root queda en `App`.
+
+### 8.4 ¿Mover dark mode a un hook `useTheme`?
+
+- **(A) Sí, `useTheme.ts` junto a `useDashboardMode`** — limpia `App`. **Recomendado.**  
+- **(B)** Dejar dark mode en `App` (menos archivos).
+
+### 8.5 Animaciones Motion en sidebar
+
+- **(A) Conservar comportamiento actual** — **recomendado.**  
+- **(B)** Simplificar a CSS-only (riesgo de regresión UX móvil).
+
+### 8.6 ¿Incluir `PageHeader` en cada tab en E0.2?
+
+- **(A) No** — solo shell; títulos siguen en TopBar. **Recomendado.**  
+- **(B)** Sí en overview solamente.  
+- **(C)** Sí en todas las tabs (scope creep → E7.3).
+
+---
+
+## 9. Criterios de aceptación (DoD)
+
+- [ ] Chrome post-auth vive en `layout/*`; tokens (`bg-surface`, `text-ink`, `bg-brand-muted`, …); cero `indigo-*` / `bg-gray-50` en Sidebar/TopBar/AppShell.  
+- [ ] Todas las tabs existentes navegan y renderizan igual (smoke manual o checklist).  
+- [ ] Toggle Operativo/Ejecutivo en TopBar; persistencia según §8.2; **no** cambia contenido de tabs (si §8.1A).  
+- [ ] Gallery DEV: doble guarda intacta.  
+- [ ] `AppShell.test.tsx` + suite verde; `tsc --noEmit` limpio.  
+- [ ] `docs/DESIGN_SYSTEM.md` actualizado.  
+- [ ] Commit + push solo tras verificación (mensaje tipo `feat: extract tokenized AppShell with operativo/ejecutivo toggle (E0.2)`).
+
+---
+
+## 10. Orden de ejecución (tras APROBADO)
+
+1. Tipos + `useDashboardMode` (+ `useTheme` si §8.4A).  
+2. `navItems.ts` + `ViewModeToggle` + `AppSidebar` + `AppTopBar` + `AppShell`.  
+3. Cablear `App.tsx` (sustituir chrome; pasar `children` = bloques tab actuales).  
+4. Tests + docs.  
+5. Lint/suite; **parar** (no E7.1).
+
+---
+
+## 11. Aprobación requerida
 
 Responder con:
 
-- `APROBADO: Ejecutar Entregable 0.1` + letras **§8.1–8.6**  
+- `APROBADO: Ejecutar Entregable 0.2` + letras **§8.1–8.6**  
 - o `APROBADO CON CAMBIOS: …`  
 - o `RECHAZADO: …`
 
-**Sin esa frase, no se escribe código de E0.1.**
+**Sin esa frase, no se escribe código de E0.2.**
 
 ---
 
-## Anexo — Roadmap Fase 3 (referencia)
+## Anexo — Roadmap Fase 3
 
-| ID | Entregable |
-|----|------------|
-| **E0.1** | Sistema de diseño (este plan) |
-| E0.2 | Nueva shell / nav |
-| E7.1 | Vista ejecutiva |
-| E7.2 | Vista operativa |
-| E7.3 | Migración secciones bajo dashboard |
+| ID | Entregable | Estado |
+|----|------------|--------|
+| E0.1 | Design System | ✅ `cb840e0` |
+| **E0.2** | Shell / nav + toggle (este plan) | ✅ IMPLEMENTADO |
+| E7.1 | Vista ejecutiva | pendiente |
+| E7.2 | Vista operativa | pendiente |
+| E7.3 | Migración secciones | pendiente |
