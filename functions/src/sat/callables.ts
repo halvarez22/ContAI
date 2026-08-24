@@ -29,6 +29,7 @@ import {
 import { resolveSatWsClient } from './satWsFactory';
 import { SatWsClientError } from './realSatWsClient';
 import { mapSatFailure } from './satErrorMap';
+import { assertOrgMember as assertOrgMemberShared } from '../org/membership';
 
 const MAX_JOBS_PER_HOUR = 10;
 const JOBS = 'sat_download_jobs';
@@ -56,28 +57,11 @@ function assertAuth(uid: string | undefined): string {
   return uid;
 }
 
-function memberDocId(userId: string, organizationId: string): string {
-  return `${userId}_${organizationId}`;
-}
-
 async function assertOrgMember(
   uid: string,
   organizationId: string
 ): Promise<string> {
-  const orgId = String(organizationId || '').trim();
-  if (!orgId) {
-    throw new HttpsError('invalid-argument', 'organizationId requerido.');
-  }
-  const snap = await getFirestore()
-    .collection('organization_members')
-    .doc(memberDocId(uid, orgId))
-    .get();
-  if (!snap.exists || snap.data()?.activo === false) {
-    throw new HttpsError(
-      'permission-denied',
-      'No eres miembro activo de esa organización.'
-    );
-  }
+  const { orgId } = await assertOrgMemberShared(uid, organizationId);
   return orgId;
 }
 

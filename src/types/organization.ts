@@ -22,6 +22,9 @@ export type OrganizationMember = {
   user_id: string;
   role: OrgRole;
   activo: boolean;
+  /** Snapshot al aceptar invitación / bootstrap (E8.2). */
+  email?: string;
+  nombre?: string;
 };
 
 export type OrganizationSummary = {

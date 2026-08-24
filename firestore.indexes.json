@@ -9,6 +9,39 @@
       ]
     },
     {
+      "collectionGroup": "organization_members",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "activo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "organization_invitations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "email_normalized", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "organization_invitations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "token_hash", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "organization_invitations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "updated_at", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "transactions",
       "queryScope": "COLLECTION",
       "fields": [

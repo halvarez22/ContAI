@@ -18,7 +18,8 @@
     "firebase-admin": "^13.0.2",
     "firebase-functions": "^6.3.0",
     "jszip": "^3.10.1",
-    "luxon": "3.6.1"
+    "luxon": "3.6.1",
+    "resend": "^4.8.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

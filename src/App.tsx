@@ -67,6 +67,13 @@ import {
 import { useActiveOrganization } from './hooks/useActiveOrganization';
 import { OrgSwitcher } from './components/org/OrgSwitcher';
 import { OrgPickerScreen } from './components/org/OrgPickerScreen';
+import { OrgMembersPanel } from './components/org/OrgMembersPanel';
+import { AcceptInviteScreen } from './components/org/AcceptInviteScreen';
+import {
+  clearInviteQueryFromUrl,
+  readInviteTokenFromLocation,
+} from './services/organizationInviteService';
+import { canManageOrg } from './types/organization';
 import {
   filterTransactionsByMonth,
   filterTransactionsYtdThroughMonth,
@@ -170,11 +177,22 @@ export default function App() {
     needsOrgPicker,
     setActiveOrganization,
     createOrganization,
+    adoptOrganization,
   } = useActiveOrganization({
     userId: user?.uid,
     email: user?.email,
     displayName: user?.displayName,
   });
+
+  const [inviteToken, setInviteToken] = useState(() =>
+    readInviteTokenFromLocation()
+  );
+  const activeMembershipRole = useMemo(() => {
+    const row = orgSummaries.find(
+      (s) => s.organization.id === activeOrganizationId
+    );
+    return row?.membership.role ?? null;
+  }, [orgSummaries, activeOrganizationId]);
 
   const prevOrgIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1156,11 +1174,31 @@ export default function App() {
     }
   };
 
-  if (loading || (user && (orgLoading || orgBootstrapping))) {
+  if (loading || (user && (orgLoading || orgBootstrapping) && !inviteToken)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
+    );
+  }
+
+  if (inviteToken) {
+    return (
+      <AcceptInviteScreen
+        token={inviteToken}
+        isAuthenticated={Boolean(user)}
+        userEmail={user?.email}
+        onLogin={() => {
+          void handleLogin();
+        }}
+        onAccepted={async (organizationId) => {
+          clearInviteQueryFromUrl();
+          setInviteToken(null);
+          if (user) {
+            await adoptOrganization(organizationId);
+          }
+        }}
+      />
     );
   }
 
@@ -1841,6 +1879,15 @@ export default function App() {
                     <Button className="w-full" onClick={saveSettingsProfile} disabled={isSavingSettings}>
                       {isSavingSettings ? 'Guardando…' : 'Guardar configuración'}
                     </Button>
+
+                    {activeOrganizationId &&
+                    activeMembershipRole &&
+                    canManageOrg(activeMembershipRole) ? (
+                      <OrgMembersPanel
+                        organizationId={activeOrganizationId}
+                        actorRole={activeMembershipRole}
+                      />
+                    ) : null}
                   </div>
                 </Card>
               </motion.div>

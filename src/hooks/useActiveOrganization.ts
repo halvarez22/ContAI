@@ -192,6 +192,21 @@ export function useActiveOrganization({
     [userId, refreshSummaries]
   );
 
+  /** Tras acceptOrgInvite: refresca memberships y fija org activa. */
+  const adoptOrganization = useCallback(
+    async (organizationId: string) => {
+      if (!userId) throw new Error('Sin usuario');
+      const list = await refreshSummaries(userId);
+      if (!list.some((s) => s.organization.id === organizationId)) {
+        throw new Error('Organización no disponible tras aceptar la invitación.');
+      }
+      await setActiveOrganizationId(userId, organizationId);
+      writeStoredActiveOrg(organizationId);
+      setActiveId(organizationId);
+    },
+    [userId, refreshSummaries]
+  );
+
   const needsOrgPicker =
     !loading &&
     !bootstrapping &&
@@ -209,6 +224,7 @@ export function useActiveOrganization({
     needsOrgPicker,
     setActiveOrganization,
     createOrganization,
+    adoptOrganization,
     refreshSummaries,
   } as const;
 }

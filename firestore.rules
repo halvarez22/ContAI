@@ -50,6 +50,21 @@ service cloud.firestore {
         && orgMemberRole(orgId) in ['owner', 'admin'];
     }
 
+    /** E8.2: cambios de rol sin auto-escalamiento / sin promover a owner. */
+    function memberRoleChangeAllowed(orgId) {
+      return request.resource.data.role == resource.data.role
+        || (
+          resource.data.role != 'owner'
+          && request.resource.data.role in ['admin', 'contador', 'viewer']
+          && (
+            (orgMemberRole(orgId) == 'owner'
+              && request.resource.data.role in ['admin', 'contador', 'viewer'])
+            || (orgMemberRole(orgId) == 'admin'
+              && request.resource.data.role in ['contador', 'viewer'])
+          )
+        );
+    }
+
     function isValidUser(data) {
       return data.keys().hasAll(['email', 'role', 'nombre', 'activo']) &&
              data.role in ['admin', 'contador', 'auxiliar', 'vendedor', 'director'] &&
@@ -103,16 +118,32 @@ service cloud.firestore {
       allow read: if isAuthenticated()
         && (resource.data.user_id == request.auth.uid
             || isOrgMember(resource.data.organization_id));
+      // Solo bootstrap self-owner (E8.1). Invitados: Admin SDK vía acceptOrgInvite.
       allow create: if isAuthenticated()
         && request.resource.data.user_id == request.auth.uid
         && request.resource.data.role == 'owner'
         && memberId == request.auth.uid + '_' + request.resource.data.organization_id;
-      allow update: if canManageOrg(resource.data.organization_id)
-        || (resource.data.user_id == request.auth.uid
-            && request.resource.data.user_id == resource.data.user_id
-            && request.resource.data.role == resource.data.role);
+      allow update: if
+        (
+          canManageOrg(resource.data.organization_id)
+          && request.resource.data.user_id == resource.data.user_id
+          && request.resource.data.organization_id == resource.data.organization_id
+          && memberRoleChangeAllowed(resource.data.organization_id)
+        )
+        || (
+          resource.data.user_id == request.auth.uid
+          && request.resource.data.user_id == resource.data.user_id
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.organization_id == resource.data.organization_id
+        );
       allow delete: if canManageOrg(resource.data.organization_id)
         || resource.data.user_id == request.auth.uid;
+    }
+
+    // E8.2: escrituras solo Cloud Functions (Admin SDK). Lectura managers.
+    match /organization_invitations/{inviteId} {
+      allow read: if canManageOrg(resource.data.organization_id);
+      allow create, update, delete: if false;
     }
 
     match /transactions/{transactionId} {

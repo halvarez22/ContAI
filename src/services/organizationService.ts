@@ -65,6 +65,8 @@ function mapMember(id: string, data: Record<string, unknown>): OrganizationMembe
     user_id: String(data.user_id ?? ''),
     role,
     activo: data.activo !== false,
+    email: typeof data.email === 'string' ? data.email : undefined,
+    nombre: typeof data.nombre === 'string' ? data.nombre : undefined,
   };
 }
 

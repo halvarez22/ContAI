@@ -33,6 +33,10 @@ Iconos: **Lucide** (ya en el producto). Charts: **Recharts** vía wrapper `Chart
 1. `TaxPreviewCard.tsx`
 2. Bloque login pre-auth en `App.tsx`
 
+## Equipo (E8.2)
+
+Panel **Equipo** en Configuración (`OrgMembersPanel`): invitaciones por email, roles y revocación. Aceptación vía `/invite?token=…` (`AcceptInviteScreen`) sin React Router.
+
 ## Accesibilidad (WCAG AA — foco E0.1)
 
 **Automático:** smoke `vitest-axe` en `Button` y `Alert` (`src/components/ui/*.test.tsx`).

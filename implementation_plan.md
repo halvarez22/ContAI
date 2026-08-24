@@ -1,39 +1,58 @@
-# Implementation Plan — Entregable 8.1 (Multi-Empresa / Multi-RFC)
+# Implementation Plan — Entregable 8.2 (Invitaciones y Gestión de Equipos)
 
 **Proyecto:** ContAI Fase 4  
 **Fecha:** 2026-08-24  
-**Estado:** IMPLEMENTADO (E8.1) — aprobado §8.1–8.8(A) 2026-08-24  
-**Commit objetivo:** `feat: add multi-organization isolation with org switcher (E8.1)`
+**Estado:** IMPLEMENTADO (pendiente dictamen de evidencia / commit)  
+**Commit objetivo:** `feat: add organization invitations and team member management (E8.2)`
 
 ## Resultado
 
 ### Creados
-- `src/types/organization.ts` (+ tests)
-- `src/services/organizationService.ts` — ensurePersonalOrg (transacción idempotente), backfill chunks, createOrg
-- `src/hooks/useActiveOrganization.ts`
-- `src/components/org/OrgSwitcher.tsx` (+ test)
-- `src/components/org/OrgPickerScreen.tsx` (+ test)
-- `firestore.indexes.json`
+- `src/types/organizationInvite.ts` (+ tests)
+- `src/services/organizationInviteService.ts`
+- `src/hooks/useOrgMembers.ts`
+- `src/components/org/OrgMembersPanel.tsx` (+ test)
+- `src/components/org/AcceptInviteScreen.tsx` (+ test)
+- `functions/src/org/membership.ts` — assertOrgMember / assertCanManageOrg compartidos
+- `functions/src/org/inviteCrypto.ts`, `invitePolicy.ts`, `inviteEmailTemplate.ts`
+- `functions/src/org/inviteCallables.ts` (+ unit tests crypto/policy)
 
 ### Modificados
-- `firestore.rules` — membership via `organization_members/{uid}_{orgId}`
-- `firestoreService.ts` — organizationId obligatorio; sin `orgMain()`
-- `App.tsx` — listeners por `organization_id`; settings/periodos en org; OrgSwitcher; reset al switch
-- Import CFDI/Excel/SAT — organizationId activo
-- `functions/src/sat/callables.ts` — `assertOrgMember` + org del request/job
+- `firestore.rules` — invitations deny client write; member role change matrix
+- `firestore.indexes.json` — invitations + members por org
+- `functions/src/index.ts` — export callables invite
+- `functions/src/sat/callables.ts` — usa membership compartido
+- `functions/package.json` — `resend`
+- `App.tsx` — `/invite?token=` + Equipo en settings
+- `useActiveOrganization` — `adoptOrganization`
+- `docs/DESIGN_SYSTEM.md`
 
-### Guardrails
-1. ✅ `ensurePersonalOrg` transacción sobre `personal_{uid}` + member `uid_orgId`
-2. ✅ Backfill chunks 400; `org_migrated_at` solo al vaciar
-3. ✅ Rules `get(.../organization_members/$(uid + '_' + orgId))`
+### Guardrails + observaciones auditor
+1. ✅ Alcance estricto
+2. ✅ Token ≥128 bits, hash at rest, TTL 72h, server-side, rate limit
+3. ✅ Matriz roles sin auto-escalamiento
+4. ✅ Un pending por email+org (rotación)
+5. ✅ Transparencia AcceptInviteScreen
+6. ✅ Resend vía `defineSecret('RESEND_API_KEY')`
+7. ✅ Normalización email en create **y** accept (`auth.token.email`)
+8. ✅ Query vacía → `HttpsError('invalid-argument', 'Invitación no válida o expirada')`
+9. ✅ `replaceState` limpia query tras aceptar
+
+### Deploy operativo (fuera del código)
+```bash
+firebase functions:secrets:set RESEND_API_KEY
+# Opcional: APP_ORIGIN, INVITE_FROM_EMAIL en params de Functions
+firebase deploy --only firestore:rules,firestore:indexes,functions
+```
 
 ---
 
-## Roadmap
+## Gobernanza roadmap (congelada)
 
 | ID | Estado |
 |----|--------|
-| Fase 3 | ✅ |
-| **E8.1** | ✅ IMPLEMENTADO |
-| E8.2 Invitaciones | pendiente |
-| E9.1 / E10.1 | pendiente |
+| E8.1 | ✅ |
+| **E8.2** | ✅ IMPLEMENTADO (este entregable) |
+| **E9.1** | **siguiente** — Conciliación Split 1↔N |
+| E10.x | Export pólizas |
+| E11.1 | Auditoría 69-B |
