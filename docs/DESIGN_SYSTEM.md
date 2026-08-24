@@ -71,8 +71,24 @@ Iconos: **Lucide** (ya en el producto). Charts: **Recharts** vía wrapper `Chart
 | Entregable | Uso |
 |------------|-----|
 | E7.1 Vista ejecutiva | `ExecutiveDashboardView` |
-| E7.2 Vista operativa | `OperationalDashboardView` — `DataTable`, `StatCard`, CTAs |
+| E7.2 Vista operativa | `OperationalDashboardView` |
+| E7.3 Secciones | `AppTabRouter` + `*Section` en `src/components/sections/` |
+
+## Secciones migradas (E7.3)
+
+| Pieza | Ruta |
+|-------|------|
+| Router | `src/components/layout/AppTabRouter.tsx` |
+| Periodo compartido | `src/components/sections/PeriodSelectorCard.tsx` |
+| Overview | `OverviewSection` |
+| Transacciones | `TransactionsSection` (`DataTable` E0.1) |
+| Conciliación | `ReconciliationSection` → `BankReconciliationPanel` |
+| SAT | `SatDownloadSection` → `SatDownloadPanel` |
+| Fiscal | `FiscalSection` |
+| Type guards | `src/types/appSections.ts` (`NavTabId`, `isNavTabId`) |
+
+**Importación:** `ImportModals` permanece en `App.tsx`; CTAs vía callbacks (sin tab nueva).
 
 ## Roadmap
 
-E0.1 ✅ → E0.2 ✅ → E7.1 ✅ → E7.2 (vista operativa) → E7.3 migración secciones.
+E0.1 ✅ → E0.2 ✅ → E7.1 ✅ → E7.2 ✅ → E7.3 ✅ (secciones prioritarias).

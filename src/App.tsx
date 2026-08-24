@@ -74,13 +74,15 @@ import { generateExecutiveBriefing, askMonthQuestion } from './services/insights
 import { buildTaxPreview } from './services/taxCalculatorService';
 import { buildExecutiveSnapshot } from './services/executiveDashboardService';
 import { buildOperationalSnapshot } from './services/operationalDashboardService';
-import { TaxPreviewCard } from './components/TaxPreviewCard';
-import { ExecutiveDashboardView } from './components/ExecutiveDashboardView';
-import { OperationalDashboardView } from './components/OperationalDashboardView';
+import { AppTabRouter } from './components/layout/AppTabRouter';
+import { OverviewSection } from './components/sections/OverviewSection';
+import { TransactionsSection } from './components/sections/TransactionsSection';
+import { ReconciliationSection } from './components/sections/ReconciliationSection';
+import { SatDownloadSection } from './components/sections/SatDownloadSection';
+import { FiscalSection } from './components/sections/FiscalSection';
+import { isMigratedNavTabId, isNavTabId } from './types/appSections';
 import { DesignSystemGallery } from './components/DesignSystemGallery';
 import { ImportModals } from './components/ImportModals';
-import { BankReconciliationPanel } from './components/BankReconciliationPanel';
-import { SatDownloadPanel } from './components/SatDownloadPanel';
 import { useImportFlow } from './hooks/useImportFlow';
 import { useDashboardMode } from './hooks/useDashboardMode';
 import { useTheme } from './hooks/useTheme';
@@ -1126,7 +1128,9 @@ export default function App() {
         activeTab={activeTab}
         title={getNavTitle(activeTab, navItems)}
         onNavigate={(id) => {
-          setActiveTab(id);
+          if (isNavTabId(id)) {
+            setActiveTab(id);
+          }
           setIsMobileMenuOpen(false);
         }}
         sidebarCollapsed={!isSidebarOpen}
@@ -1146,264 +1150,92 @@ export default function App() {
         userDisplayName={user.displayName}
         userPhotoURL={user.photoURL}
       >
+          {isMigratedNavTabId(activeTab) ? (
+            <AppTabRouter activeTab={activeTab} dashboardMode={dashboardMode}>
+              {activeTab === 'overview' && (
+                <OverviewSection
+                  periodYear={periodYear}
+                  periodMonth={periodMonth}
+                  onPeriodChange={(year, month) => {
+                    setPeriodYear(year);
+                    setPeriodMonth(month);
+                  }}
+                  onSelectCurrentMonth={() => {
+                    const t = new Date();
+                    setPeriodYear(t.getFullYear());
+                    setPeriodMonth(t.getMonth());
+                  }}
+                  yearAnchor={nowInit.getFullYear()}
+                  dashboardMode={dashboardMode}
+                  executiveSnapshot={executiveSnapshot}
+                  operationalSnapshot={operationalSnapshot}
+                  taxPreviewDisclaimer={taxPreview.disclaimer}
+                  executiveLoading={executiveLoading}
+                  onGenerateBriefing={() => {
+                    void runExecutiveBriefing();
+                  }}
+                  onNavigateTab={setActiveTab}
+                  onOpenManualTx={() => setIsManualTxModalOpen(true)}
+                  onOpenCfdiImport={() => importFlow.openCfdiImport()}
+                  onOpenExcelImport={() => importFlow.openExcelImport()}
+                />
+              )}
+              {activeTab === 'transactions' && (
+                <TransactionsSection
+                  transactionsCount={transactions.length}
+                  filteredTransactions={filteredTransactions}
+                  filters={{
+                    filterType,
+                    filterStatus,
+                    filterStartDate,
+                    filterEndDate,
+                    filterProvider,
+                    filterTag,
+                  }}
+                  onFilterChange={{
+                    setFilterType,
+                    setFilterStatus,
+                    setFilterStartDate,
+                    setFilterEndDate,
+                    setFilterProvider,
+                    setFilterTag,
+                  }}
+                  onGenerateMonthlyReport={generateMonthlyReport}
+                  onExportCsv={exportToCSV}
+                  onOpenExcelImport={() => importFlow.openExcelImport()}
+                  onOpenManualTx={() => setIsManualTxModalOpen(true)}
+                  onSelectTransaction={setSelectedTransaction}
+                />
+              )}
+              {activeTab === 'reconciliation' && (
+                <ReconciliationSection
+                  ledger={bankLedger}
+                  periodLabel={reconciliationPeriodLabel}
+                />
+              )}
+              {activeTab === 'sat_download' && (
+                <SatDownloadSection
+                  userId={user?.uid}
+                  defaultRfc={empresaRfc || 'XAXX010101000'}
+                  periodosCerrados={periodosCerrados}
+                  highAmountReviewThreshold={HIGH_AMOUNT_REVIEW_THRESHOLD}
+                  classify={triggerAgent}
+                />
+              )}
+              {activeTab === 'fiscal' && (
+                <FiscalSection
+                  taxPreview={taxPreview}
+                  periodLabel={periodKey(periodYear, periodMonth)}
+                  periodoActualCerrado={periodoActualCerrado}
+                  onTogglePeriodo={() => {
+                    void togglePeriodoCerrado();
+                  }}
+                  onOpenCfdiImport={() => importFlow.openCfdiImport()}
+                />
+              )}
+            </AppTabRouter>
+          ) : (
           <AnimatePresence mode="wait">
-            {activeTab === 'overview' && (
-              <motion.div 
-                key={`overview-${dashboardMode}`}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-8"
-              >
-                <Card className="p-4 flex flex-col sm:flex-row sm:items-end gap-4 flex-wrap">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Periodo para métricas</label>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Panel y reportes usan este mes/año.</p>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Año</label>
-                      <select
-                        value={periodYear}
-                        onChange={(e) => setPeriodYear(Number(e.target.value))}
-                        className="bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                      >
-                        {Array.from({ length: 6 }, (_, i) => nowInit.getFullYear() - i).map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Mes</label>
-                      <select
-                        value={periodMonth}
-                        onChange={(e) => setPeriodMonth(Number(e.target.value))}
-                        className="bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none min-w-[160px]"
-                      >
-                        {Array.from({ length: 12 }, (_, m) => (
-                          <option key={m} value={m}>
-                            {new Date(2000, m, 1).toLocaleString('es-MX', { month: 'long' })}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      type="button"
-                      className="text-sm"
-                      onClick={() => {
-                        const t = new Date();
-                        setPeriodYear(t.getFullYear());
-                        setPeriodMonth(t.getMonth());
-                      }}
-                    >
-                      Mes actual
-                    </Button>
-                  </div>
-                </Card>
-
-                {dashboardMode === 'ejecutivo' ? (
-                  <ExecutiveDashboardView
-                    kpis={executiveSnapshot.kpis}
-                    trend={executiveSnapshot.trend}
-                    disclaimer={taxPreview.disclaimer}
-                    briefingLoading={executiveLoading}
-                    onGenerateBriefing={() => {
-                      void runExecutiveBriefing();
-                    }}
-                  />
-                ) : (
-                  <OperationalDashboardView
-                    snapshot={operationalSnapshot}
-                    onNavigateTab={setActiveTab}
-                    onOpenManualTx={() => setIsManualTxModalOpen(true)}
-                    onOpenCfdiImport={() => importFlow.openCfdiImport()}
-                    onOpenExcelImport={() => importFlow.openExcelImport()}
-                    onTaskAction={() => setActiveTab('transactions')}
-                  />
-                )}
-              </motion.div>
-            )}
-
-            {activeTab === 'transactions' && (
-              <motion.div 
-                key="transactions"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-6"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <h3 className="text-lg lg:text-xl font-bold text-gray-900 dark:text-white">Transacciones</h3>
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <Button variant="secondary" onClick={generateMonthlyReport} className="flex-1 sm:flex-none">
-                      <FileText className="w-4 h-4" />
-                      Reporte Mensual
-                    </Button>
-                    <Button variant="secondary" onClick={exportToCSV} disabled={transactions.length === 0} className="flex-1 sm:flex-none">
-                      <Download className="w-4 h-4" />
-                      Exportar CSV
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => importFlow.openExcelImport()}
-                      className="flex-1 sm:flex-none"
-                      type="button"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Importar Excel
-                    </Button>
-                    <Button onClick={() => setIsManualTxModalOpen(true)} className="flex-1 sm:flex-none">
-                      <Plus className="w-4 h-4" />
-                      Capturar
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Filters */}
-                <Card className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Proveedor / Concepto</label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input 
-                        type="text"
-                        placeholder="Buscar..."
-                        value={filterProvider}
-                        onChange={(e) => setFilterProvider(e.target.value)}
-                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Etiquetas</label>
-                    <div className="relative">
-                      <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input 
-                        type="text"
-                        placeholder="Filtrar por tag..."
-                        value={filterTag}
-                        onChange={(e) => setFilterTag(e.target.value)}
-                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tipo</label>
-                    <select 
-                      value={filterType}
-                      onChange={(e) => setFilterType(e.target.value)}
-                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    >
-                      <option value="all">Todos los tipos</option>
-                      <option value="ingreso">Ingresos</option>
-                      <option value="egreso">Egresos</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Estado</label>
-                    <select 
-                      value={filterStatus}
-                      onChange={(e) => setFilterStatus(e.target.value)}
-                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    >
-                      <option value="all">Todos los estados</option>
-                      <option value="conciliado">Conciliado</option>
-                      <option value="revisión">En Revisión</option>
-                      <option value="rechazado">Rechazado</option>
-                      <option value="pendiente">Pendiente</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Desde</label>
-                    <input 
-                      type="date"
-                      value={filterStartDate}
-                      onChange={(e) => setFilterStartDate(e.target.value)}
-                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Hasta</label>
-                    <input 
-                      type="date"
-                      value={filterEndDate}
-                      onChange={(e) => setFilterEndDate(e.target.value)}
-                      className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-                </Card>
-
-                <Card>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
-                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Fecha</th>
-                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Proveedor / Concepto</th>
-                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Monto</th>
-                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Moneda</th>
-                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Estado IA</th>
-                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Cuenta</th>
-                          <th className="px-6 py-4 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                        {filteredTransactions.map((tx) => (
-                          <tr key={tx.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
-                            <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{formatDate(tx.fecha)}</td>
-                            <td className="px-6 py-4">
-                              <p className="text-sm font-bold text-gray-900 dark:text-white">{tx.proveedor || 'S/P'}</p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">{tx.concepto}</p>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {tx.tags?.map((tag: string) => (
-                                  <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-md border border-gray-200 dark:border-gray-700">
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{tx.tipo === 'ingreso' ? 'Entrada' : 'Salida'}</p>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className={cn('text-sm font-bold', tx.tipo === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
-                                {tx.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(tx.monto)}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-sm font-medium text-gray-600 dark:text-gray-400">{tx.moneda || 'MXN'}</td>
-                            <td className="px-6 py-4">
-                              <Badge variant={
-                                tx.status === 'conciliado' ? 'success' : 
-                                tx.status === 'revisión' ? 'warning' :
-                                tx.status === 'rechazado' ? 'error' : 'default'
-                              }>
-                                {tx.status === 'conciliado' ? 'Conciliado' : 
-                                 tx.status === 'revisión' ? 'En Revisión' :
-                                 tx.status === 'rechazado' ? 'Rechazado' : 'Pendiente'}
-                              </Badge>
-                              {tx.confidence_score && (
-                                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">Confianza: {(tx.confidence_score * 100).toFixed(1)}%</p>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{tx.account_name || 'Sin clasificar'}</td>
-                            <td className="px-6 py-4">
-                              <Button 
-                                variant="ghost" 
-                                className="text-xs flex items-center gap-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
-                                onClick={() => setSelectedTransaction(tx)}
-                              >
-                                <Eye className="w-4 h-4" />
-                                Ver Detalles
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-              </motion.div>
-            )}
-
             {activeTab === 'analysis' && (
               <motion.div
                 key="analysis"
@@ -1596,90 +1428,6 @@ export default function App() {
                     </Card>
                   </div>
                 </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'reconciliation' && (
-              <motion.div
-                key="reconciliation"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-6 max-w-6xl"
-              >
-                <BankReconciliationPanel
-                  ledger={bankLedger}
-                  periodLabel={reconciliationPeriodLabel}
-                />
-              </motion.div>
-            )}
-
-            {activeTab === 'sat_download' && (
-              <motion.div
-                key="sat_download"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-6"
-              >
-                <SatDownloadPanel
-                  userId={user?.uid}
-                  defaultRfc={empresaRfc || 'XAXX010101000'}
-                  periodosCerrados={periodosCerrados}
-                  highAmountReviewThreshold={HIGH_AMOUNT_REVIEW_THRESHOLD}
-                  classify={triggerAgent}
-                />
-              </motion.div>
-            )}
-
-            {activeTab === 'fiscal' && (
-              <motion.div
-                key="fiscal"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                className="space-y-6 max-w-4xl"
-              >
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Usa el mismo periodo que el panel general. Los importes son internos y no sustituyen declaraciones ante el SAT.
-                </p>
-                <Card className="p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <h3 className="font-bold text-gray-900 dark:text-white">Cierre de mes</h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Periodo {periodKey(periodYear, periodMonth)}:{' '}
-                      {periodoActualCerrado ? (
-                        <span className="text-amber-600 font-medium">cerrado — no se editan movimientos</span>
-                      ) : (
-                        <span className="text-emerald-600 font-medium">abierto</span>
-                      )}
-                    </p>
-                  </div>
-                  <Button
-                    variant={periodoActualCerrado ? 'secondary' : 'danger'}
-                    type="button"
-                    onClick={togglePeriodoCerrado}
-                  >
-                    {periodoActualCerrado ? 'Abrir periodo' : 'Cerrar periodo'}
-                  </Button>
-                </Card>
-                <Card className="p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-                    <div>
-                      <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-indigo-600" />
-                        Importar CFDI (XML)
-                      </h3>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Archivo XML del comprobante. No valida timbrado; crea una transacción con datos del XML.
-                      </p>
-                    </div>
-                    <Button variant="secondary" type="button" onClick={() => importFlow.openCfdiImport()}>
-                      Importar XML
-                    </Button>
-                  </div>
-                </Card>
-                <TaxPreviewCard preview={taxPreview} variant="detailed" />
               </motion.div>
             )}
 
@@ -2008,6 +1756,7 @@ export default function App() {
               </motion.div>
             )}
           </AnimatePresence>
+          )}
       </AppShell>
 
       {/* Processing Overlay */}
