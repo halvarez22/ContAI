@@ -1,0 +1,72 @@
+/**
+ * ContAI Design System — semantic tokens (E0.1)
+ * Light (:root) + dark (.dark). Bridged to Tailwind v4 via @theme in index.css.
+ */
+
+:root {
+  /* Brand — deep blue (fintech) */
+  --contai-brand: #1e3a5f;
+  --contai-brand-hover: #162d4a;
+  --contai-brand-muted: #e8eef5;
+  --contai-brand-foreground: #ffffff;
+
+  /* Semantic */
+  --contai-success: #059669;
+  --contai-success-muted: #ecfdf5;
+  --contai-warning: #d97706;
+  --contai-warning-muted: #fffbeb;
+  --contai-danger: #dc2626;
+  --contai-danger-muted: #fef2f2;
+  --contai-info: #1e3a5f;
+  --contai-info-muted: #e8eef5;
+
+  /* Surfaces & ink */
+  --contai-surface: #ffffff;
+  --contai-surface-elevated: #f8fafc;
+  --contai-surface-muted: #f1f5f9;
+  --contai-border: #e2e8f0;
+  --contai-ink: #0f172a;
+  --contai-ink-muted: #64748b;
+  --contai-ink-subtle: #94a3b8;
+  --contai-focus: #3b82f6;
+
+  /* Typography */
+  --contai-font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --contai-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Radius & shadow */
+  --contai-radius-sm: 0.375rem;
+  --contai-radius-md: 0.5rem;
+  --contai-radius-lg: 0.75rem;
+  --contai-radius-xl: 1rem;
+  --contai-shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --contai-shadow-md: 0 4px 6px -1px rgb(15 23 42 / 0.08);
+}
+
+.dark {
+  --contai-brand: #5b8def;
+  --contai-brand-hover: #7ba3f2;
+  --contai-brand-muted: #1a2740;
+  --contai-brand-foreground: #0b1220;
+
+  --contai-success: #34d399;
+  --contai-success-muted: #064e3b;
+  --contai-warning: #fbbf24;
+  --contai-warning-muted: #78350f;
+  --contai-danger: #f87171;
+  --contai-danger-muted: #7f1d1d;
+  --contai-info: #5b8def;
+  --contai-info-muted: #1a2740;
+
+  --contai-surface: #0b1220;
+  --contai-surface-elevated: #111827;
+  --contai-surface-muted: #1e293b;
+  --contai-border: #334155;
+  --contai-ink: #f1f5f9;
+  --contai-ink-muted: #94a3b8;
+  --contai-ink-subtle: #64748b;
+  --contai-focus: #60a5fa;
+
+  --contai-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  --contai-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.45);
+}

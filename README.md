@@ -53,7 +53,8 @@ Estados UX de import CFDI: `idle` → `uploading` → `processing_ai` → `succe
 | E4.2 | Batch CFDI + writeBatch + UX | `30297ce` |
 
 Manual de usuario: [`MANUAL_USUARIO.md`](./MANUAL_USUARIO.md).  
-Cierre / freeze: [`docs/FASE1_CIERRE.md`](./docs/FASE1_CIERRE.md).
+Cierre / freeze: [`docs/FASE1_CIERRE.md`](./docs/FASE1_CIERRE.md).  
+Design System (E0.1): [`docs/DESIGN_SYSTEM.md`](./docs/DESIGN_SYSTEM.md).
 
 ---
 

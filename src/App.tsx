@@ -47,6 +47,7 @@ import {
   MessageSquare,
   Package,
   Percent,
+  Palette,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './firebase';
@@ -80,6 +81,7 @@ import { isPeriodClosed, isTransactionDateInClosedPeriod, periodKey } from './li
 import { generateExecutiveBriefing, askMonthQuestion } from './services/insightsService';
 import { buildTaxPreview } from './services/taxCalculatorService';
 import { TaxPreviewCard } from './components/TaxPreviewCard';
+import { DesignSystemGallery } from './components/DesignSystemGallery';
 import { ImportModals } from './components/ImportModals';
 import { BankReconciliationPanel } from './components/BankReconciliationPanel';
 import { SatDownloadPanel } from './components/SatDownloadPanel';
@@ -1075,19 +1077,19 @@ export default function App() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-surface-elevated p-4">
         <Card className="max-w-md w-full p-8 text-center space-y-6">
-          <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center mx-auto">
-            <ShieldCheck className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
+          <div className="w-16 h-16 bg-brand-muted rounded-2xl flex items-center justify-center mx-auto">
+            <ShieldCheck className="w-8 h-8 text-brand" />
           </div>
           <div className="space-y-2">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">ContAI</h1>
-            <p className="text-gray-500 dark:text-gray-400">Sistema Contable Autónomo Universal</p>
+            <h1 className="text-2xl font-bold text-ink font-sans">ContAI</h1>
+            <p className="text-ink-muted">Sistema Contable Autónomo Universal</p>
           </div>
           <Button onClick={handleLogin} className="w-full py-3">
             Iniciar Sesión con Google
           </Button>
-          <p className="text-xs text-gray-400 dark:text-gray-500">
+          <p className="text-xs text-ink-subtle">
             Al iniciar sesión, aceptas nuestros términos y condiciones de seguridad ISO 27034.
           </p>
         </Card>
@@ -1166,6 +1168,9 @@ export default function App() {
             { id: 'recurring', icon: Repeat, label: 'Recurrentes' },
             { id: 'audit', icon: History, label: 'Bitácora' },
             { id: 'settings', icon: Settings, label: 'Configuración' },
+            ...(import.meta.env.DEV
+              ? [{ id: 'design_system', icon: Palette, label: 'Design System' }]
+              : []),
           ].map((item) => (
             <button
               key={item.id}
@@ -1230,6 +1235,7 @@ export default function App() {
               {activeTab === 'recurring' && 'Transacciones Recurrentes'}
               {activeTab === 'audit' && 'Bitácora'}
               {activeTab === 'settings' && 'Configuración'}
+              {activeTab === 'design_system' && 'Design System'}
             </h2>
           </div>
 
@@ -2132,6 +2138,16 @@ export default function App() {
                     </Card>
                   ))}
                 </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'design_system' && import.meta.env.DEV && (
+              <motion.div
+                key="design_system"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <DesignSystemGallery />
               </motion.div>
             )}
 

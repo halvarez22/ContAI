@@ -1,6 +1,56 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
+
+@theme {
+  --color-brand: var(--contai-brand);
+  --color-brand-hover: var(--contai-brand-hover);
+  --color-brand-muted: var(--contai-brand-muted);
+  --color-brand-foreground: var(--contai-brand-foreground);
+
+  --color-success: var(--contai-success);
+  --color-success-muted: var(--contai-success-muted);
+  --color-warning: var(--contai-warning);
+  --color-warning-muted: var(--contai-warning-muted);
+  --color-danger: var(--contai-danger);
+  --color-danger-muted: var(--contai-danger-muted);
+  --color-info: var(--contai-info);
+  --color-info-muted: var(--contai-info-muted);
+
+  --color-surface: var(--contai-surface);
+  --color-surface-elevated: var(--contai-surface-elevated);
+  --color-surface-muted: var(--contai-surface-muted);
+  --color-border: var(--contai-border);
+  --color-ink: var(--contai-ink);
+  --color-ink-muted: var(--contai-ink-muted);
+  --color-ink-subtle: var(--contai-ink-subtle);
+  --color-focus: var(--contai-focus);
+
+  --font-sans: var(--contai-font-sans);
+  --font-mono: var(--contai-font-mono);
+
+  --radius-sm: var(--contai-radius-sm);
+  --radius-md: var(--contai-radius-md);
+  --radius-lg: var(--contai-radius-lg);
+  --radius-xl: var(--contai-radius-xl);
+
+  --shadow-sm: var(--contai-shadow-sm);
+  --shadow-md: var(--contai-shadow-md);
+}
 
 @layer base {
+  html {
+    font-family: var(--contai-font-sans);
+  }
+
+  body {
+    @apply bg-surface-elevated text-ink antialiased;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--contai-focus);
+    outline-offset: 2px;
+  }
+
   * {
     @apply transition-colors duration-200;
   }
