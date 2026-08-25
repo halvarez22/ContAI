@@ -4,6 +4,7 @@
  */
 
 import type { IvaTasaCode } from '../lib/fiscal';
+import type { TransactionSatPaymentFields } from './transactionSat';
 
 export type TransactionTipo = 'ingreso' | 'egreso';
 
@@ -30,7 +31,7 @@ export interface TransactionFiscalFields {
 }
 
 /** Documento de transacción tal como se persiste / lee (id opcional en escrituras). */
-export interface TransactionDoc extends TransactionFiscalFields {
+export interface TransactionDoc extends TransactionFiscalFields, TransactionSatPaymentFields {
   id?: string;
   organization_id?: string;
   usuario_id?: string;

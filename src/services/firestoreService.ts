@@ -8,8 +8,11 @@ import {
   addDoc,
   collection,
   doc,
+  getDocs,
+  query,
   serverTimestamp,
   setDoc,
+  where,
   writeBatch,
   type DocumentData,
 } from 'firebase/firestore';
@@ -218,6 +221,121 @@ export async function commitTransactionUpdatesBatch(
     }
     await batch.commit();
   }
+}
+
+const PAYMENT_APPLICATIONS = 'payment_applications';
+
+/** Idempotencia E9.2 — complemento P ya aplicado. */
+export async function hasPaymentApplicationsForSource(
+  organizationId: string,
+  sourceId: string
+): Promise<boolean> {
+  const q = query(
+    collection(db, PAYMENT_APPLICATIONS),
+    where('organization_id', '==', organizationId),
+    where('source_id', '==', sourceId)
+  );
+  const snap = await getDocs(q);
+  return !snap.empty;
+}
+
+export type TransactionByCfdiUuid = {
+  id: string;
+  fecha: string;
+  monto: number;
+  monto_original?: number;
+  saldo_pendiente?: number;
+  applied_payment_amount?: number;
+};
+
+/** Resuelve facturas por UUID (chunks de 10 para query `in`). */
+export async function findTransactionsByCfdiUuids(
+  organizationId: string,
+  uuids: readonly string[]
+): Promise<Map<string, TransactionByCfdiUuid>> {
+  const out = new Map<string, TransactionByCfdiUuid>();
+  const normalized = [...new Set(uuids.map((u) => u.trim()).filter(Boolean))];
+  for (let i = 0; i < normalized.length; i += 10) {
+    const chunk = normalized.slice(i, i + 10);
+    const q = query(
+      collection(db, 'transactions'),
+      where('organization_id', '==', organizationId),
+      where('cfdi_uuid', 'in', chunk)
+    );
+    const snap = await getDocs(q);
+    for (const d of snap.docs) {
+      const data = d.data();
+      const uuid = String(data.cfdi_uuid || '').toLowerCase();
+      if (!uuid) continue;
+      out.set(uuid, {
+        id: d.id,
+        fecha: String(data.fecha || ''),
+        monto: Number(data.monto) || 0,
+        monto_original:
+          data.monto_original !== undefined
+            ? Number(data.monto_original)
+            : undefined,
+        saldo_pendiente:
+          data.saldo_pendiente !== undefined
+            ? Number(data.saldo_pendiente)
+            : undefined,
+        applied_payment_amount:
+          data.applied_payment_amount !== undefined
+            ? Number(data.applied_payment_amount)
+            : undefined,
+      });
+    }
+  }
+  return out;
+}
+
+export async function commitPaymentApplicationsBatch(params: {
+  organizationId: string;
+  userId: string;
+  sourceId: string;
+  paymentTxId: string;
+  applications: Array<{
+    targetTransactionId: string;
+    amount: number;
+    cfdiUuidRelacionado: string;
+  }>;
+  targetUpdates: Array<{
+    transactionId: string;
+    saldoPendiente: number;
+    appliedPaymentAmount: number;
+    paymentStatus: string;
+    montoOriginal: number;
+  }>;
+}): Promise<void> {
+  const batch = writeBatch(db);
+  for (const app of params.applications) {
+    const ref = doc(collection(db, PAYMENT_APPLICATIONS));
+    batch.set(ref, {
+      organization_id: params.organizationId,
+      usuario_id: params.userId,
+      source_type: 'cfdi_pago',
+      source_id: params.sourceId,
+      payment_transaction_id: params.paymentTxId,
+      target_transaction_id: app.targetTransactionId,
+      amount: app.amount,
+      cfdi_uuid_relacionado: app.cfdiUuidRelacionado,
+      creado_en: serverTimestamp(),
+    });
+  }
+  for (const u of params.targetUpdates) {
+    batch.set(
+      doc(db, 'transactions', u.transactionId),
+      {
+        monto_original: u.montoOriginal,
+        applied_payment_amount: u.appliedPaymentAmount,
+        saldo_pendiente: u.saldoPendiente,
+        payment_status: u.paymentStatus,
+        actualizado_en: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+  await batch.commit();
 }
 
 export { serverTimestamp, BATCH_CHUNK };

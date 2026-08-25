@@ -1,5 +1,6 @@
 /**
  * Orquestación batch de CFDI: parse → filtro periodo → writeBatch → Groq secuencial.
+ * E9.2 F2: ramificación tipo P / global / PPD.
  * Sin React. Firestore solo vía firestoreService.
  */
 
@@ -9,6 +10,10 @@ import {
   mapTipoComprobanteToTxTipo,
   inferIvaTasaFromAmounts,
 } from '../lib/cfdiXml';
+import {
+  parseCfdiWithSatExtensions,
+  type CfdiExtractedExtended,
+} from '../lib/cfdiPagosParser';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
   commitCfdiTransactionBatch,
@@ -17,6 +22,16 @@ import {
   BATCH_CHUNK,
 } from './firestoreService';
 import { logAuditEntry } from './auditService';
+import {
+  buildGlobalSatFields,
+  deriveInvoicePaymentState,
+  detectEsAnticipo,
+  normalizeCfdiTipo,
+  processTipoPPaymentImport,
+  sumTipoPPaymentAmount,
+  type PaymentImportStore,
+} from './cfdiPaymentImportService';
+import { createFirestorePaymentImportStore } from './cfdiPaymentImportStore';
 import type {
   CfdiBatchFileResult,
   CfdiBatchImportSummary,
@@ -26,6 +41,7 @@ import type {
 } from '../types/cfdiBatch';
 import type { AgentDecision } from '../types/agentDecision';
 import { AGENT_TYPES } from '../types/agentDecision';
+import { roundMoney } from '../types/paymentApplication';
 
 export type ClassifyBatchFn = (
   agentType: typeof AGENT_TYPES.CLASIFICADOR,
@@ -47,6 +63,23 @@ export function buildCfdiTransactionDraft(
   fileName: string,
   d: CfdiExtracted
 ): { ok: true; draft: CfdiTransactionDraft } | { ok: false; error: string } {
+  return buildCfdiTransactionDraftExtended(
+    userId,
+    organizationId,
+    fileName,
+    {
+      ...d,
+      pagos: [],
+    }
+  );
+}
+
+export function buildCfdiTransactionDraftExtended(
+  userId: string,
+  organizationId: string,
+  fileName: string,
+  d: CfdiExtractedExtended
+): { ok: true; draft: CfdiTransactionDraft } | { ok: false; error: string } {
   let fechaIso: string;
   try {
     fechaIso = new Date(d.fecha).toISOString();
@@ -54,15 +87,36 @@ export function buildCfdiTransactionDraft(
     return { ok: false, error: 'Fecha inválida en el CFDI.' };
   }
 
+  const cfdiTipo = normalizeCfdiTipo(d.tipoComprobante);
+  const isTipoP = cfdiTipo === 'P';
   const tipo = mapTipoComprobanteToTxTipo(d.tipoComprobante);
   const iva_tasa = inferIvaTasaFromAmounts(d.subtotal, d.totalIvaTrasladado);
   const proveedor =
     tipo === 'ingreso'
       ? d.receptorNombre || d.receptorRfc || 'Cliente'
       : d.emisorNombre || d.emisorRfc || 'Proveedor';
-  const concepto = d.descripcionPrimerConcepto
-    ? `CFDI: ${d.descripcionPrimerConcepto}`
-    : `CFDI importado${d.uuid ? ` · ${d.uuid.slice(0, 8)}…` : ''}`;
+
+  const pagoMonto = isTipoP ? sumTipoPPaymentAmount(d.pagos) : 0;
+  const monto = isTipoP ? pagoMonto : roundMoney(d.total);
+
+  const concepto = isTipoP
+    ? `CFDI Pago${d.uuid ? ` · ${d.uuid.slice(0, 8)}…` : ''}`
+    : d.descripcionPrimerConcepto
+      ? `CFDI: ${d.descripcionPrimerConcepto}`
+      : `CFDI importado${d.uuid ? ` · ${d.uuid.slice(0, 8)}…` : ''}`;
+
+  const invoicePayment = isTipoP
+    ? {
+        monto_original: monto,
+        saldo_pendiente: 0,
+        payment_status: 'full' as const,
+        applied_payment_amount: 0,
+      }
+    : deriveInvoicePaymentState(d.metodoPago, monto);
+
+  const globalFields = buildGlobalSatFields(d.informacionGlobal);
+  const esAnticipo =
+    !isTipoP && detectEsAnticipo(d.descripcionPrimerConcepto, d.receptorUsoCfdi);
 
   const draft: CfdiTransactionDraft = {
     fileName,
@@ -70,7 +124,7 @@ export function buildCfdiTransactionDraft(
       organization_id: organizationId,
       usuario_id: userId,
       tipo,
-      monto: d.total,
+      monto,
       moneda: d.moneda || 'MXN',
       concepto,
       proveedor,
@@ -79,27 +133,36 @@ export function buildCfdiTransactionDraft(
       account_name: '',
       tags: [],
       iva_tasa,
-      egreso_acredita_iva: tipo === 'egreso',
-      deducible: tipo === 'egreso',
+      egreso_acredita_iva: tipo === 'egreso' && !isTipoP,
+      deducible: tipo === 'egreso' && !isTipoP,
       fiscal_subtotal: d.subtotal,
       fiscal_iva: d.totalIvaTrasladado,
       rfc_contraparte: tipo === 'ingreso' ? d.receptorRfc : d.emisorRfc,
       uso_cfdi: d.receptorUsoCfdi || undefined,
       forma_pago_sat: d.formaPago || undefined,
-      metodo_pago_sat: d.metodoPago || undefined,
+      metodo_pago_sat: isTipoP ? undefined : d.metodoPago || undefined,
       cp_expedicion: d.lugarExpedicion || undefined,
       cfdi_uuid: d.uuid || undefined,
       importado_cfdi: true,
       source_file_name: fileName,
+      cfdi_tipo_comprobante: cfdiTipo,
+      ...globalFields,
+      es_anticipo: esAnticipo || undefined,
+      monto_original: invoicePayment.monto_original,
+      saldo_pendiente: invoicePayment.saldo_pendiente,
+      payment_status: invoicePayment.payment_status,
+      applied_payment_amount: invoicePayment.applied_payment_amount,
     },
     classification: {
       tipo,
-      monto: d.total,
+      monto,
       concepto,
       proveedor,
       fecha: fechaIso,
       moneda: d.moneda || 'MXN',
     },
+    requiresGroqClassification: !isTipoP,
+    paymentPagos: isTipoP && d.pagos.length > 0 ? d.pagos : undefined,
   };
 
   return { ok: true, draft };
@@ -137,11 +200,11 @@ export type ParsedXmlInput = { fileName: string; xmlText: string };
 export async function parseCfdiXmlBatch(
   inputs: ParsedXmlInput[]
 ): Promise<{
-  drafts: Array<{ fileName: string; data: CfdiExtracted }>;
+  drafts: Array<{ fileName: string; data: CfdiExtractedExtended }>;
   errors: CfdiBatchFileResult[];
 }> {
   const { validateCfdiXmlAgainstXsd } = await import('../lib/cfdiXsdValidate');
-  const drafts: Array<{ fileName: string; data: CfdiExtracted }> = [];
+  const drafts: Array<{ fileName: string; data: CfdiExtractedExtended }> = [];
   const errors: CfdiBatchFileResult[] = [];
 
   for (const item of inputs) {
@@ -155,7 +218,7 @@ export async function parseCfdiXmlBatch(
         });
         continue;
       }
-      const r = parseCfdiXml(item.xmlText);
+      const r = parseCfdiWithSatExtensions(item.xmlText);
       if (r.ok === false) {
         errors.push({
           fileName: item.fileName,
@@ -185,11 +248,12 @@ export type RunCfdiBatchParams = {
   inputs: ParsedXmlInput[];
   classify: ClassifyBatchFn;
   onProgress?: (p: CfdiBatchProgress) => void;
+  paymentImportStore?: PaymentImportStore;
 };
 
 /**
- * Pipeline completo batch. Clasificación Groq secuencial (K=1).
- * Fallos parciales: continúa el lote.
+ * Pipeline completo batch. Clasificación Groq secuencial (K=1) solo I/E.
+ * Tipo P → cfdiPaymentImportService (sin Groq).
  */
 export async function runCfdiBatchImport(
   params: RunCfdiBatchParams
@@ -202,6 +266,7 @@ export async function runCfdiBatchImport(
     inputs,
     classify,
     onProgress,
+    paymentImportStore = createFirestorePaymentImportStore(),
   } = params;
 
   if (!organizationId) {
@@ -209,6 +274,9 @@ export async function runCfdiBatchImport(
   }
 
   const results: CfdiBatchFileResult[] = [];
+  let paymentsLinked = 0;
+  let paymentsPendingReview = 0;
+
   onProgress?.({
     phase: 'uploading',
     current: 0,
@@ -228,7 +296,12 @@ export async function runCfdiBatchImport(
 
   const built: CfdiTransactionDraft[] = [];
   for (const p of parsed) {
-    const b = buildCfdiTransactionDraft(userId, organizationId, p.fileName, p.data);
+    const b = buildCfdiTransactionDraftExtended(
+      userId,
+      organizationId,
+      p.fileName,
+      p.data
+    );
     if (b.ok === false) {
       results.push({ fileName: p.fileName, ok: false, error: b.error });
     } else {
@@ -247,6 +320,8 @@ export async function runCfdiBatchImport(
       classified: 0,
       skippedClosed: skipped.length,
       failed,
+      paymentsLinked,
+      paymentsPendingReview,
     };
   }
 
@@ -272,30 +347,82 @@ export async function runCfdiBatchImport(
       current: i + 1,
       total: accepted.length,
       fileName: draft.fileName,
-      message: `Clasificando ${i + 1}/${accepted.length}…`,
+      message: draft.requiresGroqClassification
+        ? `Clasificando ${i + 1}/${accepted.length}…`
+        : `Procesando pago ${i + 1}/${accepted.length}…`,
     });
 
     try {
-      const decision = await classify(AGENT_TYPES.CLASIFICADOR, draft.classification);
-      if (decision) {
-        const requiresPolicyReview = draft.payload.monto > highAmountReviewThreshold;
-        const requiresHumanApproval =
-          decision.requires_human_approval || requiresPolicyReview;
-        patchUpdates.push({
-          id: documentId,
-          payload: {
-            status: requiresHumanApproval ? 'revisión' : 'conciliado',
-            account_name: decision.account_name,
-            agente_ia_decision: decision.decision,
-            confidence_score: decision.confidence_score,
-            account_source: 'ai',
-            policy_review_reason: requiresPolicyReview
-              ? `Monto mayor a ${highAmountReviewThreshold}`
-              : null,
-            actualizado_en: serverTimestamp(),
-          },
+      if (draft.requiresGroqClassification) {
+        const decision = await classify(AGENT_TYPES.CLASIFICADOR, draft.classification);
+        if (decision) {
+          const requiresPolicyReview = draft.payload.monto > highAmountReviewThreshold;
+          const requiresHumanApproval =
+            decision.requires_human_approval || requiresPolicyReview;
+          patchUpdates.push({
+            id: documentId,
+            payload: {
+              status: requiresHumanApproval ? 'revisión' : 'conciliado',
+              account_name: decision.account_name,
+              agente_ia_decision: decision.decision,
+              confidence_score: decision.confidence_score,
+              account_source: 'ai',
+              policy_review_reason: requiresPolicyReview
+                ? `Monto mayor a ${highAmountReviewThreshold}`
+                : null,
+              actualizado_en: serverTimestamp(),
+            },
+          });
+          classified += 1;
+        }
+
+        results.push({
+          fileName: draft.fileName,
+          ok: true,
+          documentId,
         });
-        classified += 1;
+      } else if (draft.paymentPagos && draft.payload.cfdi_uuid) {
+        const outcome = await processTipoPPaymentImport({
+          organizationId,
+          userId,
+          paymentTxId: documentId,
+          cfdiUuid: draft.payload.cfdi_uuid,
+          pagos: draft.paymentPagos,
+          periodosCerrados,
+          store: paymentImportStore,
+        });
+        if (outcome.status === 'applied') {
+          paymentsLinked += outcome.applicationsCount;
+          results.push({
+            fileName: draft.fileName,
+            ok: true,
+            documentId,
+            paymentsLinked: outcome.applicationsCount,
+          });
+        } else if (outcome.status === 'already_processed') {
+          results.push({
+            fileName: draft.fileName,
+            ok: true,
+            documentId,
+            paymentsLinked: 0,
+          });
+        } else {
+          paymentsPendingReview += 1;
+          results.push({
+            fileName: draft.fileName,
+            ok: true,
+            documentId,
+            paymentPendingReview: true,
+          });
+        }
+      } else {
+        paymentsPendingReview += 1;
+        results.push({
+          fileName: draft.fileName,
+          ok: true,
+          documentId,
+          paymentPendingReview: true,
+        });
       }
 
       await logAuditEntry('IMPORT_CFDI', 'transactions', {
@@ -303,12 +430,7 @@ export async function runCfdiBatchImport(
         uuid: draft.payload.cfdi_uuid,
         batch: true,
         fileName: draft.fileName,
-      });
-
-      results.push({
-        fileName: draft.fileName,
-        ok: true,
-        documentId,
+        cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
       });
     } catch (e) {
       results.push({
@@ -318,7 +440,7 @@ export async function runCfdiBatchImport(
         error:
           e instanceof Error
             ? e.message
-            : 'Error al clasificar con Groq (documento quedó pendiente).',
+            : 'Error al procesar CFDI (documento quedó pendiente).',
       });
     }
   }
@@ -334,6 +456,8 @@ export async function runCfdiBatchImport(
     classified,
     skippedClosed: skipped.length,
     failed,
+    paymentsLinked,
+    paymentsPendingReview,
   };
 }
 

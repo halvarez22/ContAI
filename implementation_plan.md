@@ -2,8 +2,8 @@
 
 **Proyecto:** ContAI Fase 4  
 **Fecha:** 2026-08-25  
-**Estado:** F0 + F1 ✅ IMPLEMENTADOS — pendiente dictamen auditor F0/F1  
-**Commit objetivo:** `feat(E9.2-F0/F1): add SAT payment parser and fix 8-leg split truncation test`
+**Estado:** F0 + F1 ✅ · **F2 ✅ APROBADO** (commit autorizado) · F3–F5 pendientes  
+**Commit objetivo F2:** `feat(E9.2-F2): SAT import pipeline PPD/global/tipo P with payment idempotency`
 
 ---
 
@@ -364,7 +364,7 @@ Nuevo método `proposePaymentApplications` (JSON forzado):
 |----|--------|
 | E8.1 / E8.2 | ✅ |
 | E9.1 | ✅ Aprobado (`865aea1`) |
-| **E9.2** | **🔄 EN PROGRESO** — F0+F1 implementados; F2–F5 pendientes |
+| **E9.2** | **🔄 EN PROGRESO** — F0+F1+F2 implementados; F3–F5 pendientes |
 | E10.x | Export pólizas |
 | E11.1 | Auditoría 69-B |
 

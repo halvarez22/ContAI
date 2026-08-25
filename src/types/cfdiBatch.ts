@@ -1,7 +1,10 @@
 /**
- * Contratos tipados para importación batch de CFDI (E4.2).
+ * Contratos tipados para importación batch de CFDI (E4.2 + E9.2 F2).
  * Sin any.
  */
+
+import type { PagoExtracted } from '../lib/cfdiPagosParser';
+import type { TransactionSatPaymentFields } from './transactionSat';
 
 export type CfdiImportPhase =
   | 'idle'
@@ -15,6 +18,10 @@ export interface CfdiBatchFileResult {
   ok: boolean;
   documentId?: string;
   error?: string;
+  /** E9.2 — complemento P ligado automáticamente */
+  paymentsLinked?: number;
+  /** E9.2 — requiere panel de revisión humana */
+  paymentPendingReview?: boolean;
 }
 
 export interface CfdiBatchProgress {
@@ -54,7 +61,7 @@ export interface CfdiTransactionDraft {
     cfdi_uuid?: string;
     importado_cfdi: true;
     source_file_name: string;
-  };
+  } & TransactionSatPaymentFields;
   classification: {
     tipo: string;
     monto: number;
@@ -63,6 +70,10 @@ export interface CfdiTransactionDraft {
     fecha: string;
     moneda: string;
   };
+  /** false para complemento tipo P (sin Groq clasificador). */
+  requiresGroqClassification: boolean;
+  /** Datos Pagos 2.0 para post-proceso (solo tipo P). */
+  paymentPagos?: PagoExtracted[];
 }
 
 export interface CfdiBatchImportSummary {
@@ -71,6 +82,9 @@ export interface CfdiBatchImportSummary {
   classified: number;
   skippedClosed: number;
   failed: number;
+  /** E9.2 — aplicaciones de pago creadas desde complementos P */
+  paymentsLinked?: number;
+  paymentsPendingReview?: number;
 }
 
 /** Payload tipado para clasificación tras importar CFDI (sin any). */

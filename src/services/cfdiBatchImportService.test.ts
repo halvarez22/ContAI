@@ -58,6 +58,7 @@ describe('buildCfdiTransactionDraft', () => {
     expect(r.draft.payload.importado_cfdi).toBe(true);
     expect(r.draft.classification.concepto).toContain('Servicio');
     expect(r.draft.fileName).toBe('a.xml');
+    expect(r.draft.requiresGroqClassification).toBe(true);
   });
 });
 
