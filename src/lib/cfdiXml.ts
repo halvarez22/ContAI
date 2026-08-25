@@ -116,7 +116,10 @@ export function parseCfdiXml(xmlText: string): { ok: true; data: CfdiExtracted }
   };
 
   if (!data.fecha) errors.push('Falta Fecha en el comprobante.');
-  if (data.total <= 0) errors.push('Total inválido o cero.');
+  const tipo = (data.tipoComprobante || 'I').toUpperCase();
+  if (data.total <= 0 && tipo !== 'P') {
+    errors.push('Total inválido o cero.');
+  }
 
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, data };

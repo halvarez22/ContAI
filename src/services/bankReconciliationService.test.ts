@@ -6,6 +6,7 @@ import {
   parseBankCsv,
   selectAiEligibleRows,
   suggestBankMatches,
+  suggestSplitForUnmatched,
   truncateBankMatchDesc,
   toBankLedgerItems,
   listManualCandidates,
@@ -15,6 +16,7 @@ import {
   BANK_AI_LOW_SCORE_THRESHOLD,
   BANK_MATCH_DESC_MAX_LEN,
 } from '../types/bankReconciliation';
+import { BANK_SPLIT_MAX_LEGS } from '../types/bankAllocation';
 
 vi.mock('./auditService', () => ({
   logAuditEntry: vi.fn(async () => undefined),
@@ -335,5 +337,38 @@ describe('E9.1 suggestSplitForUnmatched', () => {
     expect(hints[0].allocations.length).toBe(2);
     expect(hints[0].isConflict).toBe(false);
     expect(buildConfirmableMatches(bank, hints)).toHaveLength(1);
+  });
+
+  it('trunca la heurística de split a BANK_SPLIT_MAX_LEGS (8)', () => {
+    const bank = [
+      {
+        fecha: '2026-01-10T12:00:00.000Z',
+        monto: 800,
+        descripcion: 'PAGO MULTI 8 LEGS',
+      },
+    ];
+    const ledger = toBankLedgerItems(
+      Array.from({ length: 9 }, (_, i) => ({
+        id: `tx${i}`,
+        monto: 100,
+        fecha: '2026-01-10T12:00:00.000Z',
+      }))
+    );
+    const base = [
+      {
+        bankRowIndex: 0,
+        transactionId: null,
+        allocations: [],
+        score: 0,
+        note: '',
+        isConflict: false,
+      },
+    ];
+    const result = suggestSplitForUnmatched(bank, ledger, base);
+    expect(result[0].suggestionSource).toBe('heuristic_split');
+    expect(result[0].allocations.length).toBe(BANK_SPLIT_MAX_LEGS);
+    expect(result[0].allocations.length).toBe(8);
+    const sum = result[0].allocations.reduce((acc, a) => acc + a.amount, 0);
+    expect(sum).toBe(800);
   });
 });
