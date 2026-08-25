@@ -11,6 +11,8 @@ import { getBankRowViewStatus } from '../lib/bankReconciliationView';
 export type BankReconciliationPanelProps = {
   ledger: BankLedgerItem[];
   periodLabel?: string;
+  organizationId?: string;
+  userId?: string;
 };
 
 const FILTERS: Array<{ id: BankRowFilter; label: string }> = [
@@ -29,6 +31,7 @@ function sourceLabel(
   if (sessionConfirmed) return 'Confirmada';
   if (source === 'manual') return 'Manual';
   if (source === 'ai') return 'IA';
+  if (source === 'heuristic_split') return 'Split';
   if (hasTx) return 'Heurística';
   return '—';
 }
@@ -36,8 +39,10 @@ function sourceLabel(
 export function BankReconciliationPanel({
   ledger,
   periodLabel,
+  organizationId,
+  userId,
 }: BankReconciliationPanelProps) {
-  const bank = useBankReconciliation({ ledger });
+  const bank = useBankReconciliation({ ledger, organizationId, userId });
 
   return (
     <div className="space-y-6">
@@ -53,9 +58,9 @@ export function BankReconciliationPanel({
             <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xl">
               CSV con columnas{' '}
               <span className="font-mono">fecha, monto, descripción</span>.
-              Heurística (±2% / ±4 días); IA en casos difíciles. Conflicto / sin
-              match: clic en la fila para resolver manualmente (aplicar →
-              confirmar).
+              Heurística (±2% / ±4 días) y split 1→N; IA en casos difíciles.
+              Conflicto / sin match: clic en la fila para resolver (multi-factura
+              → confirmar).
               {periodLabel ? (
                 <span className="block mt-1 text-gray-400">
                   Periodo: {periodLabel}
@@ -219,7 +224,11 @@ export function BankReconciliationPanel({
                               </span>
                             )}
                             {!confirmed && status === 'ready' && (
-                              <span className="text-emerald-600">Listo</span>
+                              <span className="text-emerald-600">
+                                {(h?.allocations?.length ?? 0) > 1
+                                  ? `Listo (split ${h!.allocations.length})`
+                                  : 'Listo'}
+                              </span>
                             )}
                             {!confirmed && status === 'no_match' && (
                               <span className="text-gray-400">Sin match</span>
@@ -257,8 +266,10 @@ export function BankReconciliationPanel({
                   candidates={bank.manualCandidates}
                   query={bank.candidateQuery}
                   onQueryChange={bank.setCandidateQuery}
-                  pickedTxId={bank.pickedTxId}
-                  onPickTx={bank.setPickedTxId}
+                  draftLegs={bank.draftLegs}
+                  draftAssigned={bank.draftAssigned}
+                  onToggleLeg={bank.toggleDraftLeg}
+                  onChangeLegAmount={bank.setDraftLegAmount}
                   canApply={bank.canApplyManual}
                   canConfirm={bank.canConfirmSingle}
                   confirming={bank.confirmingSingle}

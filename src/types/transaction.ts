@@ -54,11 +54,15 @@ export interface TransactionDoc extends TransactionFiscalFields {
   rechazado_en?: unknown;
   actualizado_en?: unknown;
   creado_en?: unknown;
-  /** Conciliación bancaria (E5.1) — opcionales, merge-only */
+  /** Conciliación bancaria (E5.1 / E9.1) — opcionales, merge-only */
   bank_reconciled?: boolean;
   /** Score heurístico 0–100 */
   bank_match_score?: number;
   /** Descripción del movimiento bancario (máx. 255) */
   bank_match_desc?: string;
+  /** Σ allocations (E9.1) */
+  bank_reconciled_amount?: number;
+  /** none | partial | full (E9.1) */
+  bank_reconcile_status?: 'none' | 'partial' | 'full';
   [key: string]: unknown;
 }

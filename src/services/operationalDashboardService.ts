@@ -151,7 +151,9 @@ export function buildOperationalSnapshot(input: {
   const txCount = input.periodTransactions.length;
 
   for (const tx of input.periodTransactions) {
-    if (tx.bank_reconciled === true) bankReconciledCount += 1;
+    if (tx.bank_reconciled === true || tx.bank_reconcile_status === 'full') {
+      bankReconciledCount += 1;
+    }
 
     const kind = classifyKind(tx, riskSeverity);
     if (!kind) continue;

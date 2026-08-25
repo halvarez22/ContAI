@@ -205,6 +205,27 @@ service cloud.firestore {
         && request.resource.data.organization_id == resource.data.organization_id;
     }
 
+
+    match /bank_movements/{movementId} {
+      allow read: if isAuthenticated() && canReadOrg(resource.data.organization_id);
+      allow create: if isAuthenticated()
+        && request.resource.data.usuario_id == request.auth.uid
+        && canWriteOrgData(request.resource.data.organization_id);
+      allow update, delete: if isAuthenticated()
+        && canWriteOrgData(resource.data.organization_id)
+        && request.resource.data.organization_id == resource.data.organization_id;
+    }
+
+    match /bank_allocations/{allocationId} {
+      allow read: if isAuthenticated() && canReadOrg(resource.data.organization_id);
+      allow create: if isAuthenticated()
+        && request.resource.data.usuario_id == request.auth.uid
+        && canWriteOrgData(request.resource.data.organization_id);
+      allow update, delete: if isAuthenticated()
+        && canWriteOrgData(resource.data.organization_id)
+        && request.resource.data.organization_id == resource.data.organization_id;
+    }
+
     match /test/connection {
       allow read: if true;
     }

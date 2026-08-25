@@ -1014,7 +1014,19 @@ export default function App() {
   );
 
   const bankLedger: BankLedgerItem[] = useMemo(
-    () => toBankLedgerItems(transactionsInPeriod),
+    () =>
+      toBankLedgerItems(
+        transactionsInPeriod.map((t) => ({
+          id: t.id,
+          monto: t.monto,
+          fecha: t.fecha,
+          concepto: t.concepto,
+          bank_reconciled_amount:
+            typeof t.bank_reconciled_amount === 'number'
+              ? t.bank_reconciled_amount
+              : undefined,
+        }))
+      ),
     [transactionsInPeriod]
   );
 
@@ -1338,6 +1350,8 @@ export default function App() {
                 <ReconciliationSection
                   ledger={bankLedger}
                   periodLabel={reconciliationPeriodLabel}
+                  organizationId={activeOrganizationId ?? undefined}
+                  userId={user?.uid}
                 />
               )}
               {activeTab === 'sat_download' && (

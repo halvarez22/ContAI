@@ -1,58 +1,35 @@
-# Implementation Plan — Entregable 8.2 (Invitaciones y Gestión de Equipos)
+# Implementation Plan — Entregable 9.1 (Conciliación Split 1↔N)
 
 **Proyecto:** ContAI Fase 4  
-**Fecha:** 2026-08-24  
-**Estado:** IMPLEMENTADO (pendiente dictamen de evidencia / commit)  
-**Commit objetivo:** `feat: add organization invitations and team member management (E8.2)`
+**Fecha:** 2026-08-25  
+**Estado:** IMPLEMENTADO (pendiente dictamen evidencia / commit autorizado en dictamen)  
+**Commit objetivo:** `feat: add bank reconciliation split allocations 1-to-N (E9.1)`
 
 ## Resultado
 
 ### Creados
-- `src/types/organizationInvite.ts` (+ tests)
-- `src/services/organizationInviteService.ts`
-- `src/hooks/useOrgMembers.ts`
-- `src/components/org/OrgMembersPanel.tsx` (+ test)
-- `src/components/org/AcceptInviteScreen.tsx` (+ test)
-- `functions/src/org/membership.ts` — assertOrgMember / assertCanManageOrg compartidos
-- `functions/src/org/inviteCrypto.ts`, `invitePolicy.ts`, `inviteEmailTemplate.ts`
-- `functions/src/org/inviteCallables.ts` (+ unit tests crypto/policy)
+- `src/types/bankAllocation.ts` (+ tests) — roundMoney local, suma, remaining, status
+- `src/services/bankAllocationService.ts` — validate + writeBatch movements/allocations + TX patches
 
 ### Modificados
-- `firestore.rules` — invitations deny client write; member role change matrix
-- `firestore.indexes.json` — invitations + members por org
-- `functions/src/index.ts` — export callables invite
-- `functions/src/sat/callables.ts` — usa membership compartido
-- `functions/package.json` — `resend`
-- `App.tsx` — `/invite?token=` + Equipo en settings
-- `useActiveOrganization` — `adoptOrganization`
-- `docs/DESIGN_SYSTEM.md`
+- `bankReconciliationService.ts` — allocations, `suggestSplitForUnmatched`, `markConflicts` por remaining
+- `useBankReconciliation` + `BankManualMatchPanel` — multi-select + montos
+- `transaction` / dashboards KPI — `bank_reconcile_status` full
+- `firestore.rules` + `firestore.indexes.json` — bank_movements / bank_allocations
+- Compat 1↔1 + Groq sin cambio de contrato
 
-### Guardrails + observaciones auditor
-1. ✅ Alcance estricto
-2. ✅ Token ≥128 bits, hash at rest, TTL 72h, server-side, rate limit
-3. ✅ Matriz roles sin auto-escalamiento
-4. ✅ Un pending por email+org (rotación)
-5. ✅ Transparencia AcceptInviteScreen
-6. ✅ Resend vía `defineSecret('RESEND_API_KEY')`
-7. ✅ Normalización email en create **y** accept (`auth.token.email`)
-8. ✅ Query vacía → `HttpsError('invalid-argument', 'Invitación no válida o expirada')`
-9. ✅ `replaceState` limpia query tras aceptar
-
-### Deploy operativo (fuera del código)
-```bash
-firebase functions:secrets:set RESEND_API_KEY
-# Opcional: APP_ORIGIN, INVITE_FROM_EMAIL en params de Functions
-firebase deploy --only firestore:rules,firestore:indexes,functions
-```
+### Refinamientos auditor
+1. ✅ Toda aritmética vía `roundMoney` (2 decimales)
+2. ✅ Validación de remaining previa al writeBatch
 
 ---
 
-## Gobernanza roadmap (congelada)
+## Gobernanza roadmap
 
 | ID | Estado |
 |----|--------|
-| E8.1 | ✅ |
-| **E8.2** | ✅ IMPLEMENTADO (este entregable) |
-| **E9.1** | **siguiente** — Conciliación Split 1↔N |
+| E8.1 / E8.2 | ✅ |
+| **E9.1** | ✅ IMPLEMENTADO |
+| **E9.2** | **siguiente** — Globales SAT + Anticipos |
 | E10.x | Export pólizas |
 | E11.1 | Auditoría 69-B |

@@ -99,7 +99,9 @@ export function buildExecutiveKpis(
     const amount = Number(tx.monto) || 0;
     if (tx.tipo === 'ingreso') ingresos += amount;
     else if (tx.tipo === 'egreso') egresos += amount;
-    if (tx.bank_reconciled === true) bankReconciledCount += 1;
+    if (tx.bank_reconciled === true || tx.bank_reconcile_status === 'full') {
+      bankReconciledCount += 1;
+    }
   }
 
   const txCount = periodTransactions.length;

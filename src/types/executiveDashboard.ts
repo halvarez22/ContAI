@@ -5,6 +5,7 @@ export type ExecutiveTxInput = {
   tipo: string;
   monto: number | string;
   bank_reconciled?: boolean | null;
+  bank_reconcile_status?: 'none' | 'partial' | 'full' | null;
 };
 
 export type ExecutiveKpis = {

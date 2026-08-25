@@ -1,7 +1,9 @@
 /**
- * Contratos tipados para conciliación bancaria (E5.1 + E5.2).
+ * Contratos tipados para conciliación bancaria (E5.1–E5.4 + E9.1 split).
  * Sin any.
  */
+
+import type { BankAllocationDraft } from './bankAllocation';
 
 export interface ParsedBankRow {
   fecha: string;
@@ -15,16 +17,24 @@ export interface BankLedgerItem {
   monto: number;
   fecha: string;
   concepto?: string;
+  /** Σ allocations previas (E9.1). */
+  bank_reconciled_amount?: number;
 }
 
-export type BankSuggestionSource = 'heuristic' | 'ai' | 'manual';
+export type BankSuggestionSource =
+  | 'heuristic'
+  | 'heuristic_split'
+  | 'ai'
+  | 'manual';
 
 export interface BankMatchSuggestion {
   bankRowIndex: number;
   transactionId: string | null;
+  /** Split 1→N (E9.1). Si vacío y hay transactionId, se interpreta 1↔1. */
+  allocations: BankAllocationDraft[];
   score: number;
   note: string;
-  /** true si match ambiguo o varias filas → misma tx — no auto-confirmar */
+  /** true si match ambiguo o overclaim de remaining */
   isConflict: boolean;
   suggestionSource?: BankSuggestionSource;
 }
@@ -33,13 +43,14 @@ export interface BankMatchSuggestion {
 export interface BankManualOverride {
   bankRowIndex: number;
   transactionId: string;
+  allocations?: BankAllocationDraft[];
   note?: string;
 }
 
-/** Candidato del ledger in-period para el picker E5.4. */
+/** Candidato del ledger in-period para el picker E5.4 / E9.1. */
 export interface BankManualCandidate extends BankLedgerItem {
-  /** Score de proximidad 0–100 para ordenar en el picker */
   proximityScore: number;
+  remaining: number;
 }
 
 /** Propuesta tipada de Groq Conciliador (E5.2). */
@@ -75,6 +86,7 @@ export interface BankAiEnrichSummary {
 export interface BankReconcileConfirm {
   bankRowIndex: number;
   transactionId: string;
+  allocations: BankAllocationDraft[];
   score: number;
   bankDescription: string;
 }

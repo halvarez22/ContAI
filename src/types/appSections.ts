@@ -106,6 +106,8 @@ export type TransactionsSectionProps = {
 export type ReconciliationSectionProps = {
   ledger: BankLedgerItem[];
   periodLabel: string;
+  organizationId?: string;
+  userId?: string;
 };
 
 export type SatDownloadSectionProps = {

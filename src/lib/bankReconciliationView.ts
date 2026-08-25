@@ -28,7 +28,12 @@ export function getBankRowViewStatus(
   if (sessionConfirmed) return 'ready';
   if (aiError) return 'ai_error';
   if (hint?.isConflict) return 'conflict';
-  if (hint?.transactionId) return 'ready';
+  if (
+    hint?.transactionId ||
+    (hint?.allocations && hint.allocations.length > 0)
+  ) {
+    return 'ready';
+  }
   return 'no_match';
 }
 

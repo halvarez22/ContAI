@@ -9,8 +9,12 @@ import {
   toBankLedgerItems,
   applyManualOverrides,
   listManualCandidates,
+  suggestionHasMatch,
 } from '../services/bankReconciliationService';
 import { proposeBankMatch } from '../services/groqAIService';
+import { roundMoney } from '../services/taxCalculatorService';
+import { sumAllocationAmounts } from '../types/bankAllocation';
+import type { BankAllocationDraft } from '../types/bankAllocation';
 import type {
   BankLedgerItem,
   BankManualOverride,
@@ -28,11 +32,15 @@ import {
 
 export type UseBankReconciliationParams = {
   ledger: BankLedgerItem[];
+  organizationId?: string;
+  userId?: string;
   propose?: ProposeBankMatchFn;
 };
 
 export function useBankReconciliation({
   ledger,
+  organizationId,
+  userId,
   propose = proposeBankMatch,
 }: UseBankReconciliationParams) {
   const [csvPreview, setCsvPreview] = useState<{
@@ -48,7 +56,10 @@ export function useBankReconciliation({
   );
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [candidateQuery, setCandidateQuery] = useState('');
-  const [pickedTxId, setPickedTxId] = useState<string | null>(null);
+  /** Legs del split en edición: txId → amount */
+  const [draftLegs, setDraftLegs] = useState<Map<string, number>>(
+    () => new Map()
+  );
   const [confirming, setConfirming] = useState(false);
   const [confirmingSingle, setConfirmingSingle] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -58,8 +69,14 @@ export function useBankReconciliation({
   const [filter, setFilter] = useState<BankRowFilter>('all');
 
   const hints = useMemo(
-    () => applyManualOverrides(baseHints, manualOverrides),
-    [baseHints, manualOverrides]
+    () =>
+      applyManualOverrides(
+        baseHints,
+        manualOverrides,
+        csvPreview?.rows ?? [],
+        ledger
+      ),
+    [baseHints, manualOverrides, csvPreview, ledger]
   );
 
   const rematch = useCallback(
@@ -84,7 +101,7 @@ export function useBankReconciliation({
       setManualOverrides(new Map());
       setSessionConfirmed(new Set());
       setSelectedRowIndex(null);
-      setPickedTxId(null);
+      setDraftLegs(new Map());
       setCandidateQuery('');
       const reader = new FileReader();
       reader.onload = () => {
@@ -146,12 +163,16 @@ export function useBankReconciliation({
     setConfirming(true);
     setMessage(null);
     try {
-      const summary = await confirmNonConflictMatches(csvPreview.rows, hints);
+      const summary = await confirmNonConflictMatches(
+        csvPreview.rows,
+        hints,
+        { organizationId, userId, ledger }
+      );
       if (summary.errors.length > 0) {
         setMessage(summary.errors.join(' · '));
       } else {
         const confirmedIndices = hints
-          .filter((h) => h.transactionId && !h.isConflict)
+          .filter((h) => suggestionHasMatch(h) && !h.isConflict)
           .map((h) => h.bankRowIndex);
         setSessionConfirmed((prev) => {
           const next = new Set(prev);
@@ -174,30 +195,79 @@ export function useBankReconciliation({
     } finally {
       setConfirming(false);
     }
-  }, [csvPreview, hints]);
+  }, [csvPreview, hints, organizationId, userId, ledger]);
 
   const selectRowForManual = useCallback(
     (rowIndex: number | null) => {
       setSelectedRowIndex(rowIndex);
       setCandidateQuery('');
       if (rowIndex == null) {
-        setPickedTxId(null);
+        setDraftLegs(new Map());
         return;
       }
       const h = hints[rowIndex];
-      setPickedTxId(h?.transactionId ?? null);
+      const next = new Map<string, number>();
+      if (h?.allocations?.length) {
+        for (const a of h.allocations) {
+          next.set(a.transactionId, roundMoney(a.amount));
+        }
+      } else if (h?.transactionId) {
+        const row = csvPreview?.rows[rowIndex];
+        next.set(h.transactionId, roundMoney(row?.monto ?? 0));
+      }
+      setDraftLegs(next);
     },
-    [hints]
+    [hints, csvPreview]
   );
 
+  const toggleDraftLeg = useCallback(
+    (txId: string, remaining: number, bankAmount: number) => {
+      setDraftLegs((prev) => {
+        const next = new Map(prev);
+        if (next.has(txId)) {
+          next.delete(txId);
+          return next;
+        }
+        const assigned = sumAllocationAmounts(
+          [...next.entries()].map(([transactionId, amount]) => ({
+            transactionId,
+            amount,
+          }))
+        );
+        const need = roundMoney(bankAmount - assigned);
+        const take = roundMoney(Math.min(remaining, Math.max(0, need)));
+        if (take > 0) next.set(txId, take);
+        return next;
+      });
+    },
+    []
+  );
+
+  const setDraftLegAmount = useCallback((txId: string, amount: number) => {
+    setDraftLegs((prev) => {
+      const next = new Map(prev);
+      const v = roundMoney(amount);
+      if (v <= 0) next.delete(txId);
+      else next.set(txId, v);
+      return next;
+    });
+  }, []);
+
   const handleApplyManual = useCallback(() => {
-    if (selectedRowIndex == null || !pickedTxId) return;
+    if (selectedRowIndex == null || draftLegs.size === 0) return;
+    const allocations: BankAllocationDraft[] = [...draftLegs.entries()].map(
+      ([transactionId, amount]) => ({ transactionId, amount: roundMoney(amount) })
+    );
     setManualOverrides((prev) => {
       const next = new Map(prev);
       next.set(selectedRowIndex, {
         bankRowIndex: selectedRowIndex,
-        transactionId: pickedTxId,
-        note: 'Match manual del contador',
+        transactionId: allocations[0]!.transactionId,
+        allocations,
+        note:
+          allocations.length > 1
+            ? `Split manual (${allocations.length} facturas)`
+            : 'Match manual del contador',
       });
       return next;
     });
@@ -208,9 +278,9 @@ export function useBankReconciliation({
       return next;
     });
     setMessage(
-      `Match manual aplicado en fila ${selectedRowIndex + 1}. Revise y confirme.`
+      `Match${allocations.length > 1 ? ' split' : ''} aplicado en fila ${selectedRowIndex + 1}. Revise y confirme.`
     );
-  }, [selectedRowIndex, pickedTxId]);
+  }, [selectedRowIndex, draftLegs]);
 
   const handleConfirmSingle = useCallback(async () => {
     if (selectedRowIndex == null || !csvPreview?.rows?.length) return;
@@ -219,9 +289,16 @@ export function useBankReconciliation({
     setConfirmingSingle(true);
     setMessage(null);
     try {
-      const summary = await confirmSingleMatch(csvPreview.rows, suggestion, {
-        source: 'manual',
-      });
+      const summary = await confirmSingleMatch(
+        csvPreview.rows,
+        suggestion,
+        {
+          source: 'manual',
+          organizationId,
+          userId,
+          ledger,
+        }
+      );
       if (summary.errors.length > 0 || summary.confirmed === 0) {
         setMessage(
           summary.errors.join(' · ') ||
@@ -241,7 +318,7 @@ export function useBankReconciliation({
       });
       setMessage(`Fila ${selectedRowIndex + 1} confirmada (manual).`);
       setSelectedRowIndex(null);
-      setPickedTxId(null);
+      setDraftLegs(new Map());
     } catch (e) {
       setMessage(
         e instanceof Error ? e.message : 'Error al confirmar fila manual'
@@ -249,7 +326,7 @@ export function useBankReconciliation({
     } finally {
       setConfirmingSingle(false);
     }
-  }, [selectedRowIndex, csvPreview, hints]);
+  }, [selectedRowIndex, csvPreview, hints, organizationId, userId, ledger]);
 
   const rows = csvPreview?.rows ?? [];
   const visibleIndices = filterBankRowsByStatus(
@@ -267,7 +344,7 @@ export function useBankReconciliation({
   );
   const readyCount = hints.filter(
     (h, i) =>
-      (h.transactionId && !h.isConflict) || sessionConfirmed.has(i)
+      (suggestionHasMatch(h) && !h.isConflict) || sessionConfirmed.has(i)
   ).length;
   const eligibleAiCount = selectAiEligibleRows(hints).length;
 
@@ -292,14 +369,26 @@ export function useBankReconciliation({
     });
   }, [selectedBankRow, ledger, candidateQuery]);
 
+  const draftAssigned = useMemo(
+    () =>
+      sumAllocationAmounts(
+        [...draftLegs.entries()].map(([transactionId, amount]) => ({
+          transactionId,
+          amount,
+        }))
+      ),
+    [draftLegs]
+  );
+
   const canApplyManual = Boolean(
     selectedRowIndex != null &&
-      pickedTxId &&
+      draftLegs.size > 0 &&
       !sessionConfirmed.has(selectedRowIndex)
   );
   const canConfirmSingle = Boolean(
     selectedRowIndex != null &&
-      selectedHint?.transactionId &&
+      suggestionHasMatch(selectedHint ?? { allocations: [], transactionId: null, bankRowIndex: 0, score: 0, note: '', isConflict: false }) &&
+      selectedHint &&
       !selectedHint.isConflict &&
       selectedHint.suggestionSource === 'manual' &&
       !sessionConfirmed.has(selectedRowIndex)
@@ -327,8 +416,10 @@ export function useBankReconciliation({
     selectedStatus,
     candidateQuery,
     setCandidateQuery,
-    pickedTxId,
-    setPickedTxId,
+    draftLegs,
+    draftAssigned,
+    toggleDraftLeg,
+    setDraftLegAmount,
     manualCandidates,
     canApplyManual,
     canConfirmSingle,

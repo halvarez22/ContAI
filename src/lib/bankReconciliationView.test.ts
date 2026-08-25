@@ -17,6 +17,7 @@ const hint = (
   partial: Partial<BankMatchSuggestion> & { bankRowIndex: number }
 ): BankMatchSuggestion => ({
   transactionId: null,
+  allocations: [],
   score: 0,
   note: '',
   isConflict: false,

@@ -9,11 +9,27 @@
       ]
     },
     {
-      "collectionGroup": "organization_members",
+      "collectionGroup": "bank_movements",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "organization_id", "order": "ASCENDING" },
-        { "fieldPath": "activo", "order": "ASCENDING" }
+        { "fieldPath": "fingerprint", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bank_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "transaction_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bank_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "bank_movement_id", "order": "ASCENDING" }
       ]
     },
     {

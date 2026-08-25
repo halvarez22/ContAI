@@ -37,6 +37,10 @@ Iconos: **Lucide** (ya en el producto). Charts: **Recharts** vía wrapper `Chart
 
 Panel **Equipo** en Configuración (`OrgMembersPanel`): invitaciones por email, roles y revocación. Aceptación vía `/invite?token=…` (`AcceptInviteScreen`) sin React Router.
 
+## Conciliación Split (E9.1)
+
+Tab Conciliación: match 1↔1 y split 1→N con montos por factura; badges «Listo (split N)»; panel manual multi-select con restante de movimiento/factura.
+
 ## Accesibilidad (WCAG AA — foco E0.1)
 
 **Automático:** smoke `vitest-axe` en `Button` y `Alert` (`src/components/ui/*.test.tsx`).

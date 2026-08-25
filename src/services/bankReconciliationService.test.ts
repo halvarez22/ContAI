@@ -107,6 +107,7 @@ describe('selectAiEligibleRows', () => {
       {
         bankRowIndex: 0,
         transactionId: 'tx1',
+        allocations: [{ transactionId: 'tx1', amount: 1000 }],
         score: 95,
         note: 'ok',
         isConflict: false,
@@ -115,6 +116,7 @@ describe('selectAiEligibleRows', () => {
       {
         bankRowIndex: 1,
         transactionId: null,
+        allocations: [],
         score: 0,
         note: 'sin',
         isConflict: false,
@@ -123,6 +125,7 @@ describe('selectAiEligibleRows', () => {
       {
         bankRowIndex: 2,
         transactionId: 'tx2',
+        allocations: [{ transactionId: 'tx2', amount: 500 }],
         score: BANK_AI_LOW_SCORE_THRESHOLD - 1,
         note: 'bajo',
         isConflict: false,
@@ -131,6 +134,7 @@ describe('selectAiEligibleRows', () => {
       {
         bankRowIndex: 3,
         transactionId: 'tx3',
+        allocations: [{ transactionId: 'tx3', amount: 100 }],
         score: 50,
         note: 'conf',
         isConflict: true,
@@ -149,10 +153,15 @@ describe('enrichSuggestionsWithAi', () => {
 
   it('fusiona propuesta IA y marca source ai', async () => {
     const bank = [
-      { fecha: '2026-01-10T12:00:00.000Z', monto: 1500, descripcion: 'SIN HEURISTICA' },
+      {
+        fecha: '2026-01-10T12:00:00.000Z',
+        monto: 5000,
+        descripcion: 'SIN HEURISTICA NI SPLIT',
+      },
     ];
     const hints = suggestBankMatches(bank, ledger);
     expect(hints[0].transactionId).toBeNull();
+    expect(hints[0].allocations).toEqual([]);
 
     const summary = await enrichSuggestionsWithAi({
       bankRows: bank,
@@ -177,8 +186,8 @@ describe('enrichSuggestionsWithAi', () => {
 
   it('continúa si una fila falla (fallo parcial)', async () => {
     const bank = [
-      { fecha: '2026-01-10T12:00:00.000Z', monto: 1500, descripcion: 'A' },
-      { fecha: '2026-01-11T12:00:00.000Z', monto: 1600, descripcion: 'B' },
+      { fecha: '2026-01-10T12:00:00.000Z', monto: 5000, descripcion: 'A' },
+      { fecha: '2026-01-11T12:00:00.000Z', monto: 6000, descripcion: 'B' },
     ];
     const hints = suggestBankMatches(bank, ledger);
     let calls = 0;
@@ -207,8 +216,8 @@ describe('enrichSuggestionsWithAi', () => {
 
   it('marca conflicto post-IA si dos filas apuntan a la misma tx', async () => {
     const bank = [
-      { fecha: '2026-01-10T12:00:00.000Z', monto: 1500, descripcion: 'A' },
-      { fecha: '2026-01-11T12:00:00.000Z', monto: 1600, descripcion: 'B' },
+      { fecha: '2026-01-10T12:00:00.000Z', monto: 5000, descripcion: 'A' },
+      { fecha: '2026-01-11T12:00:00.000Z', monto: 6000, descripcion: 'B' },
     ];
     const hints = suggestBankMatches(bank, ledger);
     const summary = await enrichSuggestionsWithAi({
@@ -237,6 +246,7 @@ describe('buildBankReconcilePatch', () => {
     const patch = buildBankReconcilePatch({
       bankRowIndex: 0,
       transactionId: 'tx1',
+      allocations: [{ transactionId: 'tx1', amount: 1000 }],
       score: 150,
       bankDescription: long,
     });
@@ -287,7 +297,7 @@ describe('E5.4 listManualCandidates / applyManualOverrides', () => {
       [0, { bankRowIndex: 0, transactionId: 'tx1', note: 'manual' }],
       [1, { bankRowIndex: 1, transactionId: 'tx1' }],
     ]);
-    const merged = applyManualOverrides(base, overrides);
+    const merged = applyManualOverrides(base, overrides, bank, ledger);
     expect(merged[0].suggestionSource).toBe('manual');
     expect(merged[0].score).toBe(100);
     expect(merged[0].isConflict).toBe(true);
@@ -300,13 +310,30 @@ describe('E5.4 listManualCandidates / applyManualOverrides', () => {
     const overrides = new Map([
       [0, { bankRowIndex: 0, transactionId: 'tx2' }],
     ]);
-    const after1 = applyManualOverrides(base1, overrides);
+    const after1 = applyManualOverrides(base1, overrides, bank, ledger);
     expect(after1[0].transactionId).toBe('tx2');
     expect(after1[0].suggestionSource).toBe('manual');
 
     const base2 = suggestBankMatches(bank, ledger);
-    const after2 = applyManualOverrides(base2, overrides);
+    const after2 = applyManualOverrides(base2, overrides, bank, ledger);
     expect(after2[0].transactionId).toBe('tx2');
     expect(after2[0].score).toBe(100);
+  });
+});
+
+describe('E9.1 suggestSplitForUnmatched', () => {
+  it('propone split 1→N cuando 1↔1 falla y la suma cubre el banco', () => {
+    const ledger = toBankLedgerItems([
+      { id: 'a', monto: 400, fecha: '2026-01-10T12:00:00.000Z' },
+      { id: 'b', monto: 600, fecha: '2026-01-11T12:00:00.000Z' },
+    ]);
+    const bank = [
+      { fecha: '2026-01-10T18:00:00.000Z', monto: 1000, descripcion: 'PAGO COMBO' },
+    ];
+    const hints = suggestBankMatches(bank, ledger);
+    expect(hints[0].suggestionSource).toBe('heuristic_split');
+    expect(hints[0].allocations.length).toBe(2);
+    expect(hints[0].isConflict).toBe(false);
+    expect(buildConfirmableMatches(bank, hints)).toHaveLength(1);
   });
 });

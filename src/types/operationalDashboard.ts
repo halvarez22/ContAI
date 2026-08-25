@@ -39,6 +39,7 @@ export type OperationalTxInput = {
   proveedor?: string | null;
   concepto?: string | null;
   bank_reconciled?: boolean | null;
+  bank_reconcile_status?: 'none' | 'partial' | 'full' | null;
 };
 
 export type OperationalRiskHint = {
