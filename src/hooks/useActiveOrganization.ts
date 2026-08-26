@@ -109,17 +109,19 @@ export function useActiveOrganization({
             done = r.backfillDone;
           }
           bootstrappedForUser.current = userId;
-          if (!cancelled) setBootstrapping(false);
         }
         if (cancelled) return;
         await refreshSummaries(userId);
       } catch (e) {
-        console.error(e);
+        console.error('[E8.3] Error en bootstrap de organizaciones:', e);
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Error al cargar organizaciones');
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setBootstrapping(false);
+          setLoading(false);
+        }
       }
     })();
 

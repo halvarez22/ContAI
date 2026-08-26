@@ -115,9 +115,15 @@ service cloud.firestore {
     }
 
     match /organization_members/{memberId} {
-      allow read: if isAuthenticated()
-        && (resource.data.user_id == request.auth.uid
-            || isOrgMember(resource.data.organization_id));
+      // E8.3: get de doc inexistente permitido solo si memberId pertenece al uid
+      // (bootstrap ensurePersonalOrg → tx.get). matches() exige cadena completa.
+      allow read: if isAuthenticated() && (
+        (resource == null
+          && memberId.matches('^' + request.auth.uid + '_.*$'))
+        || (resource != null
+          && (resource.data.user_id == request.auth.uid
+              || isOrgMember(resource.data.organization_id)))
+      );
       // Solo bootstrap self-owner (E8.1). Invitados: Admin SDK vía acceptOrgInvite.
       allow create: if isAuthenticated()
         && request.resource.data.user_id == request.auth.uid
