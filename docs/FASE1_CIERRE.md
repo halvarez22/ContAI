@@ -39,7 +39,6 @@ Antes de dar por “producción estable” el freeze:
    - [ ] `VITE_FIREBASE_DATABASE_ID` (si usas DB no-(default))
    - [ ] `GROQ_API_KEY` ← **obligatoria para IA** (inyectada en build por `vite.config.ts`)
    - [ ] `GROQ_MODEL` (opcional)
-   - [ ] `GEMINI_API_KEY` (opcional; no requerida para MVP)
    - [ ] `VITE_APP_URL` (opcional)
 4. [ ] Redeploy tras guardar variables (Vite embebe env en build time).
 5. [ ] Smoke post-deploy:

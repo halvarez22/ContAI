@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './firebase';
-import { cn, formatCurrency, formatDate } from './lib/utils';
+import { cn, formatCurrency, formatDate, coerceDisplayDate } from './lib/utils';
 import { Button } from './components/ui/Button';
 import { Card } from './components/ui/Card';
 import { Badge } from './components/ui/Badge';
@@ -90,6 +90,11 @@ import type { FiscalRiskIndex } from './types/fiscalRisk';
 import { AppTabRouter } from './components/layout/AppTabRouter';
 import { isMigratedNavTabId, isNavTabId } from './types/appSections';
 import type { TransactionRow } from './types/appSections';
+import type {
+  MonthlyReportSummary,
+  RecurringTransactionDoc,
+  TransactionListenerDoc,
+} from './types/orgListeners';
 import { useImportFlow } from './hooks/useImportFlow';
 import { useDashboardMode } from './hooks/useDashboardMode';
 import { useTheme } from './hooks/useTheme';
@@ -156,10 +161,14 @@ export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const [selectedTransaction, setSelectedTransaction] = useState<any>(null);
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<TransactionListenerDoc | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [monthlyReport, setMonthlyReport] = useState<any>(null);
-  const [selectedRecurring, setSelectedRecurring] = useState<any>(null);
+  const [monthlyReport, setMonthlyReport] = useState<MonthlyReportSummary | null>(
+    null
+  );
+  const [selectedRecurring, setSelectedRecurring] =
+    useState<RecurringTransactionDoc | null>(null);
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isManualTxModalOpen, setIsManualTxModalOpen] = useState(false);
   const [isEditTxModalOpen, setIsEditTxModalOpen] = useState(false);
@@ -692,12 +701,12 @@ export default function App() {
     }
   };
 
-  const editRecurringTransaction = (rec: any) => {
+  const editRecurringTransaction = (rec: RecurringTransactionDoc) => {
     setSelectedRecurring(rec);
     setIsRecurringModalOpen(true);
   };
 
-  const toggleRecurringStatus = async (rec: any) => {
+  const toggleRecurringStatus = async (rec: RecurringTransactionDoc) => {
     await setRecurring(rec.id, {
       ...rec,
       activa: !rec.activa,
@@ -842,7 +851,7 @@ export default function App() {
     logAuditEntry('GENERATE_REPORT', 'system', { month: summary.monthName });
   };
 
-  const approveTransaction = async (tx: any) => {
+  const approveTransaction = async (tx: TransactionListenerDoc) => {
     if (isTransactionDateInClosedPeriod(tx.fecha, periodosCerrados)) {
       alert('Este periodo está cerrado.');
       return;
@@ -862,7 +871,10 @@ export default function App() {
     }
   };
 
-  const rejectTransaction = async (tx: any, reason: string) => {
+  const rejectTransaction = async (
+    tx: TransactionListenerDoc,
+    reason: string
+  ) => {
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
       alert('Escribe un motivo de rechazo.');
@@ -1006,8 +1018,8 @@ export default function App() {
       id: String(tx.id),
       fecha: tx.fecha,
       tipo: String(tx.tipo),
-      monto: tx.monto,
-      concepto: tx.concepto,
+      monto: Number(tx.monto) || 0,
+      concepto: String(tx.concepto || ''),
       proveedor: tx.proveedor,
       account_name: tx.account_name,
       bank_reconciled: tx.bank_reconciled,
@@ -1022,7 +1034,7 @@ export default function App() {
       toBankLedgerItems(
         transactionsInPeriod.map((t) => ({
           id: t.id,
-          monto: t.monto,
+          monto: Number(t.monto) || 0,
           fecha: t.fecha,
           concepto: t.concepto,
           bank_reconciled_amount:
@@ -1116,7 +1128,7 @@ export default function App() {
           id: String(tx.id),
           fecha: tx.fecha,
           tipo: tx.tipo,
-          monto: tx.monto,
+          monto: Number(tx.monto) || 0,
           status: tx.status,
           account_name: tx.account_name,
           proveedor: tx.proveedor,
@@ -1362,7 +1374,9 @@ export default function App() {
                   polizaExportDisabledHint={POLIZA_EXPORT_DISABLED_HINT}
                   onOpenExcelImport={() => importFlow.openExcelImport()}
                   onOpenManualTx={() => setIsManualTxModalOpen(true)}
-                  onSelectTransaction={setSelectedTransaction}
+                  onSelectTransaction={(tx: TransactionRow) =>
+                    setSelectedTransaction(tx as TransactionListenerDoc)
+                  }
                 />
               )}
               {activeTab === 'reconciliation' && (
@@ -1498,7 +1512,7 @@ export default function App() {
                             </tr>
                           ) : (
                             filteredRiskRows.slice(0, 80).map((row, idx) => {
-                              const tx = row.transaction as any;
+                              const tx = row.transaction;
                               return (
                                 <tr key={row.transactionId} className="hover:bg-gray-50/80 dark:hover:bg-gray-800/40">
                                   <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
@@ -1535,7 +1549,11 @@ export default function App() {
                                     <Button
                                       variant="ghost"
                                       className="text-xs py-1 px-2"
-                                      onClick={() => setSelectedTransaction(tx)}
+                                      onClick={() =>
+                                        setSelectedTransaction(
+                                          tx as TransactionListenerDoc
+                                        )
+                                      }
                                     >
                                       Ver
                                     </Button>
@@ -1772,7 +1790,7 @@ export default function App() {
                             </td>
                             <td className="px-6 py-4">
                               <span className={cn('text-sm font-bold', rec.tipo === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
-                                {formatCurrency(rec.monto)}
+                                {formatCurrency(Number(rec.monto) || 0)}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
@@ -1842,7 +1860,7 @@ export default function App() {
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
                           <h4 className="font-bold text-gray-900 dark:text-white">{log.accion}</h4>
-                          <span className="text-xs text-gray-400 dark:text-gray-500">{formatDate(log.timestamp?.toDate() || new Date())}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{formatDate(coerceDisplayDate(log.timestamp) ?? new Date())}</span>
                         </div>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Recurso: <span className="font-mono text-xs">{log.recurso}</span></p>
                         <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">
@@ -2052,14 +2070,16 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                        {Object.entries(monthlyReport.categories).map(([name, values]: any) => (
+                        {Object.entries(monthlyReport.categories).map(
+                          ([name, values]) => (
                           <tr key={name} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
                             <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{name}</td>
                             <td className="px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400 text-right">{formatCurrency(values.income)}</td>
                             <td className="px-4 py-3 text-sm text-red-600 dark:text-red-400 text-right">{formatCurrency(values.expense)}</td>
                             <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-white text-right">{formatCurrency(values.income - values.expense)}</td>
                           </tr>
-                        ))}
+                        )
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -2651,10 +2671,10 @@ export default function App() {
                         <p className="text-xs font-medium text-gray-900 dark:text-white">
                           {selectedTransaction.status === 'rechazado'
                             ? (selectedTransaction.rechazado_en
-                              ? formatDate(selectedTransaction.rechazado_en?.toDate?.() || selectedTransaction.rechazado_en)
+                              ? formatDate(coerceDisplayDate(selectedTransaction.rechazado_en) ?? '')
                               : 'Pendiente')
                             : (selectedTransaction.aprobado_en
-                              ? formatDate(selectedTransaction.aprobado_en?.toDate?.() || selectedTransaction.aprobado_en)
+                              ? formatDate(coerceDisplayDate(selectedTransaction.aprobado_en) ?? '')
                               : (selectedTransaction.status === 'conciliado' ? 'Automática' : 'Pendiente'))}
                         </p>
                       </div>
@@ -2662,11 +2682,20 @@ export default function App() {
                       <div className="space-y-1 text-right">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Fecha de Conciliación</p>
                         <p className="text-xs font-medium text-gray-900 dark:text-white">
-                          {selectedTransaction.status === 'conciliado' 
-                            ? formatDate(selectedTransaction.aprobado_en?.toDate?.() || selectedTransaction.aprobado_en || selectedTransaction.creado_en?.toDate?.() || selectedTransaction.creado_en)
+                          {selectedTransaction.status === 'conciliado'
+                            ? formatDate(
+                                coerceDisplayDate(selectedTransaction.aprobado_en) ??
+                                  coerceDisplayDate(selectedTransaction.creado_en) ??
+                                  ''
+                              )
                             : selectedTransaction.status === 'rechazado'
-                              ? formatDate(selectedTransaction.rechazado_en?.toDate?.() || selectedTransaction.rechazado_en || selectedTransaction.actualizado_en?.toDate?.() || selectedTransaction.actualizado_en || selectedTransaction.creado_en?.toDate?.() || selectedTransaction.creado_en)
-                            : 'Pendiente'}
+                              ? formatDate(
+                                  coerceDisplayDate(selectedTransaction.rechazado_en) ??
+                                    coerceDisplayDate(selectedTransaction.actualizado_en) ??
+                                    coerceDisplayDate(selectedTransaction.creado_en) ??
+                                    ''
+                                )
+                              : 'Pendiente'}
                         </p>
                       </div>
                     </div>

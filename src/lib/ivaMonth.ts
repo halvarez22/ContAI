@@ -1,5 +1,13 @@
 import { buildFiscalSnapshot, parseBool, parseIvaTasa, type IvaTasaCode } from './fiscal';
 
+/** Campos usados en IVA del mes (H3 tipado; fórmulas intactas). */
+export type IvaTransactionInput = {
+  tipo: string;
+  monto: number | string;
+  iva_tasa?: string | number | null;
+  egreso_acredita_iva?: boolean | string | null;
+};
+
 export interface MonthlyIvaBreakdown {
   periodo: string;
   /** IVA causado (ingresos) */
@@ -18,7 +26,7 @@ function keyTasa(code: IvaTasaCode): string {
 }
 
 export function computeMonthlyIva(
-  monthTransactions: any[],
+  monthTransactions: IvaTransactionInput[],
   year: number,
   monthIndex: number
 ): MonthlyIvaBreakdown {
@@ -33,8 +41,15 @@ export function computeMonthlyIva(
 
   for (const tx of monthTransactions) {
     const monto = Number(tx.monto) || 0;
-    const tasa = parseIvaTasa(tx.iva_tasa);
-    const acredita = parseBool(tx.egreso_acredita_iva, true);
+    const tasa = parseIvaTasa(
+      tx.iva_tasa == null ? undefined : String(tx.iva_tasa)
+    );
+    const acredita = parseBool(
+      tx.egreso_acredita_iva == null
+        ? undefined
+        : String(tx.egreso_acredita_iva),
+      true
+    );
     const snap = buildFiscalSnapshot(tx.tipo === 'ingreso' ? 'ingreso' : 'egreso', monto, tasa, acredita);
 
     if (tasa === 'na') {

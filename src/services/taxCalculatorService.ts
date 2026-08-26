@@ -10,8 +10,11 @@ import {
   splitTotalWithIva,
   type IvaTasaCode,
 } from '../config/taxRates';
-import { computeMonthlyIva } from '../lib/ivaMonth';
-import { computeIsrProvisionalSummary } from '../lib/isrProvisional';
+import { computeMonthlyIva, type IvaTransactionInput } from '../lib/ivaMonth';
+import {
+  computeIsrProvisionalSummary,
+  type IsrTransactionInput,
+} from '../lib/isrProvisional';
 import { parseBool } from '../lib/fiscal';
 import type { AgentDecision } from '../types/agentDecision';
 import type {
@@ -45,7 +48,9 @@ export function calculateLineIva(
   };
 }
 
-function toLibTx(tx: TaxTransactionInput): Record<string, unknown> {
+function toLibTx(
+  tx: TaxTransactionInput
+): IsrTransactionInput & IvaTransactionInput {
   return {
     tipo: tx.tipo,
     monto: Number(tx.monto) || 0,

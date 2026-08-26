@@ -20,4 +20,4 @@ alwaysApply: true
 - Lo existente de Gemini se deja intacto o se envuelve mínimamente. No se refactoriza sin motivo justificado.
 - Prohibido crear interfaces abstractas (`ILLMProvider`), fábricas de providers o patrones de orquestación complejos (YAGNI para Fase 1).
 - **Auditoría (Audit Logs)**: Schema existente en Firestore sin renombrar (`usuario_id`, `accion`, `recurso`, `detalles`, …). Campos opcionales nuevos: `provider`, `modelUsed`, `tokensUsed`.
-- **Cero Hardcoding**: Los nombres de los modelos de IA viven en `src/config/aiModels.ts` (env `GROQ_MODEL` / `GEMINI_MODEL` o defaults). Consumidos vía `groqAIService`.
+- **Cero Hardcoding**: Los nombres de los modelos de IA viven en `src/config/aiModels.ts` (env `GROQ_MODEL` o default). Consumidos vía `groqAIService`. `provider?: 'gemini'` permanece opcional en audit (compat schema); sin SDK Gemini en runtime Fase 1.

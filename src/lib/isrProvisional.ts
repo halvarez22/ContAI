@@ -1,5 +1,13 @@
 import { parseIvaTasa, splitTotalWithIva } from './fiscal';
 
+/** Campos usados en sumas ISR (H3 tipado; fórmulas intactas). */
+export type IsrTransactionInput = {
+  tipo: string;
+  monto: number | string;
+  iva_tasa?: string | number | null;
+  deducible?: boolean | null;
+};
+
 /**
  * ISR provisional PFAE — estimación interna.
  * Tarifa anual 2024 (art. 152 LISR) según tablas publicadas en fuentes oficiales;
@@ -73,25 +81,33 @@ export function isrFromAnnualBase(baseGravable: number): { isr: number; tramo: n
   return isrFromBracketTable(baseGravable, ISR_BRACKETS_2024_ANUAL);
 }
 
-export function sumIngresosAcumulables(transactions: any[]): number {
+export function sumIngresosAcumulables(
+  transactions: IsrTransactionInput[]
+): number {
   let s = 0;
   for (const tx of transactions) {
     if (tx.tipo !== 'ingreso') continue;
     const monto = Number(tx.monto) || 0;
-    const tasa = parseIvaTasa(tx.iva_tasa);
+    const tasa = parseIvaTasa(
+      tx.iva_tasa == null ? undefined : String(tx.iva_tasa)
+    );
     const { subtotal } = splitTotalWithIva(monto, tasa);
     s += subtotal;
   }
   return s;
 }
 
-export function sumDeduccionesAutorizadas(transactions: any[]): number {
+export function sumDeduccionesAutorizadas(
+  transactions: IsrTransactionInput[]
+): number {
   let s = 0;
   for (const tx of transactions) {
     if (tx.tipo !== 'egreso') continue;
     if (tx.deducible === false) continue;
     const monto = Number(tx.monto) || 0;
-    const tasa = parseIvaTasa(tx.iva_tasa);
+    const tasa = parseIvaTasa(
+      tx.iva_tasa == null ? undefined : String(tx.iva_tasa)
+    );
     const { subtotal } = splitTotalWithIva(monto, tasa);
     s += subtotal;
   }
@@ -109,7 +125,7 @@ export interface IsrProvisionalSummary {
 }
 
 export function computeIsrProvisionalSummary(
-  transactionsYearToDate: any[],
+  transactionsYearToDate: IsrTransactionInput[],
   monthIndex: number
 ): IsrProvisionalSummary {
   const ingresosAcumulables = sumIngresosAcumulables(transactionsYearToDate);

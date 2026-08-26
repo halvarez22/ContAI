@@ -91,7 +91,6 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `VITE_FIREBASE_*` | Sí (prod) | Proyecto Firebase / Auth / Firestore |
 | `GROQ_API_KEY` | Sí (IA) | Inyectada en build vía `vite.config.ts` (`process.env.GROQ_API_KEY`) |
 | `GROQ_MODEL` | No | Default en `src/config/aiModels.ts` |
-| `GEMINI_API_KEY` | No | Residual / futuro; no es fallback de clasificación en Fase 1 |
 | `VITE_APP_URL` | No | URL pública de la app |
 | `VITE_SAT_PROVIDER` | No | `mock` (default) o `sat_ws` (E6.2 callables) |
 | `VITE_FIREBASE_FUNCTIONS_REGION` | No | Default `us-central1` |

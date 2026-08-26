@@ -5,12 +5,37 @@ import { computeIsrProvisionalSummary } from './isrProvisional';
 
 export type RiskSeverity = 'low' | 'medium' | 'high' | 'critical';
 
+/**
+ * Entrada tipada para filtros / ranking / context pack (H3).
+ * Campos usados en App + monthlyAnalysis; sin index signature `unknown`.
+ */
+export type AnalysisTransaction = {
+  id?: string;
+  fecha: string;
+  tipo: string;
+  monto: number | string;
+  proveedor?: string;
+  concepto?: string;
+  account_name?: string;
+  status?: string;
+  confidence_score?: number;
+  iva_tasa?: string | number | null;
+  egreso_acredita_iva?: boolean | string | null;
+  deducible?: boolean | null;
+  bank_reconciled?: boolean;
+  bank_reconcile_status?: 'none' | 'partial' | 'full' | string;
+  bank_reconciled_amount?: number;
+  rfc_contraparte?: string;
+  tags?: string[];
+  moneda?: string;
+};
+
 /** Transacciones del 1 ene al último día del mes indicado (mismo año). */
 export function filterTransactionsYtdThroughMonth(
-  transactions: any[],
+  transactions: AnalysisTransaction[],
   year: number,
   monthIndex: number
-): any[] {
+): AnalysisTransaction[] {
   const start = new Date(year, 0, 1);
   const end = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
   return transactions.filter((tx) => {
@@ -20,19 +45,21 @@ export function filterTransactionsYtdThroughMonth(
   });
 }
 
+export type RankedTransaction = AnalysisTransaction & { id: string };
+
 export interface RiskRow {
   transactionId: string;
-  transaction: Record<string, unknown>;
+  transaction: RankedTransaction;
   score: number;
   reasons: string[];
   severity: RiskSeverity;
 }
 
 export function filterTransactionsByMonth(
-  transactions: any[],
+  transactions: AnalysisTransaction[],
   year: number,
   monthIndex: number
-): any[] {
+): AnalysisTransaction[] {
   return transactions.filter((tx) => {
     const d = new Date(tx.fecha);
     return d.getFullYear() === year && d.getMonth() === monthIndex;
@@ -58,10 +85,12 @@ function dayKey(iso: string): string {
 }
 
 export function computeRiskRankings(
-  monthTransactions: any[],
+  monthTransactions: AnalysisTransaction[],
   highAmountThreshold = 50000
 ): RiskRow[] {
-  const list = monthTransactions.filter((tx) => tx?.id);
+  const list = monthTransactions.filter(
+    (tx): tx is RankedTransaction => Boolean(tx?.id)
+  );
   const egresoByCategory: Record<string, number[]> = {};
   for (const tx of list) {
     if (tx.tipo !== 'egreso') continue;
@@ -199,12 +228,12 @@ export interface MonthlyContextPack {
 }
 
 export function buildMonthlyContextPack(
-  monthTransactions: any[],
+  monthTransactions: AnalysisTransaction[],
   year: number,
   monthIndex: number,
   empresaNombre: string,
   empresaRfc: string,
-  allTransactionsForFiscal?: any[]
+  allTransactionsForFiscal?: AnalysisTransaction[]
 ): MonthlyContextPack {
   const d = new Date(year, monthIndex, 1);
   const periodo = d.toLocaleString('es-MX', { month: 'long', year: 'numeric' });
@@ -285,14 +314,3 @@ export function buildMonthlyContextPack(
 
   return pack;
 }
-
-/** @deprecated Preferir `bankReconciliationService` — re-export E5.1 compat. */
-export type {
-  ParsedBankRow,
-  BankMatchSuggestion,
-} from '../types/bankReconciliation';
-
-export {
-  parseBankCsv,
-  suggestBankMatches,
-} from '../services/bankReconciliationService';

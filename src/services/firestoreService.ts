@@ -34,25 +34,6 @@ export async function createUserProfile(
   });
 }
 
-/** @deprecated Prefer updateOrganizationSettings (E8.1). Conservado para compat. */
-export async function updateUserSettings(
-  uid: string,
-  data: {
-    cuentas_contables: string[];
-    empresa_nombre: string;
-    empresa_rfc: string;
-  }
-): Promise<void> {
-  await setDoc(
-    doc(db, 'users', uid),
-    {
-      ...data,
-      actualizado_en: serverTimestamp(),
-    },
-    { merge: true }
-  );
-}
-
 export async function createProduct(
   userId: string,
   organizationId: string,

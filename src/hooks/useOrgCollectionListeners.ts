@@ -1,7 +1,7 @@
 /**
  * Listeners de colecciones por organización (H1).
  * Ventana YTD en transactions; cleanup al cambiar org / periodYear.
- * Sin JSX.
+ * Sin JSX. Tipos de documento: H3.
  */
 
 import { useEffect, useState } from 'react';
@@ -21,8 +21,13 @@ import {
   TRANSACTIONS_YTD_LIMIT,
   ytdStartIso,
 } from '../lib/firestoreWindows';
-
-export type OrgListenerDoc = { id: string; [key: string]: any };
+import type {
+  AuditListenerDoc,
+  InventoryMovementDoc,
+  ProductDoc,
+  RecurringTransactionDoc,
+  TransactionListenerDoc,
+} from '../types/orgListeners';
 
 export type UseOrgCollectionListenersParams = {
   userId: string | undefined;
@@ -33,23 +38,25 @@ export type UseOrgCollectionListenersParams = {
 export function useOrgCollectionListeners(
   params: UseOrgCollectionListenersParams
 ): {
-  transactions: OrgListenerDoc[];
-  auditLogs: OrgListenerDoc[];
-  recurringTransactions: OrgListenerDoc[];
-  products: OrgListenerDoc[];
-  inventoryMovements: OrgListenerDoc[];
+  transactions: TransactionListenerDoc[];
+  auditLogs: AuditListenerDoc[];
+  recurringTransactions: RecurringTransactionDoc[];
+  products: ProductDoc[];
+  inventoryMovements: InventoryMovementDoc[];
   transactionsTruncated: boolean;
 } {
   const { userId, organizationId, periodYear } = params;
 
-  const [transactions, setTransactions] = useState<OrgListenerDoc[]>([]);
-  const [auditLogs, setAuditLogs] = useState<OrgListenerDoc[]>([]);
+  const [transactions, setTransactions] = useState<TransactionListenerDoc[]>(
+    []
+  );
+  const [auditLogs, setAuditLogs] = useState<AuditListenerDoc[]>([]);
   const [recurringTransactions, setRecurringTransactions] = useState<
-    OrgListenerDoc[]
+    RecurringTransactionDoc[]
   >([]);
-  const [products, setProducts] = useState<OrgListenerDoc[]>([]);
+  const [products, setProducts] = useState<ProductDoc[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<
-    OrgListenerDoc[]
+    InventoryMovementDoc[]
   >([]);
   const [transactionsTruncated, setTransactionsTruncated] = useState(false);
 
@@ -86,7 +93,7 @@ export function useOrgCollectionListeners(
         const data = snapshot.docs.map((d) => ({
           id: d.id,
           ...d.data(),
-        })) as OrgListenerDoc[];
+        })) as TransactionListenerDoc[];
         setTransactions(data);
         setTransactionsTruncated(snapshot.size >= TRANSACTIONS_YTD_LIMIT);
       },
@@ -109,7 +116,7 @@ export function useOrgCollectionListeners(
         const data = snapshot.docs.map((d) => ({
           id: d.id,
           ...d.data(),
-        })) as OrgListenerDoc[];
+        })) as AuditListenerDoc[];
         setAuditLogs(data);
       },
       (error) => {
@@ -130,7 +137,7 @@ export function useOrgCollectionListeners(
         const data = snapshot.docs.map((d) => ({
           id: d.id,
           ...d.data(),
-        })) as OrgListenerDoc[];
+        })) as RecurringTransactionDoc[];
         setRecurringTransactions(data);
       },
       (error) => {
@@ -149,7 +156,7 @@ export function useOrgCollectionListeners(
         const data = snapshot.docs.map((d) => ({
           id: d.id,
           ...d.data(),
-        })) as OrgListenerDoc[];
+        })) as ProductDoc[];
         data.sort((a, b) =>
           String(a.codigo ?? '').localeCompare(String(b.codigo ?? ''))
         );
@@ -170,7 +177,7 @@ export function useOrgCollectionListeners(
         const data = snapshot.docs.map((d) => ({
           id: d.id,
           ...d.data(),
-        })) as OrgListenerDoc[];
+        })) as InventoryMovementDoc[];
         setInventoryMovements(data);
       },
       () => setInventoryMovements([])

@@ -1,21 +1,32 @@
-# Implementation Plan — H2 · Lazy Loading / Suspense
+# Implementation Plan — H3 · Tipos / Dead Code (Endurecimiento)
 
-**Estado:** **✅ CERRADO H2** (211 passed, tsc limpio; chunks lazy verificados en `vite build`)
+**Proyecto:** ContAI Fase 4 → Sprint Endurecimiento  
+**Fecha cierre:** 2026-08-26  
+**Estado:** **CERRADO — H3 ejecutado**  
+**Pre-requisito:** H2 ✅ `57066d9`  
+**Evidencia:** `TSC_EXIT:0` · **211** tests passed | 6 skipped  
 
-## Evidencia bundle (`npm run build`)
+**Siguiente:** H4 (Strict incremental) — plan corto pendiente de aprobación.
 
-| Chunk | ~kB | Nota |
-|-------|-----|------|
-| `index-*.js` | ~1039 | Shell inicial (sin SheetJS) |
-| `xlsx-*.js` | ~420 | Separado — solo al parse Excel 69-B / path dinámico |
-| `FiscalSection-*.js`, `OverviewSection-*.js`, `ImportModals-*.js`, `DesignSystemGallery-*.js`, `ExecutiveDashboardView-*.js`, `TransactionsSection-*.js`, … | lazy | Carga bajo demanda |
+---
 
-## DoD
+## DoD H3 (cumplido)
 
-- [x] `fiscalRiskService` sin xlsx estático; `fiscalRiskXlsx` async dynamic import
-- [x] Lazy: DesignSystem, ImportModals, 5 sections, ExecutiveDashboard
-- [x] `SectionSuspenseFallback` CSS puro
-- [x] Hook catch error procesador Excel
-- [x] Suite + tsc + evidencia `vite build` chunks
-- [x] H3/H4 parked
+- [x] Listeners + App tipados (`TransactionListenerDoc`, `ProductDoc`, `InventoryMovementDoc`, `RecurringTransactionDoc`, `AuditListenerDoc`, `MonthlyReportSummary`)
+- [x] `monthlyAnalysis` / `isrProvisional` / `ivaMonth` tipados sin cambiar fórmulas
+- [x] 0 usos `updateUserSettings`, `@google/genai`, `react-markdown`, `express` en `src/`
+- [x] `GEMINI_*` fuera de `vite.config.ts`, `.env.example`, README, `docs/FASE1_CIERRE.md`
+- [x] Dead re-exports bank eliminados de `monthlyAnalysis`
+- [x] Deps muertas podadas del root `package.json` + lock
+- [x] Suite + tsc limpios; H1/H2 intactos
 
+---
+
+## Archivos principales
+
+| Acción | Ruta |
+|--------|------|
+| Crear | `src/types/orgListeners.ts` |
+| Modificar | `useOrgCollectionListeners.ts`, `App.tsx`, `monthlyAnalysis.ts`, `isrProvisional.ts`, `ivaMonth.ts`, `utils.ts`, `taxCalculatorService.ts` |
+| Modificar | `firestoreService.ts` (−`updateUserSettings`), `aiModels.ts`, `vite.config.ts`, `.env.example`, README, docs |
+| Modificar | `package.json` + lock (−genai, markdown, express, dotenv, @types/express) |
