@@ -10,6 +10,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run src/services/firestoreRules.paymentApplications.test.ts\"",
     "test:e2e": "playwright test",
     "manual:pdf": "node scripts/build-manual-pdf.mjs",
     "sync:sat-contracts": "node scripts/sync-sat-contracts.mjs",
@@ -40,6 +41,7 @@
     "xmllint-wasm": "^5.2.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@playwright/test": "^1.51.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",
@@ -48,6 +50,7 @@
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "axe-core": "^4.13.0",
+    "firebase-tools": "^14.27.0",
     "jsdom": "^29.1.1",
     "marked": "^17.0.6",
     "tailwindcss": "^4.1.14",

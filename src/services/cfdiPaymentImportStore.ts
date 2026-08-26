@@ -1,13 +1,8 @@
 /**
- * Adaptador Firestore para PaymentImportStore (E9.2 F2).
+ * Adaptador Firestore para PaymentImportStore (E9.2 F2/F3).
  */
 
-import { logAuditEntry } from './auditService';
-import {
-  commitPaymentApplicationsBatch,
-  findTransactionsByCfdiUuids,
-  hasPaymentApplicationsForSource,
-} from './firestoreService';
+import { findTransactionsByCfdiUuids } from './firestoreService';
 import type {
   PaymentImportStore,
   ResolvedInvoiceTarget,
@@ -16,7 +11,6 @@ import { computeSaldoPendiente, roundMoney } from '../types/paymentApplication';
 
 export function createFirestorePaymentImportStore(): PaymentImportStore {
   return {
-    hasApplicationsForSource: hasPaymentApplicationsForSource,
     async resolveInvoicesByCfdiUuid(organizationId, uuids) {
       const rows = await findTransactionsByCfdiUuids(organizationId, uuids);
       const out = new Map<string, ResolvedInvoiceTarget>();
@@ -30,15 +24,12 @@ export function createFirestorePaymentImportStore(): PaymentImportStore {
           montoOriginal,
           appliedPaymentAmount: applied,
           saldoPendiente:
-          row.saldo_pendiente !== undefined
-            ? roundMoney(row.saldo_pendiente)
-            : computeSaldoPendiente(montoOriginal, applied),
+            row.saldo_pendiente !== undefined
+              ? roundMoney(row.saldo_pendiente)
+              : computeSaldoPendiente(montoOriginal, applied),
         });
       }
       return out;
     },
-    commitPaymentApplications: commitPaymentApplicationsBatch,
-    logAudit: (action, resource, details) =>
-      logAuditEntry(action, resource, details),
   };
 }

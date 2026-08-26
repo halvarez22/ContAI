@@ -7,17 +7,18 @@ import type { PagoExtracted } from '../lib/cfdiPagosParser';
 import type { InformacionGlobalExtracted } from '../lib/cfdiPagosParser';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
-  AUDIT_PAYMENT_APPLICATION_CONFIRMED,
   assertApplicationWithinSaldo,
   assertValidPaymentApplications,
-  computeSaldoPendiente,
-  derivePaymentStatus,
   roundMoney,
   sumPaymentAmounts,
   type PaymentApplicationDraft,
   type PaymentStatus,
 } from '../types/paymentApplication';
 import type { CfdiTipoComprobanteSat } from '../types/transactionSat';
+import {
+  confirmPaymentApplications,
+  type ConfirmPaymentApplicationsResult,
+} from './paymentApplicationService';
 
 export type ResolvedInvoiceTarget = {
   transactionId: string;
@@ -34,36 +35,15 @@ export type PaymentImportOutcome =
   | { status: 'applied'; applicationsCount: number };
 
 export type PaymentImportStore = {
-  hasApplicationsForSource: (
-    organizationId: string,
-    sourceId: string
-  ) => Promise<boolean>;
   resolveInvoicesByCfdiUuid: (
     organizationId: string,
     uuids: readonly string[]
   ) => Promise<Map<string, ResolvedInvoiceTarget>>;
-  commitPaymentApplications: (params: {
-    organizationId: string;
-    userId: string;
-    sourceId: string;
-    paymentTxId: string;
-    applications: Array<
-      PaymentApplicationDraft & { cfdiUuidRelacionado: string }
-    >;
-    targetUpdates: Array<{
-      transactionId: string;
-      saldoPendiente: number;
-      appliedPaymentAmount: number;
-      paymentStatus: PaymentStatus;
-      montoOriginal: number;
-    }>;
-  }) => Promise<void>;
-  logAudit: (
-    action: string,
-    resource: string,
-    details: Record<string, unknown>
-  ) => Promise<void>;
 };
+
+export type ConfirmPaymentFn = (
+  input: Parameters<typeof confirmPaymentApplications>[0]
+) => Promise<ConfirmPaymentApplicationsResult>;
 
 export function normalizeCfdiTipo(tc: string): CfdiTipoComprobanteSat {
   const t = (tc || 'I').toUpperCase();
@@ -203,56 +183,6 @@ export function evaluateTipoPAutoApply(params: {
   return { ok: true, applications, sourceAmount };
 }
 
-export function buildTargetUpdatesAfterApply(
-  resolved: Map<string, ResolvedInvoiceTarget>,
-  applications: readonly PaymentApplicationDraft[]
-): Array<{
-  transactionId: string;
-  saldoPendiente: number;
-  appliedPaymentAmount: number;
-  paymentStatus: PaymentStatus;
-  montoOriginal: number;
-}> {
-  const appliedByTx = new Map<string, number>();
-  for (const app of applications) {
-    const prev = appliedByTx.get(app.targetTransactionId) ?? 0;
-    appliedByTx.set(
-      app.targetTransactionId,
-      roundMoney(prev + roundMoney(app.amount))
-    );
-  }
-
-  const updates: Array<{
-    transactionId: string;
-    saldoPendiente: number;
-    appliedPaymentAmount: number;
-    paymentStatus: PaymentStatus;
-    montoOriginal: number;
-  }> = [];
-
-  for (const [txId, delta] of appliedByTx) {
-    let target: ResolvedInvoiceTarget | undefined;
-    for (const t of resolved.values()) {
-      if (t.transactionId === txId) {
-        target = t;
-        break;
-      }
-    }
-    if (!target) continue;
-    const nextApplied = roundMoney(target.appliedPaymentAmount + delta);
-    const montoOriginal = roundMoney(target.montoOriginal);
-    updates.push({
-      transactionId: txId,
-      montoOriginal,
-      appliedPaymentAmount: nextApplied,
-      saldoPendiente: computeSaldoPendiente(montoOriginal, nextApplied),
-      paymentStatus: derivePaymentStatus(montoOriginal, nextApplied),
-    });
-  }
-
-  return updates;
-}
-
 export async function processTipoPPaymentImport(params: {
   organizationId: string;
   userId: string;
@@ -261,17 +191,10 @@ export async function processTipoPPaymentImport(params: {
   pagos: PagoExtracted[];
   periodosCerrados: readonly string[];
   store: PaymentImportStore;
+  confirmPayment?: ConfirmPaymentFn;
 }): Promise<PaymentImportOutcome> {
   if (!params.cfdiUuid) {
     return { status: 'pending_review', reason: 'Complemento P sin UUID' };
-  }
-
-  const already = await params.store.hasApplicationsForSource(
-    params.organizationId,
-    params.cfdiUuid
-  );
-  if (already) {
-    return { status: 'already_processed' };
   }
 
   const docs = collectDoctoRelacionados(params.pagos);
@@ -290,42 +213,44 @@ export async function processTipoPPaymentImport(params: {
     return { status: 'pending_review', reason: evaluation.reason };
   }
 
-  const targetUpdates = buildTargetUpdatesAfterApply(
-    resolved,
-    evaluation.applications
-  );
+  const confirm = params.confirmPayment ?? confirmPaymentApplications;
+  const cfdiUuidByTargetId: Record<string, string> = {};
+  for (const t of resolved.values()) {
+    cfdiUuidByTargetId[t.transactionId] = t.cfdiUuid;
+  }
 
-  await params.store.commitPaymentApplications({
+  const result = await confirm({
     organizationId: params.organizationId,
     userId: params.userId,
+    sourceType: 'cfdi_pago',
     sourceId: params.cfdiUuid,
-    paymentTxId: params.paymentTxId,
-    applications: evaluation.applications.map((a) => {
-      let cfdiUuidRelacionado = '';
-      for (const t of resolved.values()) {
-        if (t.transactionId === a.targetTransactionId) {
-          cfdiUuidRelacionado = t.cfdiUuid;
-          break;
-        }
-      }
-      return {
-        ...a,
-        cfdiUuidRelacionado,
-      };
-    }),
-    targetUpdates,
+    sourceAmount: sumTipoPPaymentAmount(params.pagos),
+    paymentTransactionId: params.paymentTxId,
+    applications: evaluation.applications,
+    targets: [...resolved.values()].map((t) => ({
+      transactionId: t.transactionId,
+      organizationId: params.organizationId,
+      montoOriginal: t.montoOriginal,
+      saldoPendiente: t.saldoPendiente,
+      appliedPaymentAmount: t.appliedPaymentAmount,
+      fecha: t.fecha,
+    })),
+    periodosCerrados: params.periodosCerrados,
+    cfdiUuidByTargetId,
   });
 
-  await params.store.logAudit(AUDIT_PAYMENT_APPLICATION_CONFIRMED, 'payment_applications', {
-    sourceId: params.cfdiUuid,
-    paymentTxId: params.paymentTxId,
-    applicationsCount: evaluation.applications.length,
-    sum: sumPaymentAmounts(evaluation.applications),
-    organization_id: params.organizationId,
-  });
+  if (result.status === 'already_processed') {
+    return { status: 'already_processed' };
+  }
+  if (
+    result.status === 'validation_error' ||
+    result.status === 'closed_period'
+  ) {
+    return { status: 'pending_review', reason: result.error };
+  }
 
   return {
     status: 'applied',
-    applicationsCount: evaluation.applications.length,
+    applicationsCount: result.applicationCount,
   };
 }

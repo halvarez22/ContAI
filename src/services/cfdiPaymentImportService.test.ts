@@ -71,48 +71,38 @@ function samplePagos(): PagoExtracted[] {
   ];
 }
 
-function createMemoryStore(
-  opts: {
-    existingSource?: boolean;
-    targets?: Map<string, ResolvedInvoiceTarget>;
-  } = {}
-): PaymentImportStore & {
-  applications: Array<Record<string, unknown>>;
-  audits: string[];
-} {
-  const applications: Array<Record<string, unknown>> = [];
-  const audits: string[] = [];
-  const targets =
-    opts.targets ??
-    new Map<string, ResolvedInvoiceTarget>([
-      [
-        'aaaaaaaa-bbbb-cccc-dddd-111111111111',
-        {
-          transactionId: 'tx1',
-          cfdiUuid: 'aaaaaaaa-bbbb-cccc-dddd-111111111111',
-          fecha: '2026-01-10T12:00:00.000Z',
-          montoOriginal: 600,
-          saldoPendiente: 600,
-          appliedPaymentAmount: 0,
-        },
-      ],
-      [
-        'aaaaaaaa-bbbb-cccc-dddd-222222222222',
-        {
-          transactionId: 'tx2',
-          cfdiUuid: 'aaaaaaaa-bbbb-cccc-dddd-222222222222',
-          fecha: '2026-01-11T12:00:00.000Z',
-          montoOriginal: 500,
-          saldoPendiente: 500,
-          appliedPaymentAmount: 0,
-        },
-      ],
-    ]);
+function defaultTargets(): Map<string, ResolvedInvoiceTarget> {
+  return new Map<string, ResolvedInvoiceTarget>([
+    [
+      'aaaaaaaa-bbbb-cccc-dddd-111111111111',
+      {
+        transactionId: 'tx1',
+        cfdiUuid: 'aaaaaaaa-bbbb-cccc-dddd-111111111111',
+        fecha: '2026-01-10T12:00:00.000Z',
+        montoOriginal: 600,
+        saldoPendiente: 600,
+        appliedPaymentAmount: 0,
+      },
+    ],
+    [
+      'aaaaaaaa-bbbb-cccc-dddd-222222222222',
+      {
+        transactionId: 'tx2',
+        cfdiUuid: 'aaaaaaaa-bbbb-cccc-dddd-222222222222',
+        fecha: '2026-01-11T12:00:00.000Z',
+        montoOriginal: 500,
+        saldoPendiente: 500,
+        appliedPaymentAmount: 0,
+      },
+    ],
+  ]);
+}
 
+function createMemoryStore(
+  opts: { targets?: Map<string, ResolvedInvoiceTarget> } = {}
+): PaymentImportStore {
+  const targets = opts.targets ?? defaultTargets();
   return {
-    applications,
-    audits,
-    hasApplicationsForSource: async () => opts.existingSource === true,
     resolveInvoicesByCfdiUuid: async (_org, uuids) => {
       const out = new Map<string, ResolvedInvoiceTarget>();
       for (const u of uuids) {
@@ -120,12 +110,6 @@ function createMemoryStore(
         if (t) out.set(u.toLowerCase(), t);
       }
       return out;
-    },
-    commitPaymentApplications: async (params) => {
-      applications.push({ ...params });
-    },
-    logAudit: async (action) => {
-      audits.push(action);
     },
   };
 }
@@ -235,8 +219,9 @@ describe('evaluateTipoPAutoApply', () => {
 });
 
 describe('processTipoPPaymentImport idempotencia', () => {
-  it('devuelve already_processed si source_id existe', async () => {
-    const store = createMemoryStore({ existingSource: true });
+  it('devuelve already_processed si confirmPayment lo reporta', async () => {
+    const store = createMemoryStore();
+    const confirmPayment = vi.fn(async () => ({ status: 'already_processed' as const }));
     const outcome = await processTipoPPaymentImport({
       organizationId: 'org1',
       userId: 'u1',
@@ -245,13 +230,19 @@ describe('processTipoPPaymentImport idempotencia', () => {
       pagos: samplePagos(),
       periodosCerrados: [],
       store,
+      confirmPayment,
     });
     expect(outcome.status).toBe('already_processed');
-    expect(store.applications).toHaveLength(0);
+    expect(confirmPayment).toHaveBeenCalledOnce();
   });
 
-  it('aplica pagos y audita PAYMENT_APPLICATION_CONFIRMED', async () => {
+  it('delega confirmación canónica y retorna applied', async () => {
     const store = createMemoryStore();
+    const confirmPayment = vi.fn(async () => ({
+      status: 'confirmed' as const,
+      applicationCount: 2,
+      applicationIds: ['app1', 'app2'],
+    }));
     const outcome = await processTipoPPaymentImport({
       organizationId: 'org1',
       userId: 'u1',
@@ -260,12 +251,24 @@ describe('processTipoPPaymentImport idempotencia', () => {
       pagos: samplePagos(),
       periodosCerrados: [],
       store,
+      confirmPayment,
     });
     expect(outcome.status).toBe('applied');
     if (outcome.status !== 'applied') return;
     expect(outcome.applicationsCount).toBe(2);
-    expect(store.applications).toHaveLength(1);
-    expect(store.audits).toContain('PAYMENT_APPLICATION_CONFIRMED');
+    expect(confirmPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org1',
+        userId: 'u1',
+        sourceType: 'cfdi_pago',
+        sourceId: 'pago-uuid-1',
+        paymentTransactionId: 'pay1',
+        applications: expect.arrayContaining([
+          expect.objectContaining({ targetTransactionId: 'tx1', amount: 600 }),
+          expect.objectContaining({ targetTransactionId: 'tx2', amount: 400 }),
+        ]),
+      })
+    );
   });
 });
 

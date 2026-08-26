@@ -289,53 +289,24 @@ export async function findTransactionsByCfdiUuids(
   return out;
 }
 
-export async function commitPaymentApplicationsBatch(params: {
-  organizationId: string;
-  userId: string;
-  sourceId: string;
-  paymentTxId: string;
-  applications: Array<{
-    targetTransactionId: string;
-    amount: number;
-    cfdiUuidRelacionado: string;
-  }>;
-  targetUpdates: Array<{
-    transactionId: string;
-    saldoPendiente: number;
-    appliedPaymentAmount: number;
-    paymentStatus: string;
-    montoOriginal: number;
-  }>;
-}): Promise<void> {
-  const batch = writeBatch(db);
-  for (const app of params.applications) {
-    const ref = doc(collection(db, PAYMENT_APPLICATIONS));
-    batch.set(ref, {
-      organization_id: params.organizationId,
-      usuario_id: params.userId,
-      source_type: 'cfdi_pago',
-      source_id: params.sourceId,
-      payment_transaction_id: params.paymentTxId,
-      target_transaction_id: app.targetTransactionId,
-      amount: app.amount,
-      cfdi_uuid_relacionado: app.cfdiUuidRelacionado,
-      creado_en: serverTimestamp(),
-    });
-  }
-  for (const u of params.targetUpdates) {
-    batch.set(
-      doc(db, 'transactions', u.transactionId),
-      {
-        monto_original: u.montoOriginal,
-        applied_payment_amount: u.appliedPaymentAmount,
-        saldo_pendiente: u.saldoPendiente,
-        payment_status: u.paymentStatus,
-        actualizado_en: serverTimestamp(),
-      },
-      { merge: true }
-    );
-  }
-  await batch.commit();
+export async function listPaymentApplicationsByTarget(
+  organizationId: string,
+  targetTransactionId: string
+): Promise<Array<{ id: string; amount: number; sourceId: string }>> {
+  const q = query(
+    collection(db, PAYMENT_APPLICATIONS),
+    where('organization_id', '==', organizationId),
+    where('target_transaction_id', '==', targetTransactionId)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      id: d.id,
+      amount: Number(data.amount) || 0,
+      sourceId: String(data.source_id || ''),
+    };
+  });
 }
 
 export { serverTimestamp, BATCH_CHUNK };

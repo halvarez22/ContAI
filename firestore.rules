@@ -226,6 +226,20 @@ service cloud.firestore {
         && request.resource.data.organization_id == resource.data.organization_id;
     }
 
+    match /payment_applications/{applicationId} {
+      allow read: if isAuthenticated() && canReadOrg(resource.data.organization_id);
+      allow create: if isAuthenticated()
+        && request.resource.data.usuario_id == request.auth.uid
+        && canWriteOrgData(request.resource.data.organization_id)
+        && request.resource.data.organization_id is string
+        && request.resource.data.source_id is string
+        && request.resource.data.target_transaction_id is string
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.source_type in ['cfdi_pago', 'bank_movement', 'manual'];
+      allow update, delete: if false;
+    }
+
     match /test/connection {
       allow read: if true;
     }

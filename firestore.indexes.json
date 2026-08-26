@@ -33,6 +33,30 @@
       ]
     },
     {
+      "collectionGroup": "payment_applications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "source_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "payment_applications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "target_transaction_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "cfdi_uuid", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "organization_invitations",
       "queryScope": "COLLECTION",
       "fields": [
