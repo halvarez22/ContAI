@@ -19,6 +19,11 @@ import {
   type ConfirmPaymentApplicationsInput,
   type ConfirmPaymentApplicationsResult,
 } from '../services/paymentApplicationService';
+import {
+  suggestPaymentApplications,
+  type SuggestPaymentApplicationsResult,
+} from '../services/paymentAiService';
+import type { PaymentAiRawContext } from '../types/paymentApplication';
 
 export type PaymentLedgerItem = {
   id: string;
@@ -76,6 +81,11 @@ export type UsePaymentApplicationsParams = {
   periodosCerrados: readonly string[];
   ledger: readonly PaymentLedgerItem[];
   confirmPayment?: ConfirmPaymentFn;
+  suggestAi?: (params: {
+    organizationId: string;
+    sourceId: string;
+    context: PaymentAiRawContext;
+  }) => Promise<SuggestPaymentApplicationsResult>;
   onConfirmed?: () => void;
 };
 
@@ -264,14 +274,19 @@ export function usePaymentApplications({
   periodosCerrados,
   ledger,
   confirmPayment = confirmPaymentApplications,
+  suggestAi = suggestPaymentApplications,
   onConfirmed,
 }: UsePaymentApplicationsParams) {
   const [source, setSource] = useState<PaymentSourceSelection | null>(null);
   const [draftLegs, setDraftLegs] = useState<Map<string, number>>(
     () => new Map()
   );
+  const [aiSuggestedIds, setAiSuggestedIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [candidateQuery, setCandidateQuery] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [aiProposing, setAiProposing] = useState(false);
   const [feedback, setFeedback] = useState<PaymentFeedback | null>(null);
   const [manualAmountInput, setManualAmountInput] = useState('');
 
@@ -318,9 +333,9 @@ export function usePaymentApplications({
         sourceAmount,
         draftLegs,
         candidatesById,
-        confirming,
+        confirming: confirming || aiProposing,
       }),
-    [sourceAmount, draftLegs, candidatesById, confirming]
+    [sourceAmount, draftLegs, candidatesById, confirming, aiProposing]
   );
 
   const selectCfdiPagoSource = useCallback((item: PaymentLedgerItem) => {
@@ -333,6 +348,7 @@ export function usePaymentApplications({
       label: `${item.concepto || 'CFDI P'} · ${sourceId}`,
     });
     setDraftLegs(new Map());
+    setAiSuggestedIds(new Set());
     setFeedback(null);
     setCandidateQuery('');
   }, []);
@@ -354,6 +370,7 @@ export function usePaymentApplications({
       label: `Pago manual · ${amount}`,
     });
     setDraftLegs(new Map());
+    setAiSuggestedIds(new Set());
     setFeedback(null);
     setCandidateQuery('');
   }, [manualAmountInput]);
@@ -361,12 +378,14 @@ export function usePaymentApplications({
   const clearSource = useCallback(() => {
     setSource(null);
     setDraftLegs(new Map());
+    setAiSuggestedIds(new Set());
     setFeedback(null);
     setCandidateQuery('');
   }, []);
 
   const toggleDraftLeg = useCallback(
     (txId: string, saldoPendiente: number, srcAmount: number) => {
+      if (aiProposing || confirming) return;
       const candidate = candidatesById.get(txId);
       if (candidate?.closedPeriod) return;
 
@@ -390,12 +409,19 @@ export function usePaymentApplications({
         if (take > 0) next.set(txId, take);
         return next;
       });
+      setAiSuggestedIds((prev) => {
+        if (!prev.has(txId)) return prev;
+        const next = new Set(prev);
+        next.delete(txId);
+        return next;
+      });
     },
-    [candidatesById]
+    [candidatesById, aiProposing, confirming]
   );
 
   const setDraftLegAmount = useCallback(
     (txId: string, amount: number) => {
+      if (aiProposing || confirming) return;
       const candidate = candidatesById.get(txId);
       if (candidate?.closedPeriod) return;
       const sanitized = sanitizeLegAmount(amount);
@@ -406,11 +432,82 @@ export function usePaymentApplications({
         return next;
       });
     },
-    [candidatesById]
+    [candidatesById, aiProposing, confirming]
   );
 
+  const handleSuggestWithAi = useCallback(async () => {
+    if (!source || aiProposing || confirming) return;
+    const openCandidates = candidates.filter((c) => !c.closedPeriod);
+    if (openCandidates.length === 0) {
+      setFeedback({
+        variant: 'warning',
+        message: 'No hay facturas abiertas para sugerir con IA.',
+      });
+      return;
+    }
+
+    setAiProposing(true);
+    setFeedback(null);
+
+    try {
+      const result = await suggestAi({
+        organizationId,
+        sourceId: source.sourceId,
+        context: {
+          sourceAmount: source.sourceAmount,
+          sourceType: source.mode,
+          candidates: openCandidates.map((c) => ({
+            transactionId: c.id,
+            fecha: c.fecha,
+            saldoPendiente: c.saldoPendiente,
+            concepto: c.concepto,
+          })),
+        },
+      });
+
+      if (result.status === 'failed') {
+        setFeedback({ variant: 'warning', message: result.error });
+        return;
+      }
+
+      const next = new Map<string, number>();
+      const suggested = new Set<string>();
+      for (const app of result.proposal.applications) {
+        next.set(app.targetTransactionId, sanitizeLegAmount(app.amount));
+        suggested.add(app.targetTransactionId);
+      }
+      setDraftLegs(next);
+      setAiSuggestedIds(suggested);
+
+      if (result.proposal.applications.length === 0) {
+        setFeedback({
+          variant: 'info',
+          message:
+            result.proposal.reason ||
+            'Sin sugerencia confiable. Continúa de forma manual.',
+        });
+      } else {
+        setFeedback({
+          variant: result.proposal.requires_human_approval
+            ? 'warning'
+            : 'info',
+          message: `Sugerencia IA: ${result.proposal.reason}`,
+        });
+      }
+    } finally {
+      setAiProposing(false);
+    }
+  }, [
+    source,
+    aiProposing,
+    confirming,
+    candidates,
+    organizationId,
+    suggestAi,
+  ]);
+
   const handleConfirm = useCallback(async () => {
-    if (!source || !canConfirm || confirming) return;
+    if (!source || !canConfirm || confirming || aiProposing) return;
     if (!organizationId || !userId) {
       setFeedback({
         variant: 'error',
@@ -461,6 +558,7 @@ export function usePaymentApplications({
       setFeedback(mapped);
       if (result.status === 'confirmed') {
         setDraftLegs(new Map());
+        setAiSuggestedIds(new Set());
         onConfirmed?.();
       }
     } catch {
@@ -475,6 +573,7 @@ export function usePaymentApplications({
     source,
     canConfirm,
     confirming,
+    aiProposing,
     organizationId,
     userId,
     draftLegs,
@@ -501,7 +600,10 @@ export function usePaymentApplications({
     setDraftLegAmount,
     canConfirm,
     confirming,
+    aiProposing,
+    aiSuggestedIds,
     feedback,
     handleConfirm,
+    handleSuggestWithAi,
   };
 }

@@ -42,10 +42,13 @@ describe('PaymentApplicationPanel', () => {
         onQueryChange={vi.fn()}
         draftLegs={draft}
         draftAssigned={400}
+        aiSuggestedIds={new Set(['tx1'])}
         onToggleLeg={vi.fn()}
         onChangeLegAmount={vi.fn()}
         canConfirm={false}
         confirming={false}
+        canSuggestAi
+        onSuggestAi={vi.fn()}
         feedback={null}
         onConfirm={vi.fn()}
         onClose={vi.fn()}
@@ -54,6 +57,7 @@ describe('PaymentApplicationPanel', () => {
     expect(screen.getByText(/Aplicar pago a facturas/i)).toBeTruthy();
     expect(screen.getByText(/Restante del origen/i)).toBeTruthy();
     expect(screen.getByText(/Factura en periodo cerrado/i)).toBeTruthy();
+    expect(screen.getByText(/Sugerido por IA/i)).toBeTruthy();
     const closedCheckbox = screen.getByRole('checkbox', {
       name: /Seleccionar factura Factura cerrada/i,
     });

@@ -206,4 +206,68 @@ describe('usePaymentApplications', () => {
       message: 'Este comprobante ya fue procesado previamente.',
     });
   });
+
+  it('suggestWithAi aplica draft sin confirmar F3', async () => {
+    const confirmPayment = vi.fn();
+    const suggestAi = vi.fn(async () => ({
+      status: 'proposed' as const,
+      proposal: {
+        applications: [
+          { targetTransactionId: 'tx1', amount: 600 },
+          { targetTransactionId: 'tx2', amount: 400 },
+        ],
+        confidence_score: 0.85,
+        reason: 'Match por montos',
+        requires_human_approval: false,
+      },
+      modelUsed: 'test',
+    }));
+    const { result } = renderHook(() =>
+      usePaymentApplications({
+        organizationId: ORG,
+        userId: USER,
+        periodosCerrados: ['2025-12'],
+        ledger: sampleLedger(),
+        confirmPayment,
+        suggestAi,
+      })
+    );
+    act(() => {
+      result.current.selectCfdiPagoSource(sampleLedger()[0]!);
+    });
+    await act(async () => {
+      await result.current.handleSuggestWithAi();
+    });
+    expect(suggestAi).toHaveBeenCalledOnce();
+    expect(confirmPayment).not.toHaveBeenCalled();
+    expect(result.current.draftLegs.get('tx1')).toBe(600);
+    expect(result.current.aiSuggestedIds.has('tx1')).toBe(true);
+    expect(result.current.aiProposing).toBe(false);
+  });
+
+  it('fallo de IA deja draft intacto', async () => {
+    const suggestAi = vi.fn(async () => ({
+      status: 'failed' as const,
+      error: 'No se pudo obtener sugerencia de IA. Puedes continuar con la aplicación manual.',
+    }));
+    const { result } = renderHook(() =>
+      usePaymentApplications({
+        organizationId: ORG,
+        userId: USER,
+        periodosCerrados: [],
+        ledger: sampleLedger(),
+        suggestAi,
+      })
+    );
+    act(() => {
+      result.current.selectCfdiPagoSource(sampleLedger()[0]!);
+      result.current.toggleDraftLeg('tx1', 600, 1000);
+    });
+    const before = result.current.draftLegs.get('tx1');
+    await act(async () => {
+      await result.current.handleSuggestWithAi();
+    });
+    expect(result.current.draftLegs.get('tx1')).toBe(before);
+    expect(result.current.feedback?.variant).toBe('warning');
+  });
 });

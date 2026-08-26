@@ -14,6 +14,7 @@ export const PAYMENT_APP_MAX_TARGETS = 8;
 /** Acciones audit_logs (snake_case MAYÚSCULAS). */
 export const AUDIT_PAYMENT_APPLICATION_CONFIRMED = 'PAYMENT_APPLICATION_CONFIRMED';
 export const AUDIT_AI_PAYMENT_APPLICATION_PROPOSED = 'AI_PAYMENT_APPLICATION_PROPOSED';
+export const AUDIT_AI_PAYMENT_APPLICATION_FAILED = 'AI_PAYMENT_APPLICATION_FAILED';
 
 export type PaymentApplicationSourceType =
   | 'cfdi_pago'
@@ -26,6 +27,50 @@ export type PaymentApplicationDraft = {
   targetTransactionId: string;
   amount: number;
 };
+
+/** Input crudo (antes de sanitizar) para propose IA F5. */
+export type PaymentAiCandidateRaw = {
+  transactionId: string;
+  fecha: string;
+  saldoPendiente: number;
+  concepto?: string;
+};
+
+export type PaymentAiRawContext = {
+  sourceAmount: number;
+  sourceType: PaymentApplicationSourceType;
+  sourceFecha?: string;
+  candidates: PaymentAiCandidateRaw[];
+};
+
+export type PaymentAiSanitizedCandidate = {
+  alias: string;
+  fecha: string;
+  saldoPendiente: number;
+  concepto: string;
+};
+
+export type PaymentAiSanitizedPayload = {
+  source: { amount: number; tipo: string; fecha?: string };
+  candidates: PaymentAiSanitizedCandidate[];
+  /** Solo local — no se envía a Groq */
+  aliasToTransactionId: Record<string, string>;
+};
+
+export type PaymentAiProposal = {
+  applications: PaymentApplicationDraft[];
+  confidence_score: number;
+  reason: string;
+  requires_human_approval: boolean;
+};
+
+export type ProposePaymentApplicationsFn = (
+  input: PaymentAiRawContext
+) => Promise<{
+  proposal: PaymentAiProposal;
+  modelUsed: string;
+  tokensUsed?: number;
+}>;
 
 export type PaymentApplicationDoc = {
   organization_id: string;

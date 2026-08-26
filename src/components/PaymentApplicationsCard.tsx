@@ -121,10 +121,17 @@ export function PaymentApplicationsCard({
           onQueryChange={pay.setCandidateQuery}
           draftLegs={pay.draftLegs}
           draftAssigned={pay.draftAssigned}
+          aiSuggestedIds={pay.aiSuggestedIds}
+          aiProposing={pay.aiProposing}
           onToggleLeg={pay.toggleDraftLeg}
           onChangeLegAmount={pay.setDraftLegAmount}
           canConfirm={pay.canConfirm}
           confirming={pay.confirming}
+          canSuggestAi={
+            Boolean(pay.source) &&
+            pay.candidates.some((c) => !c.closedPeriod)
+          }
+          onSuggestAi={() => void pay.handleSuggestWithAi()}
           feedback={pay.feedback}
           onConfirm={() => void pay.handleConfirm()}
           onClose={pay.clearSource}

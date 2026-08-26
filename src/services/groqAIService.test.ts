@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   parseAgentJson,
   parseBankAiMatchJson,
+  parsePaymentApplicationsJson,
+  paymentAiPayloadForGroq,
+  resolvePaymentAiProposal,
   sanitizeBankDescription,
   sanitizeClassificationContext,
+  sanitizePaymentApplicationContext,
 } from './groqAIService';
 
 describe('parseAgentJson', () => {
@@ -92,5 +96,58 @@ describe('sanitizeBankDescription', () => {
     expect(s).not.toMatch(/123456789012/);
     expect(s).toContain('[ref]');
     expect(s).toContain('[nombre]');
+  });
+});
+
+describe('sanitizePaymentApplicationContext / parsePaymentApplicationsJson', () => {
+  it('usa aliases Factura_N y no incluye RFC/nombres en payload Groq', () => {
+    const sanitized = sanitizePaymentApplicationContext({
+      sourceAmount: 1000,
+      sourceType: 'cfdi_pago',
+      candidates: [
+        {
+          transactionId: 'tx-real-1',
+          fecha: '2026-01-10T00:00:00.000Z',
+          saldoPendiente: 600,
+          concepto: 'Servicios Juan Perez RFC XAXX010101000',
+        },
+        {
+          transactionId: 'tx-real-2',
+          fecha: '2026-01-11T00:00:00.000Z',
+          saldoPendiente: 400,
+          concepto: 'Consultoria',
+        },
+      ],
+    });
+    expect(sanitized.candidates[0]?.alias).toBe('Factura_1');
+    expect(sanitized.aliasToTransactionId.Factura_1).toBe('tx-real-1');
+    const payload = JSON.stringify(paymentAiPayloadForGroq(sanitized));
+    expect(payload).not.toContain('tx-real-1');
+    expect(payload).not.toMatch(/XAXX010101000/i);
+    expect(payload).not.toContain('Juan Perez');
+    expect(payload).toContain('Factura_1');
+  });
+
+  it('parse + resolve descarta alias fantasma y marca requires_human_approval', () => {
+    const parsed = parsePaymentApplicationsJson(
+      JSON.stringify({
+        applications: [
+          { targetAlias: 'Factura_1', amount: 600 },
+          { targetAlias: 'Factura_99', amount: 400 },
+        ],
+        confidence_score: 0.8,
+        reason: 'ok',
+        requires_human_approval: false,
+      })
+    );
+    const proposal = resolvePaymentAiProposal(
+      parsed,
+      { Factura_1: 'tx1' },
+      1000
+    );
+    expect(proposal.applications).toHaveLength(1);
+    expect(proposal.applications[0]?.targetTransactionId).toBe('tx1');
+    expect(proposal.requires_human_approval).toBe(true);
+    expect(proposal.confidence_score).toBe(0.8);
   });
 });

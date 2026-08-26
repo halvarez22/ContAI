@@ -22,6 +22,8 @@ export type PaymentApplicationPanelProps = {
   onQueryChange: (q: string) => void;
   draftLegs: Map<string, number>;
   draftAssigned: number;
+  aiSuggestedIds?: ReadonlySet<string>;
+  aiProposing?: boolean;
   onToggleLeg: (
     txId: string,
     saldoPendiente: number,
@@ -30,6 +32,8 @@ export type PaymentApplicationPanelProps = {
   onChangeLegAmount: (txId: string, amount: number) => void;
   canConfirm: boolean;
   confirming: boolean;
+  canSuggestAi?: boolean;
+  onSuggestAi?: () => void;
   feedback: PaymentFeedback | null;
   onConfirm: () => void;
   onClose: () => void;
@@ -43,15 +47,20 @@ export function PaymentApplicationPanel({
   onQueryChange,
   draftLegs,
   draftAssigned,
+  aiSuggestedIds,
+  aiProposing = false,
   onToggleLeg,
   onChangeLegAmount,
   canConfirm,
   confirming,
+  canSuggestAi = false,
+  onSuggestAi,
   feedback,
   onConfirm,
   onClose,
 }: PaymentApplicationPanelProps) {
   const remainingSource = roundMoney(sourceAmount - draftAssigned);
+  const inputsLocked = confirming || aiProposing;
 
   return (
     <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/20 p-4 space-y-3">
@@ -102,9 +111,10 @@ export function PaymentApplicationPanel({
         type="search"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
+        disabled={inputsLocked}
         placeholder="Buscar facturas del periodo (concepto, monto, fecha…)"
         aria-label="Buscar facturas destino"
-        className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2"
+        className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 disabled:opacity-50"
       />
 
       <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-950/60">
@@ -133,7 +143,7 @@ export function PaymentApplicationPanel({
                     type="checkbox"
                     className="mt-1"
                     checked={selected}
-                    disabled={c.closedPeriod || confirming}
+                    disabled={c.closedPeriod || inputsLocked}
                     title={
                       c.closedPeriod ? 'Factura en periodo cerrado' : undefined
                     }
@@ -145,11 +155,18 @@ export function PaymentApplicationPanel({
                   <div className="min-w-0 flex-1">
                     <div className="flex justify-between gap-2 items-start">
                       <span className="font-medium truncate">{c.concepto}</span>
-                      {c.closedPeriod ? (
-                        <Badge variant="warning" className="shrink-0 text-[10px]">
-                          Factura en periodo cerrado
-                        </Badge>
-                      ) : null}
+                      <div className="flex flex-wrap gap-1 shrink-0 justify-end">
+                        {aiSuggestedIds?.has(c.id) ? (
+                          <Badge variant="info" className="text-[10px]">
+                            Sugerido por IA
+                          </Badge>
+                        ) : null}
+                        {c.closedPeriod ? (
+                          <Badge variant="warning" className="text-[10px]">
+                            Factura en periodo cerrado
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="text-gray-500 mt-0.5">
                       {formatDate(c.fecha)} · Factura {formatCurrency(c.monto)} ·
@@ -164,7 +181,7 @@ export function PaymentApplicationPanel({
                           min="0"
                           max={c.saldoPendiente}
                           value={legAmount}
-                          disabled={confirming}
+                          disabled={inputsLocked}
                           aria-label={`Monto a asignar a ${c.concepto}`}
                           onChange={(e) =>
                             onChangeLegAmount(
@@ -193,13 +210,25 @@ export function PaymentApplicationPanel({
         )}
       </div>
 
-      <Button
-        className="w-full"
-        onClick={onConfirm}
-        disabled={!canConfirm || confirming}
-      >
-        {confirming ? 'Confirmando…' : 'Confirmar aplicación'}
-      </Button>
+      <div className="flex flex-col sm:flex-row gap-2">
+        {onSuggestAi ? (
+          <Button
+            className="flex-1"
+            variant="secondary"
+            onClick={onSuggestAi}
+            disabled={!canSuggestAi || inputsLocked}
+          >
+            {aiProposing ? 'Sugiriendo con IA…' : 'Sugerir con IA'}
+          </Button>
+        ) : null}
+        <Button
+          className="flex-1"
+          onClick={onConfirm}
+          disabled={!canConfirm || inputsLocked}
+        >
+          {confirming ? 'Confirmando…' : 'Confirmar aplicación'}
+        </Button>
+      </div>
     </div>
   );
 }

@@ -11,6 +11,15 @@ import type {
   BankAiMatchInput,
   BankAiMatchProposal,
 } from '../types/bankReconciliation';
+import {
+  PAYMENT_APP_MAX_TARGETS,
+  moneyWithinPct,
+  roundMoney,
+  type PaymentAiProposal,
+  type PaymentAiRawContext,
+  type PaymentAiSanitizedPayload,
+  type PaymentApplicationDraft,
+} from '../types/paymentApplication';
 
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -222,6 +231,224 @@ matchedTransactionId (string|null), confidence_score (number 0..1), reason (stri
       requires_human_approval: true,
     };
   }
+
+  return {
+    proposal,
+    modelUsed: result.modelUsed,
+    tokensUsed: result.tokensUsed,
+  };
+}
+
+const paymentAiSystem = `Eres un agente de aplicación de pagos CFDI (complemento P / pagos) para una empresa en México.
+Tu tarea: repartir el monto del origen (source.amount) entre una o varias facturas candidatas (candidates).
+Reglas:
+- Usa SOLO los alias exactos de candidates (Factura_1, Factura_2, …). No inventes aliases.
+- Máximo ${PAYMENT_APP_MAX_TARGETS} aplicaciones.
+- Cada amount > 0; la suma de amounts debe ≈ source.amount (±2%).
+- Respeta saldoPendiente de cada factura (no superar).
+- Preferir saldar facturas más antiguas si hay empate.
+- Si no hay asignación confiable → applications = [] y requires_human_approval = true.
+Responde ÚNICAMENTE con JSON.`;
+
+/**
+ * Sanitiza contexto de aplicación de pagos: aliases Factura_N, sin RFC/nombres reales.
+ * Función pura (F5 G1).
+ */
+export function sanitizePaymentApplicationContext(
+  input: PaymentAiRawContext
+): PaymentAiSanitizedPayload {
+  const limited = input.candidates.slice(0, PAYMENT_APP_MAX_TARGETS);
+  const aliasToTransactionId: Record<string, string> = {};
+  const candidates = limited.map((c, i) => {
+    const alias = `Factura_${i + 1}`;
+    aliasToTransactionId[alias] = c.transactionId;
+    return {
+      alias,
+      fecha: c.fecha,
+      saldoPendiente: roundMoney(c.saldoPendiente),
+      concepto: sanitizeBankDescription(String(c.concepto || 'Servicio')),
+    };
+  });
+
+  const source: PaymentAiSanitizedPayload['source'] = {
+    amount: roundMoney(input.sourceAmount),
+    tipo: input.sourceType,
+  };
+  if (input.sourceFecha) {
+    source.fecha = input.sourceFecha;
+  }
+
+  return { source, candidates, aliasToTransactionId };
+}
+
+/** Payload enviado a Groq (sin mapa de IDs reales). */
+export function paymentAiPayloadForGroq(
+  sanitized: PaymentAiSanitizedPayload
+): Record<string, unknown> {
+  return sanitizeClassificationContext({
+    source: sanitized.source,
+    candidates: sanitized.candidates,
+  });
+}
+
+export type PaymentAiParsedRaw = {
+  applications: Array<{ targetAlias: string; amount: number }>;
+  confidence_score: number;
+  reason: string;
+  requires_human_approval: boolean;
+};
+
+export function parsePaymentApplicationsJson(raw: string): PaymentAiParsedRaw {
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) text = fence[1].trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Respuesta Groq no es JSON válido');
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Respuesta JSON de aplicación de pagos incompleta');
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  if (
+    typeof obj.confidence_score !== 'number' ||
+    typeof obj.reason !== 'string' ||
+    typeof obj.requires_human_approval !== 'boolean' ||
+    !Array.isArray(obj.applications)
+  ) {
+    throw new Error('Respuesta JSON de aplicación de pagos incompleta');
+  }
+
+  const applications: Array<{ targetAlias: string; amount: number }> = [];
+  for (const item of obj.applications) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const alias =
+      typeof row.targetAlias === 'string'
+        ? row.targetAlias
+        : typeof row.alias === 'string'
+          ? row.alias
+          : null;
+    const amount =
+      typeof row.amount === 'number' ? row.amount : Number(row.amount);
+    if (!alias || !Number.isFinite(amount)) continue;
+    applications.push({
+      targetAlias: alias,
+      amount: roundMoney(Math.max(0, amount)),
+    });
+  }
+
+  return {
+    applications,
+    confidence_score: Math.max(0, Math.min(1, obj.confidence_score)),
+    reason: obj.reason.slice(0, 500),
+    requires_human_approval: obj.requires_human_approval,
+  };
+}
+
+/**
+ * Resuelve aliases → transactionId. Descarta aliases fantasma;
+ * si hubo descarte o Σ inválida → requires_human_approval.
+ */
+export function resolvePaymentAiProposal(
+  parsed: PaymentAiParsedRaw,
+  aliasToTransactionId: Record<string, string>,
+  sourceAmount: number
+): PaymentAiProposal {
+  const allowed = new Set(Object.keys(aliasToTransactionId));
+  const applications: PaymentApplicationDraft[] = [];
+  let discarded = false;
+
+  for (const leg of parsed.applications) {
+    if (!allowed.has(leg.targetAlias)) {
+      discarded = true;
+      continue;
+    }
+    if (!(leg.amount > 0)) {
+      discarded = true;
+      continue;
+    }
+    const txId = aliasToTransactionId[leg.targetAlias];
+    if (!txId) {
+      discarded = true;
+      continue;
+    }
+    const existing = applications.find((a) => a.targetTransactionId === txId);
+    if (existing) {
+      existing.amount = roundMoney(existing.amount + leg.amount);
+    } else {
+      if (applications.length >= PAYMENT_APP_MAX_TARGETS) {
+        discarded = true;
+        continue;
+      }
+      applications.push({
+        targetTransactionId: txId,
+        amount: roundMoney(leg.amount),
+      });
+    }
+  }
+
+  let requires_human_approval =
+    parsed.requires_human_approval || discarded || applications.length === 0;
+
+  if (applications.length > 0) {
+    const sum = applications.reduce((s, a) => roundMoney(s + a.amount), 0);
+    if (!moneyWithinPct(sum, sourceAmount)) {
+      requires_human_approval = true;
+    }
+  }
+
+  let reason = parsed.reason;
+  if (discarded) {
+    reason = `${reason} (alias desconocido o leg inválido descartado)`.slice(
+      0,
+      500
+    );
+  }
+
+  return {
+    applications,
+    confidence_score: parsed.confidence_score,
+    reason,
+    requires_human_approval,
+  };
+}
+
+/**
+ * Propone aplicaciones de pago vía Groq (JSON forzado). Sin Gemini / sin auto-confirm.
+ */
+export async function proposePaymentApplications(
+  input: PaymentAiRawContext
+): Promise<{
+  proposal: PaymentAiProposal;
+  modelUsed: string;
+  tokensUsed?: number;
+}> {
+  const sanitized = sanitizePaymentApplicationContext(input);
+  const payload = paymentAiPayloadForGroq(sanitized);
+
+  const systemPrompt = `${paymentAiSystem}
+
+Responde ÚNICAMENTE con un objeto JSON con claves:
+applications (array de { targetAlias: string, amount: number }),
+confidence_score (number 0..1), reason (string), requires_human_approval (boolean).`;
+
+  const result = await completeJson(
+    systemPrompt,
+    JSON.stringify(payload),
+    parsePaymentApplicationsJson,
+    0.1
+  );
+
+  const proposal = resolvePaymentAiProposal(
+    result.data,
+    sanitized.aliasToTransactionId,
+    sanitized.source.amount
+  );
 
   return {
     proposal,
