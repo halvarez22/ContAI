@@ -1,7 +1,14 @@
-import { ExecutiveDashboardView } from '../ExecutiveDashboardView';
+import { lazy, Suspense } from 'react';
 import { OperationalDashboardView } from '../OperationalDashboardView';
 import { PeriodSelectorCard } from './PeriodSelectorCard';
+import { SectionSuspenseFallback } from '../SectionSuspenseFallback';
 import type { OverviewSectionProps } from '../../types/appSections';
+
+const ExecutiveDashboardView = lazy(() =>
+  import('../ExecutiveDashboardView').then((m) => ({
+    default: m.ExecutiveDashboardView,
+  }))
+);
 
 export function OverviewSection({
   periodYear,
@@ -30,13 +37,15 @@ export function OverviewSection({
         yearAnchor={yearAnchor}
       />
       {dashboardMode === 'ejecutivo' ? (
-        <ExecutiveDashboardView
-          kpis={executiveSnapshot.kpis}
-          trend={executiveSnapshot.trend}
-          disclaimer={taxPreviewDisclaimer}
-          briefingLoading={executiveLoading}
-          onGenerateBriefing={onGenerateBriefing}
-        />
+        <Suspense fallback={<SectionSuspenseFallback label="Cargando vista ejecutiva…" />}>
+          <ExecutiveDashboardView
+            kpis={executiveSnapshot.kpis}
+            trend={executiveSnapshot.trend}
+            disclaimer={taxPreviewDisclaimer}
+            briefingLoading={executiveLoading}
+            onGenerateBriefing={onGenerateBriefing}
+          />
+        </Suspense>
       ) : (
         <OperationalDashboardView
           snapshot={operationalSnapshot}

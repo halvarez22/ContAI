@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -88,15 +88,8 @@ import { loadFiscalRiskIndex } from './services/fiscalRiskService';
 import { FISCAL_RISK_COPY, normalizeRfc } from './types/fiscalRisk';
 import type { FiscalRiskIndex } from './types/fiscalRisk';
 import { AppTabRouter } from './components/layout/AppTabRouter';
-import { OverviewSection } from './components/sections/OverviewSection';
-import { TransactionsSection } from './components/sections/TransactionsSection';
-import { ReconciliationSection } from './components/sections/ReconciliationSection';
-import { SatDownloadSection } from './components/sections/SatDownloadSection';
-import { FiscalSection } from './components/sections/FiscalSection';
 import { isMigratedNavTabId, isNavTabId } from './types/appSections';
 import type { TransactionRow } from './types/appSections';
-import { DesignSystemGallery } from './components/DesignSystemGallery';
-import { ImportModals } from './components/ImportModals';
 import { useImportFlow } from './hooks/useImportFlow';
 import { useDashboardMode } from './hooks/useDashboardMode';
 import { useTheme } from './hooks/useTheme';
@@ -107,6 +100,43 @@ import { TRANSACTIONS_TRUNCATED_HINT } from './lib/firestoreWindows';
 import { POLIZA_EXPORT_DISABLED_HINT } from './types/polizaExport';
 import type { CfdiClassificationPayload } from './types/cfdiBatch';
 import type { BankLedgerItem } from './types/bankReconciliation';
+import { SectionSuspenseFallback } from './components/SectionSuspenseFallback';
+
+const OverviewSection = lazy(() =>
+  import('./components/sections/OverviewSection').then((m) => ({
+    default: m.OverviewSection,
+  }))
+);
+const TransactionsSection = lazy(() =>
+  import('./components/sections/TransactionsSection').then((m) => ({
+    default: m.TransactionsSection,
+  }))
+);
+const ReconciliationSection = lazy(() =>
+  import('./components/sections/ReconciliationSection').then((m) => ({
+    default: m.ReconciliationSection,
+  }))
+);
+const SatDownloadSection = lazy(() =>
+  import('./components/sections/SatDownloadSection').then((m) => ({
+    default: m.SatDownloadSection,
+  }))
+);
+const FiscalSection = lazy(() =>
+  import('./components/sections/FiscalSection').then((m) => ({
+    default: m.FiscalSection,
+  }))
+);
+const DesignSystemGallery = lazy(() =>
+  import('./components/DesignSystemGallery').then((m) => ({
+    default: m.DesignSystemGallery,
+  }))
+);
+const ImportModals = lazy(() =>
+  import('./components/ImportModals').then((m) => ({
+    default: m.ImportModals,
+  }))
+);
 
 // --- Main App ---
 
@@ -1837,7 +1867,9 @@ export default function App() {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
               >
-                <DesignSystemGallery />
+                <Suspense fallback={<SectionSuspenseFallback label="Cargando design system…" />}>
+                  <DesignSystemGallery />
+                </Suspense>
               </motion.div>
             )}
 
@@ -3002,25 +3034,27 @@ export default function App() {
       </AnimatePresence>
 
       {/* Importar CFDI / Excel */}
-      <ImportModals
-        isCfdiImportOpen={importFlow.isCfdiImportOpen}
-        cfdiPreview={importFlow.cfdiPreview}
-        cfdiImportError={importFlow.cfdiImportError}
-        cfdiImporting={importFlow.cfdiImporting}
-        cfdiXsdMode={importFlow.cfdiXsdMode}
-        cfdiXsdValidating={importFlow.cfdiXsdValidating}
-        cfdiPhase={importFlow.cfdiPhase}
-        cfdiBatchProgress={importFlow.cfdiBatchProgress}
-        cfdiBatchResults={importFlow.cfdiBatchResults}
-        isExcelImportOpen={importFlow.isExcelImportOpen}
-        excelImportMessage={importFlow.excelImportMessage}
-        excelImporting={importFlow.excelImporting}
-        onCloseCfdi={importFlow.closeCfdiImport}
-        onCloseExcel={importFlow.closeExcelImport}
-        onCfdiFiles={importFlow.handleCfdiFiles}
-        onExcelFiles={importFlow.runExcelImport}
-        onImportCfdi={importFlow.importCfdiAsTransaction}
-      />
+      <Suspense fallback={null}>
+        <ImportModals
+          isCfdiImportOpen={importFlow.isCfdiImportOpen}
+          cfdiPreview={importFlow.cfdiPreview}
+          cfdiImportError={importFlow.cfdiImportError}
+          cfdiImporting={importFlow.cfdiImporting}
+          cfdiXsdMode={importFlow.cfdiXsdMode}
+          cfdiXsdValidating={importFlow.cfdiXsdValidating}
+          cfdiPhase={importFlow.cfdiPhase}
+          cfdiBatchProgress={importFlow.cfdiBatchProgress}
+          cfdiBatchResults={importFlow.cfdiBatchResults}
+          isExcelImportOpen={importFlow.isExcelImportOpen}
+          excelImportMessage={importFlow.excelImportMessage}
+          excelImporting={importFlow.excelImporting}
+          onCloseCfdi={importFlow.closeCfdiImport}
+          onCloseExcel={importFlow.closeExcelImport}
+          onCfdiFiles={importFlow.handleCfdiFiles}
+          onExcelFiles={importFlow.runExcelImport}
+          onImportCfdi={importFlow.importCfdiAsTransaction}
+        />
+      </Suspense>
 
       {/* Borrador ejecutivo modal */}
       <AnimatePresence>

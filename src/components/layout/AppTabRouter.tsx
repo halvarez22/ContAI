@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
+import { Suspense } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { DashboardMode } from '../../types/dashboardMode';
 import type { MigratedNavTabId } from '../../types/appSections';
 import { ErrorBoundary } from '../ErrorBoundary';
+import { SectionSuspenseFallback } from '../SectionSuspenseFallback';
 
 export type AppTabRouterProps = {
   activeTab: MigratedNavTabId;
@@ -28,8 +30,7 @@ function sectionClassName(activeTab: MigratedNavTabId): string {
 
 /**
  * Envoltorio de transición para tabs migradas (E7.3).
- * `key` estable por activeTab — requisito AnimatePresence.
- * ErrorBoundary de sección (H1): fallo local ≠ white screen global.
+ * ErrorBoundary (H1) + Suspense (H2) para chunks lazy.
  */
 export function AppTabRouter({ activeTab, dashboardMode, children }: AppTabRouterProps) {
   const key = motionKey(activeTab, dashboardMode);
@@ -38,17 +39,19 @@ export function AppTabRouter({ activeTab, dashboardMode, children }: AppTabRoute
 
   return (
     <ErrorBoundary label={`tab-${activeTab}`} key={`eb-${key}`}>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={key}
-          initial={{ opacity: 0, [axis]: offset }}
-          animate={{ opacity: 1, [axis]: 0 }}
-          exit={{ opacity: 0, [axis]: axis === 'y' ? -offset / 2 : -offset }}
-          className={sectionClassName(activeTab)}
-        >
-          {children}
-        </motion.div>
-      </AnimatePresence>
+      <Suspense fallback={<SectionSuspenseFallback />}>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={key}
+            initial={{ opacity: 0, [axis]: offset }}
+            animate={{ opacity: 1, [axis]: 0 }}
+            exit={{ opacity: 0, [axis]: axis === 'y' ? -offset / 2 : -offset }}
+            className={sectionClassName(activeTab)}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
+      </Suspense>
     </ErrorBoundary>
   );
 }

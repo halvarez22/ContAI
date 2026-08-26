@@ -14,7 +14,6 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import * as XLSX from 'xlsx';
 import { db } from '../firebase';
 import { logAuditEntry } from './auditService';
 import {
@@ -141,26 +140,6 @@ export function parseFiscalRiskRows(
 }
 
 /** CSV simple (coma o punto y coma). Primera fila = headers. */
-/**
- * Lee la primera hoja de un .xlsx/.xls a objetos fila y aplica `parseFiscalRiskRows`
- * (misma `normalizeHeaderKey` que CSV — p. ej. " R.F.C. " → rfc).
- */
-export function parseFiscalRiskXlsxBuffer(
-  buf: ArrayBuffer | Uint8Array
-): FiscalRiskParseResult {
-  const data = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  const wb = XLSX.read(data, { type: 'array', cellDates: true });
-  const sheetName = wb.SheetNames[0];
-  if (!sheetName || !wb.Sheets[sheetName]) {
-    return { entries: [], errors: [{ row: 0, message: 'Libro Excel sin hojas' }] };
-  }
-  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
-    defval: '',
-    raw: false,
-  }) as Record<string, unknown>[];
-  return parseFiscalRiskRows(rows);
-}
-
 export function parseFiscalRiskCsv(text: string): FiscalRiskParseResult {
   const lines = text
     .replace(/^\uFEFF/, '')

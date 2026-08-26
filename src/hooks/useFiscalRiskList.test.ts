@@ -102,4 +102,32 @@ describe('useFiscalRiskList', () => {
     expect(upsert).not.toHaveBeenCalled();
     expect(result.current.phase).toBe('idle');
   });
+
+  it('error claro si falla carga dinámica de Excel', async () => {
+    const upsert = vi.fn();
+    const parseXlsx = vi.fn().mockRejectedValue(new Error('network fail'));
+    const { result } = renderHook(() =>
+      useFiscalRiskList({
+        organizationId: ORG,
+        userId: USER,
+        canUpload: true,
+        upsert,
+        loadIndex: vi.fn(),
+        parseXlsx,
+        confirmReplace: () => true,
+      })
+    );
+
+    const file = new File([new Uint8Array([1, 2, 3])], 'lista.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    await act(async () => {
+      await result.current.handleFile(file);
+    });
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(result.current.phase).toBe('error');
+    expect(result.current.feedback?.message).toMatch(/procesador de Excel/i);
+  });
 });

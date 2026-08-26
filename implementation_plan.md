@@ -1,15 +1,21 @@
-# Implementation Plan — Sprint de Endurecimiento · H1
+# Implementation Plan — H2 · Lazy Loading / Suspense
 
-**Estado:** **✅ CERRADO H1** (209 passed, tsc limpio; indexes deploy)  
-**Aprobación:** `APROBADO: Ejecutar Entregable H1` + refinamientos limit 5000, cleanup, ErrorBoundary console, índice audit.
+**Estado:** **✅ CERRADO H2** (211 passed, tsc limpio; chunks lazy verificados en `vite build`)
 
-## DoD H1
+## Evidencia bundle (`npm run build`)
 
-- [x] transactions YTD + orderBy fecha desc + limit 5000
-- [x] audit_logs limit 100 + orderBy timestamp + índice en firestore.indexes.json
-- [x] useOrgCollectionListeners + cleanup periodYear/org
-- [x] ErrorBoundary root + AppTabRouter
-- [x] Alert si truncated
-- [x] Suite + tsc + deploy indexes
+| Chunk | ~kB | Nota |
+|-------|-----|------|
+| `index-*.js` | ~1039 | Shell inicial (sin SheetJS) |
+| `xlsx-*.js` | ~420 | Separado — solo al parse Excel 69-B / path dinámico |
+| `FiscalSection-*.js`, `OverviewSection-*.js`, `ImportModals-*.js`, `DesignSystemGallery-*.js`, `ExecutiveDashboardView-*.js`, `TransactionsSection-*.js`, … | lazy | Carga bajo demanda |
 
-H2–H4: parked hasta evidencia H1.
+## DoD
+
+- [x] `fiscalRiskService` sin xlsx estático; `fiscalRiskXlsx` async dynamic import
+- [x] Lazy: DesignSystem, ImportModals, 5 sections, ExecutiveDashboard
+- [x] `SectionSuspenseFallback` CSS puro
+- [x] Hook catch error procesador Excel
+- [x] Suite + tsc + evidencia `vite build` chunks
+- [x] H3/H4 parked
+

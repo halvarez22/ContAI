@@ -10,9 +10,9 @@ import type { FiscalRiskParseError } from '../types/fiscalRisk';
 import {
   loadFiscalRiskIndex,
   parseFiscalRiskCsv,
-  parseFiscalRiskXlsxBuffer,
   upsertFiscalRiskListVersioned,
 } from '../services/fiscalRiskService';
+import { parseFiscalRiskXlsxBuffer } from '../services/fiscalRiskXlsx';
 
 export type FiscalRiskUploadPhase =
   | 'idle'
@@ -33,6 +33,7 @@ export type UseFiscalRiskListParams = {
   onPublished?: (index: FiscalRiskIndex) => void;
   upsert?: typeof upsertFiscalRiskListVersioned;
   loadIndex?: typeof loadFiscalRiskIndex;
+  parseXlsx?: typeof parseFiscalRiskXlsxBuffer;
   confirmReplace?: () => boolean;
 };
 
@@ -53,6 +54,7 @@ export function useFiscalRiskList(params: UseFiscalRiskListParams) {
     onPublished,
     upsert = upsertFiscalRiskListVersioned,
     loadIndex = loadFiscalRiskIndex,
+    parseXlsx = parseFiscalRiskXlsxBuffer,
     confirmReplace = () =>
       typeof window !== 'undefined'
         ? window.confirm(FISCAL_RISK_COPY.confirmReplace)
@@ -112,8 +114,19 @@ export function useFiscalRiskList(params: UseFiscalRiskListParams) {
           const text = await file.text();
           parseResult = parseFiscalRiskCsv(text);
         } else {
-          const buf = await file.arrayBuffer();
-          parseResult = parseFiscalRiskXlsxBuffer(buf);
+          try {
+            const buf = await file.arrayBuffer();
+            parseResult = await parseXlsx(buf);
+          } catch (xlsxErr) {
+            const msg =
+              xlsxErr instanceof Error &&
+              xlsxErr.message.includes('procesador de Excel')
+                ? xlsxErr.message
+                : 'No se pudo cargar el procesador de Excel. Verifica tu conexión.';
+            setPhase('error');
+            setFeedback({ variant: 'error', message: msg });
+            return;
+          }
         }
 
         if (parseResult.entries.length === 0) {
@@ -170,6 +183,7 @@ export function useFiscalRiskList(params: UseFiscalRiskListParams) {
       userId,
       upsert,
       loadIndex,
+      parseXlsx,
       onPublished,
     ]
   );
