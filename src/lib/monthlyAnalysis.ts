@@ -25,6 +25,11 @@ export type AnalysisTransaction = {
   bank_reconciled?: boolean;
   bank_reconcile_status?: 'none' | 'partial' | 'full' | string;
   bank_reconciled_amount?: number;
+  /** E13.1 — metadatos nómina (exportación E13.2) */
+  is_nomina?: boolean;
+  nomina_isr_retained?: number;
+  nomina_imss_retained?: number;
+  nomina_total_percepciones?: number;
   rfc_contraparte?: string;
   tags?: string[];
   moneda?: string;

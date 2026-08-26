@@ -5,6 +5,10 @@
 
 export const DEFAULT_NOMINA_ACCOUNT_NAME = 'Gastos de Nómina';
 
+/** Cuentas de pasivo — defaults E13.2 (exportación póliza). */
+export const DEFAULT_NOMINA_ISR_ACCOUNT = 'ISR por Pagar';
+export const DEFAULT_NOMINA_IMSS_ACCOUNT = 'IMSS por Pagar';
+
 export const NOMINA_ACCOUNT_SOURCE = 'nomina_default';
 
 /** Tolerancia en MXN para Total vs fórmula SAT (redondeo). */

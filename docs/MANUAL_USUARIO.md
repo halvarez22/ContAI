@@ -176,6 +176,15 @@ Al trabajar aquí obtendrás un archivo `.txt` con asientos del periodo (fecha, 
 5. Descarga el archivo (nombre típico `poliza_ContAI_AAAA-MM.txt`) y guárdalo en la carpeta del periodo.
 6. En la misma barra también puedes **Exportar CSV** o generar el **Reporte mensual** si tu flujo lo pide.
 
+**Nóminas en la póliza (automático):**  
+Si importaste recibos de nómina timbrados, al exportar ContAI genera un asiento de **4 partidas** por cada egreso de nómina conciliado:
+1. Cargo → Gastos de Nómina (percepciones brutas)
+2. Abono → ISR por Pagar (retención)
+3. Abono → IMSS por Pagar (retención)
+4. Abono → Bancos (neto pagado al empleado)
+
+La conciliación bancaria sigue usando **solo el egreso neto** en Transacciones; los pasivos aparecen únicamente en el archivo `.txt`. Si faltan datos de retención en el XML, la exportación usa un asiento simple (gasto neto / banco) e indica `[nomina: pasivos omitidos]` en el concepto.
+
 ### 📝 Ejemplo práctico
 Ya conciliaste el banco y todas las cuentas están asignadas. Exportas la póliza de agosto y se la entregas al auxiliar de captura con el resto de papeles del mes.
 

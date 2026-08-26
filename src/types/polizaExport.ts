@@ -23,6 +23,11 @@ export type PolizaTxInput = {
   account_name?: string | null;
   bank_reconciled?: boolean | null;
   bank_reconcile_status?: 'none' | 'partial' | 'full' | string | null;
+  /** E13.2 — metadatos nómina (solo exportación póliza) */
+  is_nomina?: boolean;
+  nomina_isr_retained?: number;
+  nomina_imss_retained?: number;
+  nomina_total_percepciones?: number;
 };
 
 export type PolizaSkipReason =
@@ -72,4 +77,7 @@ export type BuildPolizaDiarioParams = {
   periodKey: string; // YYYY-MM
   generatedAt?: Date;
   contraCuenta?: string;
+  /** E13.2 — override cuentas pasivo nómina (default en nominaDefaults.ts) */
+  nominaIsrCuenta?: string;
+  nominaImssCuenta?: string;
 };

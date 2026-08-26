@@ -1,9 +1,14 @@
 /**
- * Exportación póliza diario ContAI (E10.x MVP).
+ * Exportación póliza diario ContAI (E10.x MVP + E13.2 nómina).
  * Lógica pura: elegibilidad, partida doble, sanitize, balance, TXT.
  * Sin React / Firebase / DOM.
  */
 
+import {
+  DEFAULT_NOMINA_IMSS_ACCOUNT,
+  DEFAULT_NOMINA_ISR_ACCOUNT,
+  NOMINA_TOTAL_ARITH_TOLERANCE,
+} from '../config/nominaDefaults';
 import { roundMoney } from './taxCalculatorService';
 import {
   POLIZA_CONCEPTO_MAX,
@@ -28,6 +33,161 @@ export function sanitizePolizaField(raw: string, maxLen: number): string {
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned.slice(0, maxLen);
+}
+
+/** Alias explícito para cuentas contables en póliza (E13.2). */
+export function sanitizePolizaCuenta(raw: string): string {
+  return sanitizePolizaField(raw, POLIZA_CUENTA_MAX);
+}
+
+export type PolizaNominaLineOptions = {
+  contraCuenta?: string;
+  nominaIsrCuenta?: string;
+  nominaImssCuenta?: string;
+};
+
+const NOMINA_PASIVOS_OMITIDOS_SUFFIX = '[nomina: pasivos omitidos]';
+
+function hasNominaPasivoMetadata(tx: PolizaTxInput): boolean {
+  const isr = roundMoney(Number(tx.nomina_isr_retained) || 0);
+  const imss = roundMoney(Number(tx.nomina_imss_retained) || 0);
+  const percepciones = tx.nomina_total_percepciones;
+  const neto = roundMoney(Math.abs(Number(tx.monto) || 0));
+  if (isr > 0 || imss > 0) return true;
+  if (percepciones != null && Number.isFinite(percepciones)) {
+    return roundMoney(percepciones) > neto;
+  }
+  return false;
+}
+
+function buildConceptoWithSuffix(tx: PolizaTxInput, suffix: string): string {
+  const base = buildConcepto(tx);
+  const cleanSuffix = sanitizePolizaField(suffix, POLIZA_CONCEPTO_MAX);
+  const maxBase = Math.max(0, POLIZA_CONCEPTO_MAX - cleanSuffix.length - 1);
+  const trimmedBase = base.length > maxBase ? base.slice(0, maxBase) : base;
+  return sanitizePolizaField(`${trimmedBase} ${cleanSuffix}`, POLIZA_CONCEPTO_MAX);
+}
+
+function buildSimpleEgresoLines(
+  tx: PolizaTxInput,
+  amount: number,
+  concepto: string,
+  contraCuenta: string
+): PolizaLine[] {
+  const fecha = toFechaIsoDate(tx.fecha);
+  const cuenta = sanitizePolizaCuenta(String(tx.account_name ?? ''));
+  const contra = sanitizePolizaCuenta(contraCuenta);
+  const txId = String(tx.id).slice(0, 40);
+  return [
+    {
+      fecha,
+      tipo: 'CARGO',
+      cuenta,
+      concepto,
+      cargo: amount,
+      abono: 0,
+      txId,
+    },
+    {
+      fecha,
+      tipo: 'ABONO',
+      cuenta: contra,
+      concepto,
+      cargo: 0,
+      abono: amount,
+      txId,
+    },
+  ];
+}
+
+/**
+ * E13.2 — Asiento nómina: Cargo bruto + Abono ISR + Abono IMSS + Abono Bancos.
+ * Orden fijo; omite pasivos en 0; fallback 2 líneas si faltan metadatos.
+ */
+export function buildNominaPolizaLinesForTx(
+  tx: PolizaTxInput,
+  opts: PolizaNominaLineOptions = {}
+): PolizaLine[] {
+  const contra = opts.contraCuenta?.trim() || POLIZA_CONTRA_CUENTA_DEFAULT;
+  const isrCuenta = sanitizePolizaCuenta(
+    opts.nominaIsrCuenta?.trim() || DEFAULT_NOMINA_ISR_ACCOUNT
+  );
+  const imssCuenta = sanitizePolizaCuenta(
+    opts.nominaImssCuenta?.trim() || DEFAULT_NOMINA_IMSS_ACCOUNT
+  );
+
+  const neto = roundMoney(Math.abs(Number(tx.monto) || 0));
+  const fecha = toFechaIsoDate(tx.fecha);
+  const txId = String(tx.id).slice(0, 40);
+  const gastoCuenta = sanitizePolizaCuenta(String(tx.account_name ?? ''));
+  const bancoCuenta = sanitizePolizaCuenta(contra);
+
+  if (!hasNominaPasivoMetadata(tx)) {
+    const concepto = buildConceptoWithSuffix(tx, NOMINA_PASIVOS_OMITIDOS_SUFFIX);
+    return buildSimpleEgresoLines(tx, neto, concepto, contra);
+  }
+
+  const isr = roundMoney(Number(tx.nomina_isr_retained) || 0);
+  const imss = roundMoney(Number(tx.nomina_imss_retained) || 0);
+  let bruto =
+    tx.nomina_total_percepciones != null &&
+    Number.isFinite(tx.nomina_total_percepciones)
+      ? roundMoney(tx.nomina_total_percepciones)
+      : roundMoney(neto + isr + imss);
+
+  const expectedBruto = roundMoney(neto + isr + imss);
+  if (Math.abs(bruto - expectedBruto) > NOMINA_TOTAL_ARITH_TOLERANCE) {
+    bruto = expectedBruto;
+  }
+
+  const concepto = buildConcepto(tx);
+  const lines: PolizaLine[] = [
+    {
+      fecha,
+      tipo: 'CARGO',
+      cuenta: gastoCuenta,
+      concepto,
+      cargo: bruto,
+      abono: 0,
+      txId,
+    },
+  ];
+
+  if (isr > 0) {
+    lines.push({
+      fecha,
+      tipo: 'ABONO',
+      cuenta: isrCuenta,
+      concepto,
+      cargo: 0,
+      abono: isr,
+      txId,
+    });
+  }
+
+  if (imss > 0) {
+    lines.push({
+      fecha,
+      tipo: 'ABONO',
+      cuenta: imssCuenta,
+      concepto,
+      cargo: 0,
+      abono: imss,
+      txId,
+    });
+  }
+
+  lines.push({
+    fecha,
+    tipo: 'ABONO',
+    cuenta: bancoCuenta,
+    concepto,
+    cargo: 0,
+    abono: neto,
+    txId,
+  });
+
+  return lines;
 }
 
 export function formatPolizaAmount(n: number): string {
@@ -98,40 +258,28 @@ function skipReason(tx: PolizaTxInput): PolizaSkipReason {
  */
 export function buildPolizaLinesForTx(
   tx: PolizaTxInput,
-  contraCuenta: string = POLIZA_CONTRA_CUENTA_DEFAULT
+  contraCuenta: string = POLIZA_CONTRA_CUENTA_DEFAULT,
+  nominaOpts?: Pick<PolizaNominaLineOptions, 'nominaIsrCuenta' | 'nominaImssCuenta'>
 ): PolizaLine[] {
+  const tipo = String(tx.tipo).toLowerCase();
+
+  if (tx.is_nomina === true && tipo === 'egreso') {
+    return buildNominaPolizaLinesForTx(tx, {
+      contraCuenta,
+      nominaIsrCuenta: nominaOpts?.nominaIsrCuenta,
+      nominaImssCuenta: nominaOpts?.nominaImssCuenta,
+    });
+  }
+
   const amount = roundMoney(Math.abs(Number(tx.monto) || 0));
   const fecha = toFechaIsoDate(tx.fecha);
   const concepto = buildConcepto(tx);
-  const cuenta = sanitizePolizaField(
-    String(tx.account_name ?? ''),
-    POLIZA_CUENTA_MAX
-  );
-  const contra = sanitizePolizaField(contraCuenta, POLIZA_CUENTA_MAX);
+  const cuenta = sanitizePolizaCuenta(String(tx.account_name ?? ''));
+  const contra = sanitizePolizaCuenta(contraCuenta);
   const txId = String(tx.id).slice(0, 40);
-  const tipo = String(tx.tipo).toLowerCase();
 
   if (tipo === 'egreso') {
-    return [
-      {
-        fecha,
-        tipo: 'CARGO',
-        cuenta,
-        concepto,
-        cargo: amount,
-        abono: 0,
-        txId,
-      },
-      {
-        fecha,
-        tipo: 'ABONO',
-        cuenta: contra,
-        concepto,
-        cargo: 0,
-        abono: amount,
-        txId,
-      },
-    ];
+    return buildSimpleEgresoLines(tx, amount, concepto, contraCuenta);
   }
 
   // ingreso
@@ -221,18 +369,27 @@ export function buildPolizaDiarioTxt(
 ): PolizaExportResult {
   const contra =
     params.contraCuenta?.trim() || POLIZA_CONTRA_CUENTA_DEFAULT;
+  const nominaOpts: Pick<
+    PolizaNominaLineOptions,
+    'nominaIsrCuenta' | 'nominaImssCuenta'
+  > = {
+    nominaIsrCuenta: params.nominaIsrCuenta,
+    nominaImssCuenta: params.nominaImssCuenta,
+  };
   const skipped: PolizaSkipped[] = [];
   const lines: PolizaLine[] = [];
+  let exportedTxCount = 0;
 
   for (const tx of params.transactions) {
     if (!isPolizaEligible(tx) || !isKnownTipo(tx.tipo) || !isValidMonto(tx.monto)) {
       skipped.push({ id: String(tx.id), reason: skipReason(tx) });
       continue;
     }
-    lines.push(...buildPolizaLinesForTx(tx, contra));
+    lines.push(...buildPolizaLinesForTx(tx, contra, nominaOpts));
+    exportedTxCount += 1;
   }
 
-  const eligibleCount = lines.length / 2;
+  const eligibleCount = exportedTxCount;
 
   if (eligibleCount === 0) {
     return {

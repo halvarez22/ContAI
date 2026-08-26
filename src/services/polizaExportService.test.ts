@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildPolizaDiarioTxt,
+  buildNominaPolizaLinesForTx,
   buildPolizaLinesForTx,
   computePolizaTotals,
   countPolizaEligible,
@@ -8,6 +9,7 @@ import {
   isPolizaEligible,
   sanitizePolizaField,
 } from './polizaExportService';
+import { DEFAULT_NOMINA_ACCOUNT_NAME } from '../config/nominaDefaults';
 import type { PolizaTxInput } from '../types/polizaExport';
 
 const base = (over: Partial<PolizaTxInput> & { id: string }): PolizaTxInput => ({
@@ -98,6 +100,103 @@ describe('buildPolizaLinesForTx', () => {
   });
 });
 
+describe('buildNominaPolizaLinesForTx (E13.2)', () => {
+  const nominaBase = (
+    over: Partial<PolizaTxInput> & { id: string }
+  ): PolizaTxInput => ({
+    ...base({
+      id: over.id,
+      tipo: 'egreso',
+      account_name: DEFAULT_NOMINA_ACCOUNT_NAME,
+      monto: 8500,
+      concepto: 'Nomina · Juan Perez · 2026-08-15',
+      proveedor: 'Juan Perez',
+      bank_reconciled: true,
+    }),
+    is_nomina: true,
+    nomina_isr_retained: 1200,
+    nomina_imss_retained: 300,
+    nomina_total_percepciones: 10000,
+    ...over,
+  });
+
+  it('nómina completa: 4 líneas balanceadas (bruto, ISR, IMSS, banco)', () => {
+    const lines = buildNominaPolizaLinesForTx(nominaBase({ id: 'n1' }));
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toMatchObject({
+      tipo: 'CARGO',
+      cuenta: 'Gastos de Nomina',
+      cargo: 10000,
+      abono: 0,
+    });
+    expect(lines[1]).toMatchObject({
+      tipo: 'ABONO',
+      cuenta: 'ISR por Pagar',
+      abono: 1200,
+    });
+    expect(lines[2]).toMatchObject({
+      tipo: 'ABONO',
+      cuenta: 'IMSS por Pagar',
+      abono: 300,
+    });
+    expect(lines[3]).toMatchObject({
+      tipo: 'ABONO',
+      cuenta: 'Bancos',
+      abono: 8500,
+    });
+    const totals = computePolizaTotals(lines);
+    expect(totals.balanced).toBe(true);
+    expect(totals.totalCargos).toBe(10000);
+    expect(totals.totalAbonos).toBe(10000);
+    const concepto = lines[0]?.concepto;
+    expect(lines.every((l) => l.concepto === concepto)).toBe(true);
+  });
+
+  it('sin IMSS (0): omite línea IMSS → 3 líneas', () => {
+    const lines = buildNominaPolizaLinesForTx(
+      nominaBase({
+        id: 'n2',
+        nomina_imss_retained: 0,
+        nomina_total_percepciones: 9700,
+        monto: 8500,
+        nomina_isr_retained: 1200,
+      })
+    );
+    expect(lines).toHaveLength(3);
+    expect(lines.some((l) => l.cuenta === 'IMSS por Pagar')).toBe(false);
+    expect(computePolizaTotals(lines).balanced).toBe(true);
+  });
+
+  it('metadatos incompletos: fallback 2 líneas + suffix pasivos omitidos', () => {
+    const lines = buildNominaPolizaLinesForTx(
+      nominaBase({
+        id: 'n3',
+        nomina_isr_retained: undefined,
+        nomina_imss_retained: undefined,
+        nomina_total_percepciones: undefined,
+      })
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.cargo).toBe(8500);
+    expect(lines[1]?.abono).toBe(8500);
+    expect(lines[0]?.concepto).toContain('pasivos omitidos');
+  });
+
+  it('descuadre percepciones: recalcula bruto = neto + ISR + IMSS', () => {
+    const lines = buildNominaPolizaLinesForTx(
+      nominaBase({
+        id: 'n4',
+        nomina_total_percepciones: 9999,
+        monto: 8500,
+        nomina_isr_retained: 1200,
+        nomina_imss_retained: 300,
+      })
+    );
+    expect(lines[0]?.cargo).toBe(10000);
+    expect(computePolizaTotals(lines).balanced).toBe(true);
+  });
+});
+
 describe('buildPolizaDiarioTxt', () => {
   it('genera TXT balanceado con delimitador ; y 2 decimales', () => {
     const result = buildPolizaDiarioTxt({
@@ -176,5 +275,40 @@ describe('buildPolizaDiarioTxt', () => {
     expect(balanced.ok).toBe(true);
     if (!balanced.ok) return;
     expect(balanced.totalCargos).toBe(balanced.totalAbonos);
+  });
+
+  it('mixto nómina + egreso estándar: eligibleCount = transacciones', () => {
+    const result = buildPolizaDiarioTxt({
+      transactions: [
+        base({
+          id: 'std',
+          monto: 500,
+          account_name: 'Gastos Operativos',
+          bank_reconciled: true,
+        }),
+        {
+          ...base({
+            id: 'nom',
+            tipo: 'egreso',
+            account_name: DEFAULT_NOMINA_ACCOUNT_NAME,
+            monto: 8500,
+            concepto: 'Nomina · Ana',
+            proveedor: 'Ana',
+            bank_reconciled: true,
+          }),
+          is_nomina: true,
+          nomina_isr_retained: 1200,
+          nomina_imss_retained: 300,
+          nomina_total_percepciones: 10000,
+        },
+      ],
+      organizationId: 'org_main',
+      periodKey: '2026-08',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.eligibleCount).toBe(2);
+    expect(result.lines.length).toBe(6);
+    expect(result.totalCargos).toBe(result.totalAbonos);
   });
 });

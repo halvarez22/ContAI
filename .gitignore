@@ -13,3 +13,6 @@ test-results/
 # Secretos locales (nunca subir)
 Credenciales FireBase.txt
 ContAI GroqApiKey.txt
+
+.vercel
+.env*

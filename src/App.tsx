@@ -1026,6 +1026,19 @@ export default function App() {
       account_name: tx.account_name,
       bank_reconciled: tx.bank_reconciled,
       bank_reconcile_status: tx.bank_reconcile_status,
+      is_nomina: tx.is_nomina === true,
+      nomina_isr_retained:
+        typeof tx.nomina_isr_retained === 'number'
+          ? tx.nomina_isr_retained
+          : undefined,
+      nomina_imss_retained:
+        typeof tx.nomina_imss_retained === 'number'
+          ? tx.nomina_imss_retained
+          : undefined,
+      nomina_total_percepciones:
+        typeof tx.nomina_total_percepciones === 'number'
+          ? tx.nomina_total_percepciones
+          : undefined,
     })),
     organizationId: activeOrganizationId ?? 'unknown',
     periodKey: polizaPeriodKey,
