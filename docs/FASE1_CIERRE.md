@@ -41,13 +41,41 @@ Antes de dar por “producción estable” el freeze:
    - [ ] `GROQ_MODEL` (opcional)
    - [ ] `VITE_APP_URL` (opcional)
 4. [ ] Redeploy tras guardar variables (Vite embebe env en build time).
-5. [ ] Smoke post-deploy:
-   - [ ] Login Google
+5. [ ] **Authorized domains (OAuth)** en Firebase proyecto `contai-15259` — ver §2.1.
+6. [ ] Smoke post-deploy:
+   - [ ] Login Google (incógnito; sin `auth/unauthorized-domain`)
+   - [ ] Bootstrap org personal (sin 403 E8.3 / spinner infinito)
    - [ ] Import 1 CFDI (preview → registrar)
    - [ ] Import ≥2 CFDI (progreso + resumen)
    - [ ] Clasificación / mensaje claro si falta `GROQ_API_KEY`
    - [ ] Tab Fiscal muestra previo
-6. [ ] Firestore rules / Auth providers revisados en consola Firebase (fuera de este repo).
+7. [ ] Firestore rules / Auth providers revisados en consola Firebase (fuera de este repo).
+
+### 2.1 Despliegue producción — OAuth / Authorized domains (E8.3.2)
+
+| Campo | Valor |
+|-------|--------|
+| URL producción | `https://cont-ai-psi.vercel.app` |
+| Proyecto Firebase | `contai-15259` |
+| `authDomain` (cliente) | `contai-15259.firebaseapp.com` (no cambiar a Vercel) |
+
+**Dominios autorizados (Authentication → Settings → Authorized domains):**
+
+| Dominio | Uso |
+|---------|-----|
+| `localhost` | Desarrollo local (default Firebase) |
+| `contai-15259.firebaseapp.com` / `contai-15259.web.app` | Defaults del proyecto |
+| `cont-ai-psi.vercel.app` | Producción Vercel (**piloto**) |
+
+**Política piloto:** no se autorizan URLs de Preview de Vercel (Firebase no admite wildcards `*.vercel.app`). Testing de Auth en previews → usar `localhost`.
+
+| Meta | Valor |
+|------|--------|
+| Fecha de configuración | 2026-08-26 (E8.3.2) |
+| Configurado por | Hector Alvarez (operador) |
+| Estado | Cerrado — dominio en Console + smoke login prod OK (`cont-ai-psi.vercel.app`) |
+
+Consola directa: https://console.firebase.google.com/project/contai-15259/authentication/settings
 
 ---
 
