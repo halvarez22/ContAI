@@ -4,6 +4,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
+import { ContAILogo } from '../brand/ContAILogo';
 import type { OrganizationSummary } from '../../types/organization';
 
 export type OrgPickerScreenProps = {
@@ -49,7 +50,8 @@ export function OrgPickerScreen({
   };
 
   return (
-    <div className="min-h-screen bg-surface-elevated flex items-center justify-center p-4">
+    <div className="min-h-screen bg-surface-elevated flex flex-col items-center justify-center p-4">
+      <ContAILogo variant="full" size="lg" className="mb-6" />
       <div className="w-full max-w-lg space-y-6">
         <PageHeader
           title="Selecciona una empresa"

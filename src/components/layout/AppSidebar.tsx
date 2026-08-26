@@ -1,5 +1,6 @@
-import { LogOut, ShieldCheck, X } from 'lucide-react';
+import { LogOut, X } from 'lucide-react';
 import { motion } from 'motion/react';
+import { ContAILogo } from '../brand/ContAILogo';
 import { cn } from '../../lib/utils';
 import type { NavItem } from './navItems';
 
@@ -50,14 +51,13 @@ export function AppSidebar({
         collapsed && 'lg:w-20'
       )}
     >
-      <div className="p-6 flex items-center justify-between lg:justify-start gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-6 h-6 text-brand-foreground" />
-          </div>
+      <div className="p-4 lg:p-5 flex items-center justify-between lg:justify-start gap-3 border-b border-border/60">
+        <div className="flex items-center justify-center min-w-0 flex-1 lg:flex-initial">
           {labelsVisible ? (
-            <span className="font-bold text-xl text-ink">ContAI</span>
-          ) : null}
+            <ContAILogo variant="full" size="md" className="w-full" />
+          ) : (
+            <ContAILogo variant="icon" size="md" />
+          )}
         </div>
         <button
           type="button"

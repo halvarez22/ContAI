@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Building2, ShieldCheck } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Alert } from '../ui/Alert';
+import { ContAILogo } from '../brand/ContAILogo';
 import {
   acceptOrgInvite,
   previewOrgInvite,
@@ -72,16 +72,12 @@ export function AcceptInviteScreen({
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-elevated p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-surface-elevated p-4">
+      <ContAILogo variant="full" size="lg" className="mb-6" />
       <Card className="max-w-md w-full p-8 space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-brand-muted rounded-2xl flex items-center justify-center">
-            <Building2 className="w-6 h-6 text-brand" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-ink">Invitación a ContAI</h1>
-            <p className="text-xs text-ink-muted">Revisa los datos antes de aceptar</p>
-          </div>
+        <div className="text-center space-y-1">
+          <h1 className="text-xl font-bold text-ink">Invitación a ContAI</h1>
+          <p className="text-xs text-ink-muted">Revisa los datos antes de aceptar</p>
         </div>
 
         {!isAuthenticated ? (
@@ -90,8 +86,7 @@ export function AcceptInviteScreen({
               Inicia sesión con Google usando el email al que te invitaron para
               ver el detalle y aceptar.
             </p>
-            <Button type="button" className="w-full gap-2" onClick={onLogin}>
-              <ShieldCheck className="w-4 h-4" />
+            <Button type="button" className="w-full" onClick={onLogin}>
               Iniciar sesión con Google
             </Button>
           </>

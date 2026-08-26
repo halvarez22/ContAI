@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Menu, Moon, Sun, X } from 'lucide-react';
+import { ContAILogo } from '../brand/ContAILogo';
 import { Button } from '../ui/Button';
 import { ViewModeToggle } from './ViewModeToggle';
 import type { DashboardMode } from '../../types/dashboardMode';
@@ -51,6 +52,12 @@ export function AppTopBar({
         >
           <Menu className="w-5 h-5" />
         </Button>
+        <ContAILogo
+          variant="full"
+          size="sm"
+          className="lg:hidden shrink-0"
+          imgClassName="max-w-[120px]"
+        />
         <Button
           type="button"
           variant="ghost"

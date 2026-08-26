@@ -43,7 +43,8 @@ import { Card } from './components/ui/Card';
 import { Badge } from './components/ui/Badge';
 import { Alert } from './components/ui/Alert';
 import { AppShell } from './components/layout/AppShell';
-import { getNavItems, getNavTitle } from './components/layout/navItems';
+import { ContAILogo } from './components/brand/ContAILogo';
+import { getNavTitle, getNavItems } from './components/layout/navItems';
 import { executeAgent, AGENT_TYPES } from './services/groqAIService';
 import type { AgentDecision, AgentType } from './types/agentDecision';
 import { logAuditEntry } from './services/auditService';
@@ -1236,14 +1237,11 @@ export default function App() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-elevated p-4">
-        <Card className="max-w-md w-full p-8 text-center space-y-6">
-          <div className="w-16 h-16 bg-brand-muted rounded-2xl flex items-center justify-center mx-auto">
-            <ShieldCheck className="w-8 h-8 text-brand" />
-          </div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#0a1628] via-[#1e3a5f] to-[#0f172a] p-6">
+        <ContAILogo variant="full" size="hero" className="mb-8 sm:mb-10" />
+        <Card className="max-w-md w-full p-8 text-center space-y-6 shadow-lg border-border/50">
           <div className="space-y-2">
-            <h1 className="text-2xl font-bold text-ink font-sans">ContAI</h1>
-            <p className="text-ink-muted">Sistema Contable Autónomo Universal</p>
+            <p className="text-ink-muted text-sm">Sistema Contable Autónomo Universal</p>
           </div>
           <Button onClick={handleLogin} className="w-full py-3">
             Iniciar Sesión con Google
