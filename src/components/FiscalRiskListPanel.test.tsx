@@ -8,15 +8,15 @@ import { FiscalRiskListPanel } from './FiscalRiskListPanel';
 
 vi.mock('../hooks/useFiscalRiskList', () => ({
   useFiscalRiskList: () => ({
-    phase: 'idle',
-    feedback: null,
-    parseErrors: [],
+    phase: 'idle' as const,
+    feedback: null as { variant: 'info' | 'success' | 'warning' | 'error'; message: string } | null,
+    parseErrors: [] as import('../types/fiscalRisk').FiscalRiskParseError[],
     handleFile: vi.fn(),
     uploadHint: 'hint',
     canUpload: true,
     reset: vi.fn(),
-    lastVersion: null,
-    lastRfcCount: null,
+    lastVersion: null as number | null,
+    lastRfcCount: null as number | null,
   }),
 }));
 

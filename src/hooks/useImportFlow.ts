@@ -21,6 +21,7 @@ import type {
   CfdiClassificationPayload,
   CfdiImportPhase,
 } from '../types/cfdiBatch';
+import type { ExcelImportResult } from '../lib/excelContaiImport';
 
 export type { CfdiClassificationPayload };
 
@@ -225,7 +226,7 @@ export function useImportFlow({
           '../lib/excelContaiImportXlsx'
         );
         const { commitExcelImport } = await import('../services/excelImportService');
-        const results = [];
+        const results: ExcelImportResult[] = [];
         for (const f of Array.from(fileList)) {
           const buf = await f.arrayBuffer();
           results.push(parseContaiExcelBuffer(buf, f.name));

@@ -5,7 +5,8 @@ export type ExecutiveTxInput = {
   tipo: string;
   monto: number | string;
   bank_reconciled?: boolean | null;
-  bank_reconcile_status?: 'none' | 'partial' | 'full' | null;
+  /** Amplio a string para aceptar AnalysisTransaction / docs Firestore (H4 covarianza). */
+  bank_reconcile_status?: 'none' | 'partial' | 'full' | string | null;
 };
 
 export type ExecutiveKpis = {

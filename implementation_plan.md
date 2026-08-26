@@ -1,32 +1,30 @@
-# Implementation Plan — H3 · Tipos / Dead Code (Endurecimiento)
+# Implementation Plan — H4 · Strict Incremental + Prune Deps (CERRADO)
 
 **Proyecto:** ContAI Fase 4 → Sprint Endurecimiento  
 **Fecha cierre:** 2026-08-26  
-**Estado:** **CERRADO — H3 ejecutado**  
-**Pre-requisito:** H2 ✅ `57066d9`  
-**Evidencia:** `TSC_EXIT:0` · **211** tests passed | 6 skipped  
+**Estado:** **CERRADO — H4 ejecutado; Sprint Endurecimiento 100% completo**  
+**Pre-requisito:** H3 ✅ `a69959e`  
+**Evidencia:** `LINT_EXIT:0` · suite ≥ 211 passed  
 
-**Siguiente:** H4 (Strict incremental) — plan corto pendiente de aprobación.
-
----
-
-## DoD H3 (cumplido)
-
-- [x] Listeners + App tipados (`TransactionListenerDoc`, `ProductDoc`, `InventoryMovementDoc`, `RecurringTransactionDoc`, `AuditListenerDoc`, `MonthlyReportSummary`)
-- [x] `monthlyAnalysis` / `isrProvisional` / `ivaMonth` tipados sin cambiar fórmulas
-- [x] 0 usos `updateUserSettings`, `@google/genai`, `react-markdown`, `express` en `src/`
-- [x] `GEMINI_*` fuera de `vite.config.ts`, `.env.example`, README, `docs/FASE1_CIERRE.md`
-- [x] Dead re-exports bank eliminados de `monthlyAnalysis`
-- [x] Deps muertas podadas del root `package.json` + lock
-- [x] Suite + tsc limpios; H1/H2 intactos
+**Parked post-piloto:** `"strict": true` global (strictFunctionTypes, etc.).
 
 ---
 
-## Archivos principales
+## DoD H4 (cumplido)
 
-| Acción | Ruta |
-|--------|------|
-| Crear | `src/types/orgListeners.ts` |
-| Modificar | `useOrgCollectionListeners.ts`, `App.tsx`, `monthlyAnalysis.ts`, `isrProvisional.ts`, `ivaMonth.ts`, `utils.ts`, `taxCalculatorService.ts` |
-| Modificar | `firestoreService.ts` (−`updateUserSettings`), `aiModels.ts`, `vite.config.ts`, `.env.example`, README, docs |
-| Modificar | `package.json` + lock (−genai, markdown, express, dotenv, @types/express) |
+- [x] `strictNullChecks` + `noImplicitAny` en root `tsconfig.json` (sin `strict: true`)
+- [x] Fixes nullish con narrowing / `??` / early return (cero `!` en esos fixes)
+- [x] `xmllint-wasm/index-browser.mjs` declaration file con ruta exacta
+- [x] Mocks tipados; `@types/react-dom` añadido (requerido por `react-dom/client`)
+- [x] `date-fns` y `autoprefixer` eliminados del root (0 usos en código/config)
+- [x] Casts `as unknown as` de `buildExecutiveSnapshot` eliminados; `ExecutiveTxInput` ampliado por covarianza
+- [x] Suite + tsc limpios
+
+## Gobernanza
+
+| Entregable | Commit |
+|------------|--------|
+| H1 | `35e42b3` |
+| H2 | `57066d9` |
+| H3 | `a69959e` |
+| H4 | *(este commit)* |

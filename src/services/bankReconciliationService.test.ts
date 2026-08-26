@@ -354,7 +354,7 @@ describe('E9.1 suggestSplitForUnmatched', () => {
         fecha: '2026-01-10T12:00:00.000Z',
       }))
     );
-    const base = [
+    const base: import('../types/bankReconciliation').BankMatchSuggestion[] = [
       {
         bankRowIndex: 0,
         transactionId: null,

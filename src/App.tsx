@@ -562,8 +562,8 @@ export default function App() {
       tx.fiscal_iva ?? '',
     ]);
 
-    const escapeRow = (row: (string | number)[]) =>
-      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',');
+    const escapeRow = (row: ReadonlyArray<string | number | null | undefined>) =>
+      row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',');
 
     const csvContent = [
       ...metaRows.map((r) => (r.length === 0 ? '' : escapeRow(r))),
@@ -769,7 +769,8 @@ export default function App() {
       }
       for (const rec of recurringTransactions) {
         if (!rec.activa) continue;
-        
+        if (!rec.proxima_ejecucion) continue;
+
         const nextExec = new Date(rec.proxima_ejecucion);
         if (nextExec <= now) {
           // Create transaction
@@ -957,8 +958,8 @@ export default function App() {
       tags,
       ...fiscalEd,
       actualizado_en: serverTimestamp(),
-      aprobado_por: null,
-      aprobado_en: null,
+      aprobado_por: null as string | null,
+      aprobado_en: null as null,
     };
 
     if (!updatedData.concepto || !updatedData.fecha || Number.isNaN(updatedData.monto) || updatedData.monto <= 0) {
@@ -988,7 +989,7 @@ export default function App() {
         : updatedData;
 
       await setTransaction(selectedTransaction.id, finalData);
-      setSelectedTransaction({ id: selectedTransaction.id, ...finalData });
+      setSelectedTransaction({ ...finalData, id: selectedTransaction.id });
       setIsEditTxModalOpen(false);
 
       await logAuditEntry('UPDATE_TRANSACTION', 'transactions', {
@@ -1090,12 +1091,8 @@ export default function App() {
   const executiveSnapshot = useMemo(
     () =>
       buildExecutiveSnapshot({
-        allTransactions: transactions as unknown as Parameters<
-          typeof buildExecutiveSnapshot
-        >[0]['allTransactions'],
-        periodTransactions: transactionsInPeriod as unknown as Parameters<
-          typeof buildExecutiveSnapshot
-        >[0]['periodTransactions'],
+        allTransactions: transactions,
+        periodTransactions: transactionsInPeriod,
         periodYear,
         periodMonth,
         tax: {
@@ -1794,7 +1791,9 @@ export default function App() {
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
-                              {formatDate(rec.proxima_ejecucion)}
+                              {rec.proxima_ejecucion
+                                ? formatDate(rec.proxima_ejecucion)
+                                : '—'}
                             </td>
                             <td className="px-6 py-4">
                               <Badge variant={rec.activa ? 'success' : 'default'}>
@@ -2503,7 +2502,10 @@ export default function App() {
                         {tag}
                         <button 
                           onClick={() => {
-                            const updatedTags = selectedTransaction.tags.filter((t: string) => t !== tag);
+                            const currentTags = selectedTransaction.tags ?? [];
+                            const updatedTags = currentTags.filter(
+                              (t: string) => t !== tag
+                            );
                             updateTransactionTags(selectedTransaction.id, updatedTags);
                             setSelectedTransaction({...selectedTransaction, tags: updatedTags});
                           }}
@@ -2993,6 +2995,7 @@ export default function App() {
                 <Button 
                   className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" 
                   onClick={() => {
+                    if (!selectedTransaction) return;
                     approveTransaction(selectedTransaction);
                     setIsConfirmModalOpen(false);
                   }}
@@ -3050,6 +3053,7 @@ export default function App() {
                   variant="danger"
                   className="flex-1"
                   onClick={() => {
+                    if (!selectedTransaction) return;
                     rejectTransaction(selectedTransaction, rejectReason);
                     setIsRejectModalOpen(false);
                   }}

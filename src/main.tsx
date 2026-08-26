@@ -11,7 +11,12 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
-createRoot(document.getElementById('root')!).render(
+const rootEl = document.getElementById('root');
+if (!rootEl) {
+  throw new Error('No se encontró #root en el documento');
+}
+
+createRoot(rootEl).render(
   <StrictMode>
     <ErrorBoundary label="root">
       <App />
