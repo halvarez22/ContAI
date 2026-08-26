@@ -99,6 +99,7 @@ import { useImportFlow } from './hooks/useImportFlow';
 import { useDashboardMode } from './hooks/useDashboardMode';
 import { useTheme } from './hooks/useTheme';
 import { toBankLedgerItems } from './hooks/useBankReconciliation';
+import { toPaymentLedgerItems } from './hooks/usePaymentApplications';
 import type { CfdiClassificationPayload } from './types/cfdiBatch';
 import type { BankLedgerItem } from './types/bankReconciliation';
 
@@ -1373,6 +1374,12 @@ export default function App() {
                     void togglePeriodoCerrado();
                   }}
                   onOpenCfdiImport={() => importFlow.openCfdiImport()}
+                  organizationId={activeOrganizationId ?? undefined}
+                  userId={user?.uid}
+                  periodosCerrados={periodosCerrados}
+                  paymentLedger={toPaymentLedgerItems(
+                    transactionsInPeriod as Record<string, unknown>[]
+                  )}
                 />
               )}
             </AppTabRouter>

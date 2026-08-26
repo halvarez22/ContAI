@@ -3,6 +3,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { TaxPreviewCard } from '../TaxPreviewCard';
+import { PaymentApplicationsCard } from '../PaymentApplicationsCard';
 import type { FiscalSectionProps } from '../../types/appSections';
 
 export function FiscalSection({
@@ -11,7 +12,14 @@ export function FiscalSection({
   periodoActualCerrado,
   onTogglePeriodo,
   onOpenCfdiImport,
+  organizationId,
+  userId,
+  periodosCerrados = [],
+  paymentLedger = [],
+  onPaymentApplicationsConfirmed,
 }: FiscalSectionProps) {
+  const canApplyPayments = Boolean(organizationId && userId);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -56,6 +64,18 @@ export function FiscalSection({
           </Button>
         </div>
       </Card>
+
+      {canApplyPayments ? (
+        <Card className="p-6">
+          <PaymentApplicationsCard
+            organizationId={organizationId!}
+            userId={userId!}
+            periodosCerrados={periodosCerrados}
+            ledger={paymentLedger}
+            onConfirmed={onPaymentApplicationsConfirmed}
+          />
+        </Card>
+      ) : null}
 
       <TaxPreviewCard preview={taxPreview} variant="detailed" />
     </div>

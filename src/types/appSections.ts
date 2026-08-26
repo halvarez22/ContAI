@@ -7,6 +7,7 @@ import type { TaxPreview } from './taxPreview';
 import type { DashboardMode } from './dashboardMode';
 import type { ExecutiveSnapshot } from './executiveDashboard';
 import type { OperationalSnapshot } from './operationalDashboard';
+import type { PaymentLedgerItem } from '../hooks/usePaymentApplications';
 
 /** Tabs extraídas a Section Views en E7.3 */
 export const MIGRATED_NAV_TAB_IDS = [
@@ -125,6 +126,12 @@ export type FiscalSectionProps = {
   periodoActualCerrado: boolean;
   onTogglePeriodo: () => void;
   onOpenCfdiImport: () => void;
+  /** E9.2 F4 — aplicación manual de pagos */
+  organizationId?: string;
+  userId?: string;
+  periodosCerrados?: string[];
+  paymentLedger?: PaymentLedgerItem[];
+  onPaymentApplicationsConfirmed?: () => void;
 };
 
 /** Mapa tipado de render (documentación; App compone hijos directamente) */
