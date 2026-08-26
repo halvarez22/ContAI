@@ -105,6 +105,10 @@ export type TransactionsSectionProps = {
   };
   onGenerateMonthlyReport: () => void;
   onExportCsv: () => void;
+  /** E10.x — póliza diario .txt del periodo */
+  onExportPolizaTxt?: () => void;
+  polizaExportDisabled?: boolean;
+  polizaExportDisabledHint?: string;
   onOpenExcelImport: () => void;
   onOpenManualTx: () => void;
   onSelectTransaction: (tx: TransactionRow) => void;

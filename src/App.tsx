@@ -104,6 +104,8 @@ import { useDashboardMode } from './hooks/useDashboardMode';
 import { useTheme } from './hooks/useTheme';
 import { toBankLedgerItems } from './hooks/useBankReconciliation';
 import { toPaymentLedgerItems } from './hooks/usePaymentApplications';
+import { usePolizaExport } from './hooks/usePolizaExport';
+import { POLIZA_EXPORT_DISABLED_HINT } from './types/polizaExport';
 import type { CfdiClassificationPayload } from './types/cfdiBatch';
 import type { BankLedgerItem } from './types/bankReconciliation';
 
@@ -1060,6 +1062,27 @@ export default function App() {
     [transactions, periodYear, periodMonth]
   );
 
+  const polizaPeriodKey = useMemo(
+    () => periodKey(periodYear, periodMonth),
+    [periodYear, periodMonth]
+  );
+
+  const polizaExport = usePolizaExport({
+    transactions: transactionsInPeriod.map((tx) => ({
+      id: String(tx.id),
+      fecha: tx.fecha,
+      tipo: String(tx.tipo),
+      monto: tx.monto,
+      concepto: tx.concepto,
+      proveedor: tx.proveedor,
+      account_name: tx.account_name,
+      bank_reconciled: tx.bank_reconciled,
+      bank_reconcile_status: tx.bank_reconcile_status,
+    })),
+    organizationId: activeOrganizationId ?? 'unknown',
+    periodKey: polizaPeriodKey,
+  });
+
   const bankLedger: BankLedgerItem[] = useMemo(
     () =>
       toBankLedgerItems(
@@ -1391,6 +1414,9 @@ export default function App() {
                   }}
                   onGenerateMonthlyReport={generateMonthlyReport}
                   onExportCsv={exportToCSV}
+                  onExportPolizaTxt={polizaExport.exportPoliza}
+                  polizaExportDisabled={polizaExport.exportDisabled}
+                  polizaExportDisabledHint={POLIZA_EXPORT_DISABLED_HINT}
                   onOpenExcelImport={() => importFlow.openExcelImport()}
                   onOpenManualTx={() => setIsManualTxModalOpen(true)}
                   onSelectTransaction={setSelectedTransaction}

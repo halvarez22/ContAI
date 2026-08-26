@@ -41,6 +41,8 @@ describe('TransactionsSection', () => {
     },
     onGenerateMonthlyReport: vi.fn(),
     onExportCsv: vi.fn(),
+    onExportPolizaTxt: vi.fn(),
+    polizaExportDisabled: false,
     onOpenExcelImport: vi.fn(),
     onOpenManualTx: vi.fn(),
     onSelectTransaction: vi.fn(),
@@ -51,7 +53,23 @@ describe('TransactionsSection', () => {
     expect(screen.getByRole('heading', { name: 'Transacciones' })).toBeTruthy();
     expect(screen.getByText('Proveedor Demo')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Capturar/i })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: /Exportar póliza/i })
+    ).toBeTruthy();
   }, 15000);
+
+  it('deshabilita export póliza si polizaExportDisabled', () => {
+    render(
+      <TransactionsSection
+        {...baseProps}
+        polizaExportDisabled
+        polizaExportDisabledHint="No hay transacciones conciliadas y clasificadas en este periodo para exportar"
+      />
+    );
+    const btn = screen.getByRole('button', { name: /Exportar póliza/i });
+    expect(btn).toBeDisabled();
+    expect(btn.getAttribute('title')).toMatch(/conciliadas y clasificadas/i);
+  });
 
   it('muestra badge Riesgo 69-B solo si fiscalRisk69b', () => {
     const { rerender } = render(<TransactionsSection {...baseProps} />);

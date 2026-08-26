@@ -1,45 +1,36 @@
-# Implementation Plan — Entregable 11.1 · Fase UI (Badge + KPI + Upload Panel)
+# Implementation Plan — Entregable 10.x · Exportación de Pólizas Contables (MVP)
 
 **Proyecto:** ContAI Fase 4  
 **Fecha:** 2026-08-25  
-**Estado:** **✅ CERRADO UI — E11.1 MVP completo** (suite 187 passed, tsc limpio)  
-**Pre-requisito:** E11.1 F0 ✅ en `main` (`ad6f80e`)  
-**Aprobación:** `APROBADO: Ejecutar Entregable 11.1 - Fase UI` (+ refinamientos O(1), xlsx=`normalizeHeaderKey`, KPI solo periodo)
+**Estado:** **✅ CERRADO — E10.x MVP completo** (suite 199 passed, tsc limpio)  
+**Aprobación:** `APROBADO: Ejecutar Entregable 10.x - Exportación Pólizas MVP` + refinamientos balance / `toFixed(2)` / botón disabled+title
 
 ---
 
 ## Refinamientos auditor (aplicados)
 
-1. Enrich: `riskIndex.rfcs.has(normalizeRfc(...))` — O(1), cero `.includes`/`.some` sobre arrays de RFC.
-2. XLSX → `parseFiscalRiskXlsxBuffer` → `parseFiscalRiskRows` (misma `normalizeHeaderKey`).
-3. `fiscalRiskProviders` solo sobre `periodTransactions` (`transactionsInPeriod`).
+1. `computePolizaTotals` + rechazo `{ ok: false, reason: 'Desequilibrio en la póliza' }` antes del TXT.
+2. `formatPolizaAmount` → `roundMoney(n).toFixed(2)`.
+3. Botón disabled + `title` = `POLIZA_EXPORT_DISABLED_HINT` si `eligibleCount === 0`.
 
 ---
 
-## Archivos entregados
+## Archivos
 
 | Ruta | Rol |
 |------|-----|
-| `src/hooks/useFiscalRiskList.ts` (+ test) | Upload phases + gate |
-| `src/components/FiscalRiskListPanel.tsx` (+ test) | UI carga |
-| `FiscalSection` / `TransactionsSection` / `OperationalDashboard*` / `App.tsx` | Slot, badge, KPI, index |
+| `src/types/polizaExport.ts` | Contratos + constantes |
+| `src/services/polizaExportService.ts` (+ test) | Filter, partidas, sanitize, balance, TXT |
+| `src/hooks/usePolizaExport.ts` (+ test) | Blob download + audit |
+| `TransactionsSection` / `App.tsx` | Botón + wire periodo |
 
 ---
 
-## DoD UI
+## DoD
 
-- [x] Panel solo `canManageOrg` (oculto contador/viewer)
-- [x] Estados uploading / processing / success / error
-- [x] Badge + tooltip `FISCAL_RISK_COPY`
-- [x] Flag en memoria O(1); cero writes a TX
-- [x] KPI RFCs únicos en periodo
-- [x] Suite + tsc (187 passed | 6 skipped; tsc limpio)
-- [x] Gobernanza: E11.1 MVP cerrado tras UI; E10.x parked
-
----
-
-## Deploy post-merge
-
-```bash
-firebase deploy --only firestore:rules,firestore:indexes --project contai-15259
-```
+- [x] Service elegibilidad + partida doble Bancos + sanitize + balance
+- [x] TXT `;` UTF-8 sin BOM, montos 2 decimales
+- [x] Hook download + feedback
+- [x] Botón disabled + tooltip si 0 elegibles
+- [x] Suite + tsc (199 passed | 6 skipped; tsc limpio)
+- [x] Gobernanza: ciclo Import→Reconcile→Risk→Export cerrado; XML ERP parked

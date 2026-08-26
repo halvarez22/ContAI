@@ -7,6 +7,7 @@ import { DataTable } from '../ui/DataTable';
 import { Input } from '../ui/Input';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { FISCAL_RISK_COPY } from '../../types/fiscalRisk';
+import { POLIZA_EXPORT_DISABLED_HINT } from '../../types/polizaExport';
 import type { TransactionRow, TransactionsSectionProps } from '../../types/appSections';
 
 function statusBadgeVariant(status: string | null | undefined) {
@@ -30,6 +31,9 @@ export function TransactionsSection({
   onFilterChange,
   onGenerateMonthlyReport,
   onExportCsv,
+  onExportPolizaTxt,
+  polizaExportDisabled = true,
+  polizaExportDisabledHint = POLIZA_EXPORT_DISABLED_HINT,
   onOpenExcelImport,
   onOpenManualTx,
   onSelectTransaction,
@@ -153,6 +157,30 @@ export function TransactionsSection({
               <Download className="w-4 h-4" />
               Exportar CSV
             </Button>
+            <span
+              className="inline-flex flex-1 sm:flex-none"
+              title={
+                polizaExportDisabled
+                  ? polizaExportDisabledHint
+                  : 'Descargar póliza de diario (.txt) del periodo'
+              }
+            >
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => onExportPolizaTxt?.()}
+                disabled={polizaExportDisabled || !onExportPolizaTxt}
+                className="w-full"
+                title={
+                  polizaExportDisabled
+                    ? polizaExportDisabledHint
+                    : undefined
+                }
+              >
+                <Download className="w-4 h-4" />
+                Exportar póliza (.txt)
+              </Button>
+            </span>
             <Button
               variant="secondary"
               onClick={onOpenExcelImport}
