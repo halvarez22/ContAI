@@ -21,6 +21,8 @@ export type OperationalCounts = {
   unclassified: number;
   highRisk: number;
   totalTasks: number;
+  /** RFCs únicos con match 69-B en el periodo (no = highRisk operativo) */
+  fiscalRiskProviders: number;
 };
 
 export type OperationalAlert = {
@@ -40,6 +42,8 @@ export type OperationalTxInput = {
   concepto?: string | null;
   bank_reconciled?: boolean | null;
   bank_reconcile_status?: 'none' | 'partial' | 'full' | null;
+  /** Para KPI 69-B: match O(1) contra riskRfcs del periodo */
+  rfc_contraparte?: string | null;
 };
 
 export type OperationalRiskHint = {

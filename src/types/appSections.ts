@@ -8,6 +8,7 @@ import type { DashboardMode } from './dashboardMode';
 import type { ExecutiveSnapshot } from './executiveDashboard';
 import type { OperationalSnapshot } from './operationalDashboard';
 import type { PaymentLedgerItem } from '../hooks/usePaymentApplications';
+import type { FiscalRiskIndex } from './fiscalRisk';
 
 /** Tabs extraídas a Section Views en E7.3 */
 export const MIGRATED_NAV_TAB_IDS = [
@@ -54,6 +55,11 @@ export type TransactionRow = {
   account_name?: string | null;
   confidence_score?: number | null;
   tags?: string[] | null;
+  /** RFC contraparte (CFDI/manual) — usado para match 69-B en memoria */
+  rfc_contraparte?: string | null;
+  /** Derivado en memoria (O(1) Set); nunca persistido en Firestore por 69-B */
+  fiscalRisk69b?: boolean;
+  fiscalRiskTooltip?: string;
 };
 
 export type PeriodChangeHandler = (year: number, month: number) => void;
@@ -132,6 +138,9 @@ export type FiscalSectionProps = {
   periodosCerrados?: string[];
   paymentLedger?: PaymentLedgerItem[];
   onPaymentApplicationsConfirmed?: () => void;
+  /** E11.1 UI — panel 69-B solo si canManageOrg (owner/admin) */
+  canManageFiscalRisk?: boolean;
+  onFiscalRiskListPublished?: (index: FiscalRiskIndex) => void;
 };
 
 /** Mapa tipado de render (documentación; App compone hijos directamente) */

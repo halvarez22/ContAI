@@ -6,6 +6,7 @@ import { Badge } from '../ui/Badge';
 import { DataTable } from '../ui/DataTable';
 import { Input } from '../ui/Input';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
+import { FISCAL_RISK_COPY } from '../../types/fiscalRisk';
 import type { TransactionRow, TransactionsSectionProps } from '../../types/appSections';
 
 function statusBadgeVariant(status: string | null | undefined) {
@@ -46,7 +47,17 @@ export function TransactionsSection({
       header: 'Proveedor / Concepto',
       cell: (tx: TransactionRow) => (
         <div>
-          <p className="font-bold text-ink">{tx.proveedor || 'S/P'}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-bold text-ink">{tx.proveedor || 'S/P'}</p>
+            {tx.fiscalRisk69b ? (
+              <Badge
+                variant="error"
+                title={tx.fiscalRiskTooltip ?? FISCAL_RISK_COPY.tooltip(undefined)}
+              >
+                {FISCAL_RISK_COPY.badgeLabel}
+              </Badge>
+            ) : null}
+          </div>
           <p className="text-xs text-ink-muted truncate max-w-[200px]">{tx.concepto}</p>
           {tx.tags && tx.tags.length > 0 ? (
             <div className="flex flex-wrap gap-1 mt-1">

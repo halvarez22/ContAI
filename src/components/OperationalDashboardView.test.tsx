@@ -15,6 +15,7 @@ const snapshot: OperationalSnapshot = {
     unclassified: 0,
     highRisk: 0,
     totalTasks: 3,
+    fiscalRiskProviders: 1,
   },
   tasks: [
     {
@@ -49,6 +50,7 @@ describe('OperationalDashboardView', () => {
     );
     expect(screen.getByText('Vista operativa')).toBeTruthy();
     expect(screen.getByText('Proveedor X')).toBeTruthy();
+    expect(screen.getByText(/Proveedores con riesgo fiscal/i)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Conciliación bancaria/i }));
     expect(onNavigate).toHaveBeenCalledWith('reconciliation');
   });
@@ -58,7 +60,14 @@ describe('OperationalDashboardView', () => {
       <OperationalDashboardView
         snapshot={{
           ...snapshot,
-          counts: { revision: 0, pending: 0, unclassified: 0, highRisk: 0, totalTasks: 0 },
+          counts: {
+            revision: 0,
+            pending: 0,
+            unclassified: 0,
+            highRisk: 0,
+            totalTasks: 0,
+            fiscalRiskProviders: 0,
+          },
           tasks: [],
           isEmpty: true,
           alerts: [

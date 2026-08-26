@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { TaxPreviewCard } from '../TaxPreviewCard';
 import { PaymentApplicationsCard } from '../PaymentApplicationsCard';
+import { FiscalRiskListPanel } from '../FiscalRiskListPanel';
 import type { FiscalSectionProps } from '../../types/appSections';
 
 export function FiscalSection({
@@ -17,8 +18,12 @@ export function FiscalSection({
   periodosCerrados = [],
   paymentLedger = [],
   onPaymentApplicationsConfirmed,
+  canManageFiscalRisk = false,
+  onFiscalRiskListPublished,
 }: FiscalSectionProps) {
   const canApplyPayments = Boolean(organizationId && userId);
+  const showFiscalRiskPanel =
+    canManageFiscalRisk && Boolean(organizationId && userId);
 
   return (
     <div className="space-y-6">
@@ -64,6 +69,17 @@ export function FiscalSection({
           </Button>
         </div>
       </Card>
+
+      {showFiscalRiskPanel ? (
+        <Card className="p-6">
+          <FiscalRiskListPanel
+            organizationId={organizationId!}
+            userId={userId!}
+            canUpload={canManageFiscalRisk}
+            onPublished={onFiscalRiskListPublished}
+          />
+        </Card>
+      ) : null}
 
       {canApplyPayments ? (
         <Card className="p-6">

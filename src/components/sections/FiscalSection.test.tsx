@@ -17,6 +17,12 @@ vi.mock('../PaymentApplicationsCard', () => ({
   ),
 }));
 
+vi.mock('../FiscalRiskListPanel', () => ({
+  FiscalRiskListPanel: () => (
+    <div data-testid="fiscal-risk-panel">FiscalRiskPanel</div>
+  ),
+}));
+
 const preview: TaxPreview = {
   periodoLabel: 'Agosto 2026',
   year: 2026,
@@ -73,6 +79,38 @@ describe('FiscalSection', () => {
       />
     );
     expect(screen.getByTestId('payment-applications')).toBeTruthy();
+  });
+
+  it('oculta panel 69-B si canManageFiscalRisk=false', () => {
+    render(
+      <FiscalSection
+        taxPreview={preview}
+        periodLabel="2026-08"
+        periodoActualCerrado={false}
+        onTogglePeriodo={vi.fn()}
+        onOpenCfdiImport={vi.fn()}
+        organizationId="org_main"
+        userId="u1"
+        canManageFiscalRisk={false}
+      />
+    );
+    expect(screen.queryByTestId('fiscal-risk-panel')).toBeNull();
+  });
+
+  it('muestra panel 69-B solo si canManageFiscalRisk', () => {
+    render(
+      <FiscalSection
+        taxPreview={preview}
+        periodLabel="2026-08"
+        periodoActualCerrado={false}
+        onTogglePeriodo={vi.fn()}
+        onOpenCfdiImport={vi.fn()}
+        organizationId="org_main"
+        userId="u1"
+        canManageFiscalRisk
+      />
+    );
+    expect(screen.getByTestId('fiscal-risk-panel')).toBeTruthy();
   });
 
   it('smoke axe', async () => {

@@ -9,6 +9,7 @@ import { Card } from './ui/Card';
 import { formatCurrency } from '../lib/utils';
 import type { OperationalSnapshot, OperationalTaskKind } from '../types/operationalDashboard';
 import { OPERATIONAL_MAX_TASKS } from '../types/operationalDashboard';
+import { FISCAL_RISK_COPY } from '../types/fiscalRisk';
 
 const KIND_BADGE: Record<
   OperationalTaskKind,
@@ -63,7 +64,7 @@ export function OperationalDashboardView({
         </Alert>
       ))}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           label="En revisión"
           value={String(counts.revision)}
@@ -84,6 +85,12 @@ export function OperationalDashboardView({
           value={`${snapshot.pctBankReconciled.toFixed(1)}%`}
           tone={snapshot.pctBankReconciled >= 80 ? 'success' : 'warning'}
           hint={`${snapshot.bankReconciledCount} de ${snapshot.txCount} TX`}
+        />
+        <StatCard
+          label={FISCAL_RISK_COPY.kpiLabel}
+          value={String(counts.fiscalRiskProviders)}
+          tone={counts.fiscalRiskProviders > 0 ? 'danger' : 'default'}
+          hint="RFCs únicos en el periodo"
         />
       </div>
 

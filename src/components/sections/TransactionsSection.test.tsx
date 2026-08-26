@@ -53,6 +53,25 @@ describe('TransactionsSection', () => {
     expect(screen.getByRole('button', { name: /Capturar/i })).toBeTruthy();
   }, 15000);
 
+  it('muestra badge Riesgo 69-B solo si fiscalRisk69b', () => {
+    const { rerender } = render(<TransactionsSection {...baseProps} />);
+    expect(screen.queryByText('Riesgo 69-B')).toBeNull();
+
+    rerender(
+      <TransactionsSection
+        {...baseProps}
+        filteredTransactions={[
+          {
+            ...tx,
+            fiscalRisk69b: true,
+            fiscalRiskTooltip: 'RFC presente en la lista 69-B del SAT (publicación: no indicada).',
+          },
+        ]}
+      />
+    );
+    expect(screen.getByText('Riesgo 69-B')).toBeTruthy();
+  });
+
   it('smoke axe', async () => {
     const { container } = render(<TransactionsSection {...baseProps} />);
     const results = await axe(container);

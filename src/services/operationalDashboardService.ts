@@ -14,6 +14,7 @@ import type {
   OperationalTxInput,
 } from '../types/operationalDashboard';
 import { OPERATIONAL_MAX_TASKS } from '../types/operationalDashboard';
+import { normalizeRfc } from '../types/fiscalRisk';
 
 const KIND_ORDER: Record<OperationalTaskKind, number> = {
   revision: 0,
@@ -130,6 +131,8 @@ export function buildOperationalSnapshot(input: {
   periodTransactions: OperationalTxInput[];
   periodoLabel: string;
   highRiskHints: OperationalRiskHint[];
+  /** Set de RFCs normalizados de la lista 69-B vigente (lookup O(1)). */
+  riskRfcs?: ReadonlySet<string>;
   maxTasks?: number;
 }): OperationalSnapshot {
   const maxTasks = input.maxTasks ?? OPERATIONAL_MAX_TASKS;
@@ -144,15 +147,25 @@ export function buildOperationalSnapshot(input: {
     unclassified: 0,
     highRisk: 0,
     totalTasks: 0,
+    fiscalRiskProviders: 0,
   };
 
   const allTasks: OperationalTask[] = [];
   let bankReconciledCount = 0;
   const txCount = input.periodTransactions.length;
+  const riskRfcs = input.riskRfcs;
+  const uniqueFiscalRiskRfcs = new Set<string>();
 
   for (const tx of input.periodTransactions) {
     if (tx.bank_reconciled === true || tx.bank_reconcile_status === 'full') {
       bankReconciledCount += 1;
+    }
+
+    if (riskRfcs && tx.rfc_contraparte) {
+      const n = normalizeRfc(tx.rfc_contraparte);
+      if (n && riskRfcs.has(n)) {
+        uniqueFiscalRiskRfcs.add(n);
+      }
     }
 
     const kind = classifyKind(tx, riskSeverity);
@@ -171,6 +184,8 @@ export function buildOperationalSnapshot(input: {
       severity: taskSeverity(kind, riskSeverity, tx.id),
     });
   }
+
+  counts.fiscalRiskProviders = uniqueFiscalRiskRfcs.size;
 
   allTasks.sort((a, b) => compareTasks(a, b, riskSeverity));
   const tasks = allTasks.slice(0, maxTasks);

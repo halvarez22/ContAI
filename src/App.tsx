@@ -86,6 +86,9 @@ import { generateExecutiveBriefing, askMonthQuestion } from './services/insights
 import { buildTaxPreview } from './services/taxCalculatorService';
 import { buildExecutiveSnapshot } from './services/executiveDashboardService';
 import { buildOperationalSnapshot } from './services/operationalDashboardService';
+import { loadFiscalRiskIndex } from './services/fiscalRiskService';
+import { FISCAL_RISK_COPY, normalizeRfc } from './types/fiscalRisk';
+import type { FiscalRiskIndex } from './types/fiscalRisk';
 import { AppTabRouter } from './components/layout/AppTabRouter';
 import { OverviewSection } from './components/sections/OverviewSection';
 import { TransactionsSection } from './components/sections/TransactionsSection';
@@ -93,6 +96,7 @@ import { ReconciliationSection } from './components/sections/ReconciliationSecti
 import { SatDownloadSection } from './components/sections/SatDownloadSection';
 import { FiscalSection } from './components/sections/FiscalSection';
 import { isMigratedNavTabId, isNavTabId } from './types/appSections';
+import type { TransactionRow } from './types/appSections';
 import { DesignSystemGallery } from './components/DesignSystemGallery';
 import { ImportModals } from './components/ImportModals';
 import { useImportFlow } from './hooks/useImportFlow';
@@ -166,6 +170,9 @@ export default function App() {
   const [products, setProducts] = useState<any[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<any[]>([]);
   const [periodosCerrados, setPeriodosCerrados] = useState<string[]>([]);
+  const [fiscalRiskIndex, setFiscalRiskIndex] = useState<FiscalRiskIndex | null>(
+    null
+  );
   const { mode: dashboardMode, setMode: setDashboardMode } = useDashboardMode();
   const { isDarkMode, toggleDarkMode } = useTheme();
   const navItems = getNavItems();
@@ -212,8 +219,27 @@ export default function App() {
       setIsEditTxModalOpen(false);
       setIsConfirmModalOpen(false);
       setIsRejectModalOpen(false);
+      setFiscalRiskIndex(null);
     }
     prevOrgIdRef.current = activeOrganizationId;
+  }, [activeOrganizationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeOrganizationId) {
+      setFiscalRiskIndex(null);
+      return;
+    }
+    void loadFiscalRiskIndex(activeOrganizationId)
+      .then((idx) => {
+        if (!cancelled) setFiscalRiskIndex(idx);
+      })
+      .catch(() => {
+        if (!cancelled) setFiscalRiskIndex(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activeOrganizationId]);
 
   useEffect(() => {
@@ -626,6 +652,26 @@ export default function App() {
 
     return matchesType && matchesStatus && matchesStartDate && matchesEndDate && matchesProvider && matchesTag;
   });
+
+  const enrichedFilteredTransactions: TransactionRow[] = useMemo(() => {
+    const riskRfcs = fiscalRiskIndex?.rfcs;
+    const tooltip = FISCAL_RISK_COPY.tooltip(fiscalRiskIndex?.publishedAtLabel);
+    return filteredTransactions.map((tx) => {
+      const rfcRaw =
+        typeof tx.rfc_contraparte === 'string' ? tx.rfc_contraparte : null;
+      // O(1) Set.has — nunca Array.includes / some sobre la lista 69-B
+      const fiscalRisk69b = rfcRaw
+        ? Boolean(riskRfcs?.has(normalizeRfc(rfcRaw)))
+        : false;
+      return {
+        ...tx,
+        id: String(tx.id),
+        rfc_contraparte: rfcRaw,
+        fiscalRisk69b,
+        fiscalRiskTooltip: fiscalRisk69b ? tooltip : undefined,
+      } as TransactionRow;
+    });
+  }, [filteredTransactions, fiscalRiskIndex]);
 
   const addRecurringTransaction = () => {
     setSelectedRecurring(null);
@@ -1115,11 +1161,14 @@ export default function App() {
           proveedor: tx.proveedor,
           concepto: tx.concepto,
           bank_reconciled: tx.bank_reconciled,
+          rfc_contraparte:
+            typeof tx.rfc_contraparte === 'string' ? tx.rfc_contraparte : null,
         })),
         periodoLabel: taxPreview.periodoLabel,
         highRiskHints,
+        riskRfcs: fiscalRiskIndex?.rfcs,
       }),
-    [transactionsInPeriod, taxPreview.periodoLabel, highRiskHints]
+    [transactionsInPeriod, taxPreview.periodoLabel, highRiskHints, fiscalRiskIndex]
   );
 
   const periodoActualCerrado = useMemo(
@@ -1323,7 +1372,7 @@ export default function App() {
               {activeTab === 'transactions' && (
                 <TransactionsSection
                   transactionsCount={transactions.length}
-                  filteredTransactions={filteredTransactions}
+                  filteredTransactions={enrichedFilteredTransactions}
                   filters={{
                     filterType,
                     filterStatus,
@@ -1380,6 +1429,14 @@ export default function App() {
                   paymentLedger={toPaymentLedgerItems(
                     transactionsInPeriod as Record<string, unknown>[]
                   )}
+                  canManageFiscalRisk={
+                    activeMembershipRole
+                      ? canManageOrg(activeMembershipRole)
+                      : false
+                  }
+                  onFiscalRiskListPublished={(index) => {
+                    setFiscalRiskIndex(index);
+                  }}
                 />
               )}
             </AppTabRouter>

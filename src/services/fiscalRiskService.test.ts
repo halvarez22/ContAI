@@ -12,9 +12,11 @@ import {
   matchRfcAgainstRiskList,
   parseFiscalRiskCsv,
   parseFiscalRiskRows,
+  parseFiscalRiskXlsxBuffer,
   upsertFiscalRiskListVersioned,
   type FiscalRiskListPersistence,
 } from './fiscalRiskService';
+import * as XLSX from 'xlsx';
 
 vi.mock('./auditService', () => ({
   logAuditEntry: vi.fn(async () => undefined),
@@ -68,6 +70,22 @@ describe('parseFiscalRiskCsv / parseFiscalRiskRows', () => {
     expect(missing.errors.some((e) => e.message.includes('sin RFC'))).toBe(
       true
     );
+  });
+
+  it('xlsx usa normalizeHeaderKey igual que CSV (header " R.F.C. ")', () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      [' R.F.C. ', 'Nombre'],
+      ['XAXX010101000', 'Acme'],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Lista');
+    const u8 = new Uint8Array(
+      XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as number[]
+    );
+    const r = parseFiscalRiskXlsxBuffer(u8);
+    expect(r.errors).toHaveLength(0);
+    expect(r.entries).toHaveLength(1);
+    expect(r.entries[0]?.rfc).toBe('XAXX010101000');
   });
 });
 

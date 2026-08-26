@@ -77,5 +77,25 @@ describe('buildOperationalSnapshot', () => {
     });
     expect(snap.pctBankReconciled).toBe(50);
     expect(snap.counts.pending).toBe(1);
+    expect(snap.counts.fiscalRiskProviders).toBe(0);
+  });
+
+  it('KPI fiscalRiskProviders = RFCs únicos con match O(1) en el periodo', () => {
+    const riskRfcs = new Set(['AAA010101AAA', 'BBB010101BBB']);
+    const snap = buildOperationalSnapshot({
+      periodTransactions: [
+        baseTx({ id: '1', rfc_contraparte: 'aaa-010101-aaa' }),
+        baseTx({ id: '2', rfc_contraparte: 'AAA010101AAA' }),
+        baseTx({ id: '3', rfc_contraparte: 'BBB010101BBB' }),
+        baseTx({ id: '4', rfc_contraparte: 'CCC010101CCC' }),
+        baseTx({ id: '5', rfc_contraparte: null }),
+      ],
+      periodoLabel: 'Ago 2026',
+      highRiskHints: [],
+      riskRfcs,
+    });
+    // 3 TX con riesgo pero solo 2 RFCs únicos; CCC fuera del Set
+    expect(snap.counts.fiscalRiskProviders).toBe(2);
+    expect(snap.counts.highRisk).toBe(0);
   });
 });

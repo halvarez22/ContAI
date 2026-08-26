@@ -1,20 +1,45 @@
-# Implementation Plan — Entregable 11.1 (Auditoría Riesgo Fiscal 69-B)
+# Implementation Plan — Entregable 11.1 · Fase UI (Badge + KPI + Upload Panel)
 
-**Estado F0:** ✅ Tipos + servicio + tests + rules/indexes (local)  
-**Siguiente:** UI (`FiscalRiskListPanel` + badge + KPI)
+**Proyecto:** ContAI Fase 4  
+**Fecha:** 2026-08-25  
+**Estado:** **✅ CERRADO UI — E11.1 MVP completo** (suite 187 passed, tsc limpio)  
+**Pre-requisito:** E11.1 F0 ✅ en `main` (`ad6f80e`)  
+**Aprobación:** `APROBADO: Ejecutar Entregable 11.1 - Fase UI` (+ refinamientos O(1), xlsx=`normalizeHeaderKey`, KPI solo periodo)
 
-## F0 entregado
+---
 
-- `normalizeRfc` / `normalizeHeaderKey` / `FISCAL_RISK_COPY`
-- `fiscalRiskService`: parse CSV/rows, match exacto, **upsert versionado** (chunks 400 + meta)
-- Tests: match +/−, filas sin RFC, headers sucios, audit upload
-- Rules: `fiscal_risk_list_entries` + `fiscal_risk_list_meta` (`canManageOrg` write)
-- Índice: `organization_id + version`
+## Refinamientos auditor (aplicados)
 
-## Gobernanza
+1. Enrich: `riskIndex.rfcs.has(normalizeRfc(...))` — O(1), cero `.includes`/`.some` sobre arrays de RFC.
+2. XLSX → `parseFiscalRiskXlsxBuffer` → `parseFiscalRiskRows` (misma `normalizeHeaderKey`).
+3. `fiscalRiskProviders` solo sobre `periodTransactions` (`transactionsInPeriod`).
 
-| Paso | Estado |
-|------|--------|
-| E11.1 F0 | ✅ |
-| E11.1 UI | Pendiente tras commit F0 |
-| E10.x | Parked |
+---
+
+## Archivos entregados
+
+| Ruta | Rol |
+|------|-----|
+| `src/hooks/useFiscalRiskList.ts` (+ test) | Upload phases + gate |
+| `src/components/FiscalRiskListPanel.tsx` (+ test) | UI carga |
+| `FiscalSection` / `TransactionsSection` / `OperationalDashboard*` / `App.tsx` | Slot, badge, KPI, index |
+
+---
+
+## DoD UI
+
+- [x] Panel solo `canManageOrg` (oculto contador/viewer)
+- [x] Estados uploading / processing / success / error
+- [x] Badge + tooltip `FISCAL_RISK_COPY`
+- [x] Flag en memoria O(1); cero writes a TX
+- [x] KPI RFCs únicos en periodo
+- [x] Suite + tsc (187 passed | 6 skipped; tsc limpio)
+- [x] Gobernanza: E11.1 MVP cerrado tras UI; E10.x parked
+
+---
+
+## Deploy post-merge
+
+```bash
+firebase deploy --only firestore:rules,firestore:indexes --project contai-15259
+```
