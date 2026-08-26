@@ -240,6 +240,27 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /fiscal_risk_list_entries/{entryId} {
+      allow read: if isAuthenticated() && canReadOrg(resource.data.organization_id);
+      allow create, update: if isAuthenticated()
+        && canManageOrg(request.resource.data.organization_id)
+        && request.resource.data.organization_id is string
+        && request.resource.data.rfc is string
+        && request.resource.data.version is string
+        && request.resource.data.lista_tipo == '69b';
+      allow delete: if isAuthenticated()
+        && canManageOrg(resource.data.organization_id);
+    }
+
+    match /fiscal_risk_list_meta/{orgId} {
+      allow read: if isAuthenticated() && canReadOrg(orgId);
+      allow create, update: if isAuthenticated()
+        && canManageOrg(orgId)
+        && request.resource.data.organization_id == orgId
+        && request.resource.data.current_version is string;
+      allow delete: if isAuthenticated() && canManageOrg(orgId);
+    }
+
     match /test/connection {
       allow read: if true;
     }
