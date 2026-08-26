@@ -127,7 +127,7 @@ export function parseCfdiXml(xmlText: string): { ok: true; data: CfdiExtracted }
 
 export function mapTipoComprobanteToTxTipo(tc: string): 'ingreso' | 'egreso' {
   const t = (tc || 'I').toUpperCase();
-  if (t === 'E') return 'egreso';
+  if (t === 'E' || t === 'N') return 'egreso';
   return 'ingreso';
 }
 

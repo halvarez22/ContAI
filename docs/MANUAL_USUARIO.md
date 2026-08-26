@@ -67,11 +67,17 @@ Al trabajar aquí obtendrás movimientos ya registrados (o listos para revisar),
 3. Haz clic en **Solicitar descarga e importar**.
 4. Lee el aviso de la pantalla: en el piloto suele estar en **modo simulación / prueba**, sin conexión real permanente al portal del SAT. Úsalo solo como indique tu administrador.
 
+**D) Recibos de nómina (XML timbrado)**
+1. Usa la misma puerta **Importar CFDI** (no hay módulo aparte de nómina).
+2. Si el archivo es un recibo de nómina del SAT (tipo nómina), ContAI crea **un solo egreso** por el monto neto pagado al empleado.
+3. La cuenta se asigna automáticamente a **Gastos de Nómina** (sin pedir clasificación a la asistencia).
+4. El RFC y nombre del empleado quedan en el movimiento para conciliar con el banco. Retenciones como ISR o IMSS se guardan como datos de apoyo; **no** generan movimientos bancarios aparte en esta versión.
+
 ### 📝 Ejemplo práctico
 Te llegan 15 XML del mes. Los seleccionas juntos en **Importar CFDI**, dejas que el lote termine y abres **Transacciones** para revisar los que quedaron “en revisión”.
 
 ### ⚠️ Alerta Pro
-ContAI **no sustituye** la validación oficial de timbrado ante el SAT. Si un XML no carga, anota el nombre del archivo y el mensaje de error: eso acelera el soporte.
+ContAI **no sustituye** la validación oficial de timbrado ante el SAT. Si un XML no carga, anota el nombre del archivo y el mensaje de error: eso acelera el soporte. Si importas nómina y el banco muestra un solo depósito por varios empleados, usa la conciliación por partes (un movimiento de banco contra varios egresos de nómina).
 
 ---
 

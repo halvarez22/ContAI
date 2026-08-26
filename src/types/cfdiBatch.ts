@@ -61,6 +61,13 @@ export interface CfdiTransactionDraft {
     cfdi_uuid?: string;
     importado_cfdi: true;
     source_file_name: string;
+    /** E13.1 */
+    is_nomina?: boolean;
+    nomina_isr_retained?: number;
+    nomina_imss_retained?: number;
+    nomina_total_percepciones?: number;
+    nomina_total_deducciones?: number;
+    account_source?: string;
   } & TransactionSatPaymentFields;
   classification: {
     tipo: string;

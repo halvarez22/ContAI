@@ -6,7 +6,6 @@
 
 import type { CfdiExtracted } from '../lib/cfdiXml';
 import {
-  parseCfdiXml,
   mapTipoComprobanteToTxTipo,
   inferIvaTasaFromAmounts,
 } from '../lib/cfdiXml';
@@ -14,6 +13,15 @@ import {
   parseCfdiWithSatExtensions,
   type CfdiExtractedExtended,
 } from '../lib/cfdiPagosParser';
+import {
+  isNominaXmlCandidate,
+  parseNominaXml,
+} from '../lib/nominaXmlParser';
+import {
+  DEFAULT_NOMINA_ACCOUNT_NAME,
+  NOMINA_ACCOUNT_SOURCE,
+} from '../config/nominaDefaults';
+import type { NominaExtracted } from '../types/nominaImport';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
   commitCfdiTransactionBatch,
@@ -168,6 +176,73 @@ export function buildCfdiTransactionDraftExtended(
   return { ok: true, draft };
 }
 
+/** E13.1 — 1 egreso neto por recibo; sin Groq; ISR/IMSS solo metadatos. */
+export function buildNominaTransactionDraft(
+  userId: string,
+  organizationId: string,
+  fileName: string,
+  n: NominaExtracted
+): { ok: true; draft: CfdiTransactionDraft } | { ok: false; error: string } {
+  let fechaIso: string;
+  try {
+    fechaIso = new Date(n.fechaPago || n.fecha).toISOString();
+  } catch {
+    return { ok: false, error: 'Fecha inválida en el CFDI de nómina.' };
+  }
+
+  const empleadoLabel = n.empleadoNombre.trim() || n.empleadoRfc || 'Empleado';
+  const concepto = `Nómina · ${empleadoLabel}${n.fechaPago ? ` · ${n.fechaPago}` : ''}`;
+  const monto = roundMoney(n.total);
+
+  const draft: CfdiTransactionDraft = {
+    fileName,
+    payload: {
+      organization_id: organizationId,
+      usuario_id: userId,
+      tipo: 'egreso',
+      monto,
+      moneda: n.moneda || 'MXN',
+      concepto,
+      proveedor: empleadoLabel,
+      fecha: fechaIso,
+      status: 'pendiente',
+      account_name: DEFAULT_NOMINA_ACCOUNT_NAME,
+      account_source: NOMINA_ACCOUNT_SOURCE,
+      tags: ['nomina'],
+      iva_tasa: 'na',
+      egreso_acredita_iva: false,
+      deducible: false,
+      fiscal_subtotal: n.subtotal,
+      fiscal_iva: 0,
+      rfc_contraparte: n.empleadoRfc || undefined,
+      cfdi_uuid: n.cfdiUuid || undefined,
+      importado_cfdi: true,
+      source_file_name: fileName,
+      cfdi_tipo_comprobante: 'N',
+      is_nomina: true,
+      nomina_isr_retained: n.isrRetenido,
+      nomina_imss_retained: n.imssRetenido,
+      nomina_total_percepciones: n.totalPercepciones,
+      nomina_total_deducciones: n.totalDeducciones,
+      monto_original: monto,
+      saldo_pendiente: 0,
+      payment_status: 'full',
+      applied_payment_amount: 0,
+    },
+    classification: {
+      tipo: 'egreso',
+      monto,
+      concepto,
+      proveedor: empleadoLabel,
+      fecha: fechaIso,
+      moneda: n.moneda || 'MXN',
+    },
+    requiresGroqClassification: false,
+  };
+
+  return { ok: true, draft };
+}
+
 export function partitionDraftsByClosedPeriod(
   drafts: CfdiTransactionDraft[],
   periodosCerrados: string[]
@@ -218,6 +293,27 @@ export async function parseCfdiXmlBatch(
         });
         continue;
       }
+
+      if (isNominaXmlCandidate(item.xmlText)) {
+        const nomina = parseNominaXml(item.xmlText);
+        if (nomina.ok === false) {
+          errors.push({
+            fileName: item.fileName,
+            ok: false,
+            error: nomina.errors.join(' '),
+          });
+          continue;
+        }
+        drafts.push({
+          fileName: item.fileName,
+          data: {
+            ...nominaToExtendedStub(nomina.data),
+            __nomina: nomina.data,
+          } as CfdiExtractedExtended & { __nomina: NominaExtracted },
+        });
+        continue;
+      }
+
       const r = parseCfdiWithSatExtensions(item.xmlText);
       if (r.ok === false) {
         errors.push({
@@ -238,6 +334,30 @@ export async function parseCfdiXmlBatch(
   }
 
   return { drafts, errors };
+}
+
+function nominaToExtendedStub(n: NominaExtracted): CfdiExtractedExtended {
+  return {
+    version: '4.0',
+    fecha: n.fecha,
+    tipoComprobante: 'N',
+    subtotal: n.subtotal,
+    total: n.total,
+    moneda: n.moneda,
+    metodoPago: '',
+    formaPago: '',
+    lugarExpedicion: '',
+    emisorRfc: n.emisorRfc,
+    emisorNombre: n.emisorNombre,
+    emisorRegimen: '',
+    receptorRfc: n.empleadoRfc,
+    receptorNombre: n.empleadoNombre,
+    receptorUsoCfdi: '',
+    totalIvaTrasladado: 0,
+    uuid: n.cfdiUuid,
+    descripcionPrimerConcepto: `Nómina · ${n.empleadoNombre || n.empleadoRfc}`,
+    pagos: [],
+  };
 }
 
 export type RunCfdiBatchParams = {
@@ -296,12 +416,22 @@ export async function runCfdiBatchImport(
 
   const built: CfdiTransactionDraft[] = [];
   for (const p of parsed) {
-    const b = buildCfdiTransactionDraftExtended(
-      userId,
-      organizationId,
-      p.fileName,
-      p.data
-    );
+    const withNomina = p.data as CfdiExtractedExtended & {
+      __nomina?: NominaExtracted;
+    };
+    const b = withNomina.__nomina
+      ? buildNominaTransactionDraft(
+          userId,
+          organizationId,
+          p.fileName,
+          withNomina.__nomina
+        )
+      : buildCfdiTransactionDraftExtended(
+          userId,
+          organizationId,
+          p.fileName,
+          p.data
+        );
     if (b.ok === false) {
       results.push({ fileName: p.fileName, ok: false, error: b.error });
     } else {
@@ -349,7 +479,9 @@ export async function runCfdiBatchImport(
       fileName: draft.fileName,
       message: draft.requiresGroqClassification
         ? `Clasificando ${i + 1}/${accepted.length}…`
-        : `Procesando pago ${i + 1}/${accepted.length}…`,
+        : draft.payload.is_nomina
+          ? `Registrando nómina ${i + 1}/${accepted.length}…`
+          : `Procesando pago ${i + 1}/${accepted.length}…`,
     });
 
     try {
@@ -380,6 +512,37 @@ export async function runCfdiBatchImport(
           fileName: draft.fileName,
           ok: true,
           documentId,
+        });
+        await logAuditEntry('IMPORT_CFDI', 'transactions', {
+          id: documentId,
+          uuid: draft.payload.cfdi_uuid,
+          batch: true,
+          fileName: draft.fileName,
+          cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
+        });
+      } else if (draft.payload.is_nomina) {
+        patchUpdates.push({
+          id: documentId,
+          payload: {
+            status: 'conciliado',
+            account_name: draft.payload.account_name || DEFAULT_NOMINA_ACCOUNT_NAME,
+            account_source: draft.payload.account_source || NOMINA_ACCOUNT_SOURCE,
+            actualizado_en: serverTimestamp(),
+          },
+        });
+        results.push({
+          fileName: draft.fileName,
+          ok: true,
+          documentId,
+        });
+        await logAuditEntry('NOMINA_IMPORTED', 'transactions', {
+          id: documentId,
+          uuid: draft.payload.cfdi_uuid,
+          batch: true,
+          fileName: draft.fileName,
+          monto: draft.payload.monto,
+          nomina_isr_retained: draft.payload.nomina_isr_retained,
+          nomina_imss_retained: draft.payload.nomina_imss_retained,
         });
       } else if (draft.paymentPagos && draft.payload.cfdi_uuid) {
         const outcome = await processTipoPPaymentImport({
@@ -415,6 +578,13 @@ export async function runCfdiBatchImport(
             paymentPendingReview: true,
           });
         }
+        await logAuditEntry('IMPORT_CFDI', 'transactions', {
+          id: documentId,
+          uuid: draft.payload.cfdi_uuid,
+          batch: true,
+          fileName: draft.fileName,
+          cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
+        });
       } else {
         paymentsPendingReview += 1;
         results.push({
@@ -423,15 +593,14 @@ export async function runCfdiBatchImport(
           documentId,
           paymentPendingReview: true,
         });
+        await logAuditEntry('IMPORT_CFDI', 'transactions', {
+          id: documentId,
+          uuid: draft.payload.cfdi_uuid,
+          batch: true,
+          fileName: draft.fileName,
+          cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
+        });
       }
-
-      await logAuditEntry('IMPORT_CFDI', 'transactions', {
-        id: documentId,
-        uuid: draft.payload.cfdi_uuid,
-        batch: true,
-        fileName: draft.fileName,
-        cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
-      });
     } catch (e) {
       results.push({
         fileName: draft.fileName,

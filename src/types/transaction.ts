@@ -65,5 +65,11 @@ export interface TransactionDoc extends TransactionFiscalFields, TransactionSatP
   bank_reconciled_amount?: number;
   /** none | partial | full (E9.1) */
   bank_reconcile_status?: 'none' | 'partial' | 'full';
+  /** E13.1 — egreso de nómina (1 TX = neto Comprobante@Total) */
+  is_nomina?: boolean;
+  nomina_isr_retained?: number;
+  nomina_imss_retained?: number;
+  nomina_total_percepciones?: number;
+  nomina_total_deducciones?: number;
   [key: string]: unknown;
 }

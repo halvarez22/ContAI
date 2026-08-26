@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { describe, expect, it } from 'vitest';
 import {
   chunkArray,
@@ -59,6 +62,46 @@ describe('buildCfdiTransactionDraft', () => {
     expect(r.draft.classification.concepto).toContain('Servicio');
     expect(r.draft.fileName).toBe('a.xml');
     expect(r.draft.requiresGroqClassification).toBe(true);
+  });
+});
+
+describe('buildNominaTransactionDraft (E13.1)', () => {
+  it('1 egreso neto, cuenta fija, sin Groq, metadatos ISR/IMSS', async () => {
+    const { buildNominaTransactionDraft } = await import('./cfdiBatchImportService');
+    const { parseNominaXml } = await import('../lib/nominaXmlParser');
+    const { buildNominaCfdi40Xml } = await import('./providers/nominaCfdiFixtures');
+    const { DEFAULT_NOMINA_ACCOUNT_NAME } = await import('../config/nominaDefaults');
+
+    const xml = buildNominaCfdi40Xml({
+      uuid: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      fecha: '2026-08-15T12:00:00',
+      fechaPago: '2026-08-15',
+      total: 8500,
+      subtotal: 8500,
+      totalPercepciones: 10000,
+      totalDeducciones: 1500,
+      isr: 1200,
+      imss: 300,
+      emisorRfc: 'EMP010101AAA',
+      emisorNombre: 'Empresa',
+      empleadoRfc: 'XAXX010101000',
+      empleadoNombre: 'Ana Lopez',
+    });
+    const parsed = parseNominaXml(xml);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const r = buildNominaTransactionDraft('u1', 'org1', 'nomina.xml', parsed.data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.draft.requiresGroqClassification).toBe(false);
+    expect(r.draft.payload.tipo).toBe('egreso');
+    expect(r.draft.payload.monto).toBe(8500);
+    expect(r.draft.payload.is_nomina).toBe(true);
+    expect(r.draft.payload.account_name).toBe(DEFAULT_NOMINA_ACCOUNT_NAME);
+    expect(r.draft.payload.nomina_isr_retained).toBe(1200);
+    expect(r.draft.payload.nomina_imss_retained).toBe(300);
+    expect(r.draft.payload.rfc_contraparte).toBe('XAXX010101000');
+    expect(r.draft.paymentPagos).toBeUndefined();
   });
 });
 

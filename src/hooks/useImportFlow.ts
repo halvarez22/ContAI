@@ -5,6 +5,16 @@ import {
   mapTipoComprobanteToTxTipo,
   inferIvaTasaFromAmounts,
 } from '../lib/cfdiXml';
+import {
+  isNominaXmlCandidate,
+  nominaToCfdiPreviewShape,
+  parseNominaXml,
+} from '../lib/nominaXmlParser';
+import type { NominaExtracted } from '../types/nominaImport';
+import {
+  DEFAULT_NOMINA_ACCOUNT_NAME,
+  NOMINA_ACCOUNT_SOURCE,
+} from '../config/nominaDefaults';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
   createTransaction,
@@ -47,6 +57,9 @@ export function useImportFlow({
 }: UseImportFlowParams) {
   const [isCfdiImportOpen, setIsCfdiImportOpen] = useState(false);
   const [cfdiPreview, setCfdiPreview] = useState<CfdiExtracted | null>(null);
+  const [cfdiNominaPreview, setCfdiNominaPreview] = useState<NominaExtracted | null>(
+    null
+  );
   const [cfdiImportError, setCfdiImportError] = useState<string | null>(null);
   const [cfdiImporting, setCfdiImporting] = useState(false);
   const [cfdiXsdMode, setCfdiXsdMode] = useState<string | null>(null);
@@ -74,6 +87,7 @@ export function useImportFlow({
   const closeCfdiImport = useCallback(() => {
     setIsCfdiImportOpen(false);
     setCfdiPreview(null);
+    setCfdiNominaPreview(null);
     setCfdiImportError(null);
     setCfdiXsdMode(null);
     setCfdiPhase('idle');
@@ -91,6 +105,7 @@ export function useImportFlow({
   const handleSingleCfdiFile = useCallback((file: File) => {
     setCfdiImportError(null);
     setCfdiPreview(null);
+    setCfdiNominaPreview(null);
     setCfdiXsdMode(null);
     setCfdiBatchResults([]);
     setCfdiPhase('uploading');
@@ -109,6 +124,20 @@ export function useImportFlow({
           setCfdiPhase('error');
           return;
         }
+
+        if (isNominaXmlCandidate(text)) {
+          const nomina = parseNominaXml(text);
+          if (nomina.ok === false) {
+            setCfdiImportError(nomina.errors.join(' '));
+            setCfdiPhase('error');
+            return;
+          }
+          setCfdiNominaPreview(nomina.data);
+          setCfdiPreview(nominaToCfdiPreviewShape(nomina.data));
+          setCfdiPhase('idle');
+          return;
+        }
+
         const r = parseCfdiXml(text);
         if (r.ok === false) {
           setCfdiImportError(r.errors.join(' '));
@@ -269,6 +298,76 @@ export function useImportFlow({
 
   const importCfdiAsTransaction = useCallback(async () => {
     if (!userId || !cfdiPreview || !organizationId) return;
+
+    if (cfdiNominaPreview) {
+      const n = cfdiNominaPreview;
+      let fechaIso: string;
+      try {
+        fechaIso = new Date(n.fechaPago || n.fecha).toISOString();
+      } catch {
+        setCfdiImportError('Fecha inválida en el CFDI de nómina.');
+        setCfdiPhase('error');
+        return;
+      }
+      if (isTransactionDateInClosedPeriod(fechaIso, periodosCerrados)) {
+        alert('El periodo de la fecha del CFDI está cerrado.');
+        return;
+      }
+      setCfdiImporting(true);
+      setCfdiImportError(null);
+      setCfdiPhase('processing_ai');
+      try {
+        const empleadoLabel = n.empleadoNombre.trim() || n.empleadoRfc || 'Empleado';
+        const concepto = `Nómina · ${empleadoLabel}${n.fechaPago ? ` · ${n.fechaPago}` : ''}`;
+        const docRef = await createTransaction({
+          organization_id: organizationId,
+          usuario_id: userId,
+          tipo: 'egreso',
+          monto: n.total,
+          moneda: n.moneda || 'MXN',
+          concepto,
+          proveedor: empleadoLabel,
+          fecha: fechaIso,
+          status: 'conciliado',
+          account_name: DEFAULT_NOMINA_ACCOUNT_NAME,
+          account_source: NOMINA_ACCOUNT_SOURCE,
+          tags: ['nomina'],
+          iva_tasa: 'na',
+          egreso_acredita_iva: false,
+          deducible: false,
+          fiscal_subtotal: n.subtotal,
+          fiscal_iva: 0,
+          rfc_contraparte: n.empleadoRfc || undefined,
+          cfdi_uuid: n.cfdiUuid || undefined,
+          importado_cfdi: true,
+          cfdi_tipo_comprobante: 'N',
+          is_nomina: true,
+          nomina_isr_retained: n.isrRetenido,
+          nomina_imss_retained: n.imssRetenido,
+          nomina_total_percepciones: n.totalPercepciones,
+          nomina_total_deducciones: n.totalDeducciones,
+        });
+        await logAuditEntry('NOMINA_IMPORTED', 'transactions', {
+          id: docRef.id,
+          uuid: n.cfdiUuid,
+          monto: n.total,
+          nomina_isr_retained: n.isrRetenido,
+          nomina_imss_retained: n.imssRetenido,
+        });
+        setIsCfdiImportOpen(false);
+        setCfdiPreview(null);
+        setCfdiNominaPreview(null);
+        setCfdiPhase('idle');
+      } catch (err) {
+        console.error(err);
+        setCfdiImportError('No se pudo guardar la nómina.');
+        setCfdiPhase('error');
+      } finally {
+        setCfdiImporting(false);
+      }
+      return;
+    }
+
     const d = cfdiPreview;
     let fechaIso: string;
     try {
@@ -371,6 +470,7 @@ export function useImportFlow({
       await logAuditEntry('IMPORT_CFDI', 'transactions', { id: docRef.id, uuid: d.uuid });
       setIsCfdiImportOpen(false);
       setCfdiPreview(null);
+      setCfdiNominaPreview(null);
       setCfdiPhase('idle');
     } catch (err) {
       console.error(err);
@@ -379,7 +479,15 @@ export function useImportFlow({
     } finally {
       setCfdiImporting(false);
     }
-  }, [userId, organizationId, cfdiPreview, periodosCerrados, classify, highAmountReviewThreshold]);
+  }, [
+    userId,
+    organizationId,
+    cfdiPreview,
+    cfdiNominaPreview,
+    periodosCerrados,
+    classify,
+    highAmountReviewThreshold,
+  ]);
 
   return {
     isCfdiImportOpen,
