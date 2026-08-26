@@ -7,10 +7,6 @@ import {
   User as FirebaseUser 
 } from 'firebase/auth';
 import { 
-  collection, 
-  query, 
-  onSnapshot, 
-  where,
   doc,
   getDoc,
 } from 'firebase/firestore';
@@ -45,6 +41,7 @@ import { cn, formatCurrency, formatDate } from './lib/utils';
 import { Button } from './components/ui/Button';
 import { Card } from './components/ui/Card';
 import { Badge } from './components/ui/Badge';
+import { Alert } from './components/ui/Alert';
 import { AppShell } from './components/layout/AppShell';
 import { getNavItems, getNavTitle } from './components/layout/navItems';
 import { executeAgent, AGENT_TYPES } from './services/groqAIService';
@@ -65,6 +62,7 @@ import {
   toggleOrganizationPeriodClosed,
 } from './services/organizationService';
 import { useActiveOrganization } from './hooks/useActiveOrganization';
+import { useOrgCollectionListeners } from './hooks/useOrgCollectionListeners';
 import { OrgSwitcher } from './components/org/OrgSwitcher';
 import { OrgPickerScreen } from './components/org/OrgPickerScreen';
 import { OrgMembersPanel } from './components/org/OrgMembersPanel';
@@ -105,6 +103,7 @@ import { useTheme } from './hooks/useTheme';
 import { toBankLedgerItems } from './hooks/useBankReconciliation';
 import { toPaymentLedgerItems } from './hooks/usePaymentApplications';
 import { usePolizaExport } from './hooks/usePolizaExport';
+import { TRANSACTIONS_TRUNCATED_HINT } from './lib/firestoreWindows';
 import { POLIZA_EXPORT_DISABLED_HINT } from './types/polizaExport';
 import type { CfdiClassificationPayload } from './types/cfdiBatch';
 import type { BankLedgerItem } from './types/bankReconciliation';
@@ -127,7 +126,6 @@ export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const [transactions, setTransactions] = useState<any[]>([]);
   const [selectedTransaction, setSelectedTransaction] = useState<any>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [monthlyReport, setMonthlyReport] = useState<any>(null);
@@ -135,8 +133,6 @@ export default function App() {
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isManualTxModalOpen, setIsManualTxModalOpen] = useState(false);
   const [isEditTxModalOpen, setIsEditTxModalOpen] = useState(false);
-  const [recurringTransactions, setRecurringTransactions] = useState<any[]>([]);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterStartDate, setFilterStartDate] = useState('');
@@ -169,8 +165,6 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
-  const [products, setProducts] = useState<any[]>([]);
-  const [inventoryMovements, setInventoryMovements] = useState<any[]>([]);
   const [periodosCerrados, setPeriodosCerrados] = useState<string[]>([]);
   const [fiscalRiskIndex, setFiscalRiskIndex] = useState<FiscalRiskIndex | null>(
     null
@@ -192,6 +186,19 @@ export default function App() {
     userId: user?.uid,
     email: user?.email,
     displayName: user?.displayName,
+  });
+
+  const {
+    transactions,
+    auditLogs,
+    recurringTransactions,
+    products,
+    inventoryMovements,
+    transactionsTruncated,
+  } = useOrgCollectionListeners({
+    userId: user?.uid,
+    organizationId: activeOrganizationId,
+    periodYear,
   });
 
   const [inviteToken, setInviteToken] = useState(() =>
@@ -330,109 +337,6 @@ export default function App() {
       setIsSavingSettings(false);
     }
   };
-
-  useEffect(() => {
-    if (!user || !activeOrganizationId) {
-      setTransactions([]);
-      setAuditLogs([]);
-      setRecurringTransactions([]);
-      setProducts([]);
-      setInventoryMovements([]);
-      return;
-    }
-
-    const qTransactions = query(
-      collection(db, 'transactions'),
-      where('organization_id', '==', activeOrganizationId)
-    );
-    const unsubTransactions = onSnapshot(
-      qTransactions,
-      (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-        data.sort((a, b) => new Date(b.fecha || 0).getTime() - new Date(a.fecha || 0).getTime());
-        setTransactions(data);
-      },
-      (error) => {
-        console.error('No se pudieron leer transacciones (permisos):', error);
-        setTransactions([]);
-      }
-    );
-
-    const qLogs = query(collection(db, 'audit_logs'), where('usuario_id', '==', user.uid));
-    const unsubLogs = onSnapshot(
-      qLogs,
-      (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-        data.sort((a, b) => {
-          const aTs = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : 0;
-          const bTs = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : 0;
-          return bTs - aTs;
-        });
-        setAuditLogs(data);
-      },
-      (error) => {
-        console.error('No se pudo leer bitácora (permisos):', error);
-        setAuditLogs([]);
-      }
-    );
-
-    const qRecurring = query(
-      collection(db, 'recurring_transactions'),
-      where('organization_id', '==', activeOrganizationId)
-    );
-    const unsubRecurring = onSnapshot(
-      qRecurring,
-      (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-        data.sort((a, b) => {
-          const aTs = a.creado_en?.toDate ? a.creado_en.toDate().getTime() : 0;
-          const bTs = b.creado_en?.toDate ? b.creado_en.toDate().getTime() : 0;
-          return bTs - aTs;
-        });
-        setRecurringTransactions(data);
-      },
-      (error) => {
-        console.error('No se pudieron leer recurrentes (permisos):', error);
-        setRecurringTransactions([]);
-      }
-    );
-
-    const qProducts = query(
-      collection(db, 'products'),
-      where('organization_id', '==', activeOrganizationId)
-    );
-    const unsubProducts = onSnapshot(
-      qProducts,
-      (snapshot) => {
-        const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as any[];
-        data.sort((a, b) => String(a.codigo).localeCompare(String(b.codigo)));
-        setProducts(data);
-      },
-      () => setProducts([])
-    );
-
-    const qInv = query(
-      collection(db, 'inventory_movements'),
-      where('organization_id', '==', activeOrganizationId)
-    );
-    const unsubInv = onSnapshot(
-      qInv,
-      (snapshot) => {
-        const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as any[];
-        data.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-        setInventoryMovements(data);
-      },
-      () => setInventoryMovements([])
-    );
-
-    return () => {
-      unsubTransactions();
-      unsubLogs();
-      unsubRecurring();
-      unsubProducts();
-      unsubInv();
-    };
-  }, [user, activeOrganizationId]);
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
@@ -1144,8 +1048,12 @@ export default function App() {
   const executiveSnapshot = useMemo(
     () =>
       buildExecutiveSnapshot({
-        allTransactions: transactions,
-        periodTransactions: transactionsInPeriod,
+        allTransactions: transactions as unknown as Parameters<
+          typeof buildExecutiveSnapshot
+        >[0]['allTransactions'],
+        periodTransactions: transactionsInPeriod as unknown as Parameters<
+          typeof buildExecutiveSnapshot
+        >[0]['periodTransactions'],
         periodYear,
         periodMonth,
         tax: {
@@ -1362,6 +1270,11 @@ export default function App() {
         userDisplayName={user.displayName}
         userPhotoURL={user.photoURL}
       >
+          {transactionsTruncated ? (
+            <Alert variant="warning" title="Volumen alto de transacciones" className="mb-4">
+              {TRANSACTIONS_TRUNCATED_HINT}
+            </Alert>
+          ) : null}
           {isMigratedNavTabId(activeTab) ? (
             <AppTabRouter activeTab={activeTab} dashboardMode={dashboardMode}>
               {activeTab === 'overview' && (
