@@ -116,6 +116,12 @@ export function useActiveOrganization({
         console.error('[E8.3] Error en bootstrap de organizaciones:', e);
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Error al cargar organizaciones');
+          // Intentar cargar memberships aunque falle bootstrap/backfill
+          try {
+            await refreshSummaries(userId);
+          } catch (refreshErr) {
+            console.error('[E8.3] refreshSummaries tras error:', refreshErr);
+          }
         }
       } finally {
         if (!cancelled) {

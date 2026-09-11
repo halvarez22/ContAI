@@ -297,7 +297,23 @@ export function useImportFlow({
   );
 
   const importCfdiAsTransaction = useCallback(async () => {
-    if (!userId || !cfdiPreview || !organizationId) return;
+    if (!userId) {
+      setCfdiImportError('Sesión no válida. Cierra sesión y vuelve a entrar.');
+      setCfdiPhase('error');
+      return;
+    }
+    if (!organizationId) {
+      setCfdiImportError(
+        'No hay empresa activa. Recarga la página o crea/elige una empresa en el selector. Si ves error de permisos Firebase en consola, el bootstrap de organización falló.'
+      );
+      setCfdiPhase('error');
+      return;
+    }
+    if (!cfdiPreview) {
+      setCfdiImportError('Primero carga un archivo XML.');
+      setCfdiPhase('error');
+      return;
+    }
 
     if (cfdiNominaPreview) {
       const n = cfdiNominaPreview;
@@ -468,13 +484,24 @@ export function useImportFlow({
       }
 
       await logAuditEntry('IMPORT_CFDI', 'transactions', { id: docRef.id, uuid: d.uuid });
+      const periodHint = fechaIso.slice(0, 7);
+      setCfdiImportError(null);
       setIsCfdiImportOpen(false);
       setCfdiPreview(null);
       setCfdiNominaPreview(null);
       setCfdiPhase('idle');
+      window.alert(
+        `Transacción registrada.\n\nEl CFDI es del periodo ${periodHint}. Cambia año/mes arriba a ese periodo para verla en Panel y Transacciones.`
+      );
     } catch (err) {
       console.error(err);
-      setCfdiImportError('No se pudo guardar la transacción.');
+      const detail =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Error desconocido';
+      setCfdiImportError(
+        `No se pudo guardar la transacción. ${detail}`.slice(0, 400)
+      );
       setCfdiPhase('error');
     } finally {
       setCfdiImporting(false);

@@ -368,12 +368,36 @@ export async function bootstrapUserOrganizations(
   }
 
   let backfillDone = false;
-  for (let pass = 0; pass < 8; pass++) {
-    const result = await backfillLegacyOrgMainDocs(input.userId, organizationId);
-    if (result.done) {
-      backfillDone = true;
-      break;
+  try {
+    for (let pass = 0; pass < 8; pass++) {
+      const result = await backfillLegacyOrgMainDocs(input.userId, organizationId);
+      if (result.done) {
+        backfillDone = true;
+        break;
+      }
     }
+  } catch (e) {
+    // E8.3/piloto: sin membresía en org_main el backfill puede fallar por rules.
+    // No bloqueamos el login ni la org personal — el usuario debe poder operar.
+    console.warn(
+      '[E8.1] Backfill org_main omitido (permisos o query). Org activa OK:',
+      organizationId,
+      e
+    );
+    try {
+      await setDoc(
+        doc(db, 'users', input.userId),
+        {
+          org_migrated_at: serverTimestamp(),
+          org_backfill_skipped: true,
+          actualizado_en: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch {
+      /* no bloquear */
+    }
+    backfillDone = true;
   }
   return { organizationId, backfillDone };
 }
