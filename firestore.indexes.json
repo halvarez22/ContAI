@@ -65,6 +65,15 @@
       ]
     },
     {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "source", "order": "ASCENDING" },
+        { "fieldPath": "demo_period_key", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "organization_invitations",
       "queryScope": "COLLECTION",
       "fields": [

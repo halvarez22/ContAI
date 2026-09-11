@@ -26,6 +26,7 @@ export function OverviewSection({
   onOpenManualTx,
   onOpenCfdiImport,
   onOpenExcelImport,
+  demoSeed,
 }: OverviewSectionProps) {
   return (
     <>
@@ -54,6 +55,7 @@ export function OverviewSection({
           onOpenCfdiImport={onOpenCfdiImport}
           onOpenExcelImport={onOpenExcelImport}
           onTaskAction={() => onNavigateTab('transactions')}
+          demoSeed={demoSeed}
         />
       )}
     </>

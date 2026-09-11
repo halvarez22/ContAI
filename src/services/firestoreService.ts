@@ -290,4 +290,38 @@ export async function listPaymentApplicationsByTarget(
   });
 }
 
+/**
+ * E14.0 — IDs de TX demo del periodo (tríada org + source + demo_period_key).
+ * Requiere índice compuesto en firestore.indexes.json.
+ */
+export async function queryDemoSeedTransactionIds(
+  organizationId: string,
+  periodKey: string,
+  source: string = 'demo_seed'
+): Promise<string[]> {
+  const q = query(
+    collection(db, 'transactions'),
+    where('organization_id', '==', organizationId),
+    where('source', '==', source),
+    where('demo_period_key', '==', periodKey)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => d.id);
+}
+
+/** E14.0 — borra docs por id en chunks (writeBatch). */
+export async function deleteTransactionDocsByIds(ids: readonly string[]): Promise<number> {
+  let deleted = 0;
+  for (let i = 0; i < ids.length; i += BATCH_CHUNK) {
+    const batch = writeBatch(db);
+    const chunk = ids.slice(i, i + BATCH_CHUNK);
+    for (const id of chunk) {
+      batch.delete(doc(db, 'transactions', id));
+    }
+    await batch.commit();
+    deleted += chunk.length;
+  }
+  return deleted;
+}
+
 export { serverTimestamp, BATCH_CHUNK };

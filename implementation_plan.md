@@ -1,227 +1,293 @@
-# Implementation Plan — E13.2 · Asiento de nómina dinámico en exportación de póliza
+# Implementation Plan — E14.0 · Demo Seed (mes contable verificable)
 
-**Estado:** pendiente de aprobación explícita (APO — cero código hasta OK).  
-**Fecha:** 2026-08-26  
-**Prerequisito cerrado:** E13.1 (`is_nomina`, metadatos ISR/IMSS/percepciones en TX; **sin** TX de pasivo en Firestore).
+**Estado:** APROBADO CONDICIONALMENTE por auditor (Qwen) — plan **enmendado** con 4 correcciones + respuestas §11.  
+**Pendiente:** Visto Bueno Final (APO) tras esta enmienda → luego código.  
+**Fecha:** 2026-09-11 (rev. 2 — post-dictamen Qwen)  
+**Excepción APO:** única ocasión autorizada para inyectar datos de demostración.  
+**Prerequisito:** E13.1 + E13.2 cerrados.
 
 ---
 
-## 1. Diagnóstico (estado actual)
+## 0. Enmiendas obligatorias (dictamen Qwen) — INCORPORADAS
 
-### Lo que E13.1 dejó listo
-| Dato | Campo Firestore | Origen |
-|------|-----------------|--------|
-| Neto pagado | `monto` | `Comprobante@Total` |
-| ISR retenido | `nomina_isr_retained` | Deducción tipo `002` |
-| IMSS retenido | `nomina_imss_retained` | Deducción tipo `001` |
-| Percepciones brutas | `nomina_total_percepciones` | `Nomina@TotalPercepciones` |
-| Flag | `is_nomina: true` | Router nómina |
-| Cuenta gasto | `account_name` | `Gastos de Nómina` (default) |
+| # | Hallazgo | Corrección en este plan |
+|---|----------|-------------------------|
+| 1 | Purge solo por `source` es frágil | Purge compuesto: `organization_id` + `source == 'demo_seed'` + `demo_period_key == 'YYYY-MM'`; cada carga genera `demo_batch_id` UUID; docs llevan ambos campos |
+| 2 | `source?: string` laxo | Unión tipada `TransactionIngestSource` (literal) |
+| 3 | TX #7 “sin cuenta” desperdicia killer feature IA | Sustituir por egreso **pre-sugerido por IA** (metadata estática, sin llamar Groq): `account_source: 'ai'`, `confidence_score`, `status: 'revisión'` |
+| 4 | Kill-switch opcional | **`VITE_ENABLE_DEMO_SEED=true` obligatorio**; sin flag → CTA y lógica inertes / no render |
 
-### Problema (eslabón faltante)
-`polizaExportService.buildPolizaLinesForTx` genera **2 líneas** por TX egreso:
-- Cargo → cuenta (`Gastos de Nómina`)
-- Abono → `Bancos` (neto)
+**§9 respuestas del auditor (congeladas):**  
+5.1=B Panel · 5.2=A org activa · 5.3=A owner/admin · 5.4=A prefijar+CSV · 5.5=A periodo UI · 5.6=A + flag env **obligatorio**.
 
-Para nómina MX estándar se necesitan **4 líneas** (mismo `txId`, un asiento):
-1. **Cargo** Gastos de Nómina → **bruto** (`nomina_total_percepciones` o `neto + ISR + IMSS`)
-2. **Abono** ISR por Pagar → `nomina_isr_retained`
-3. **Abono** IMSS por Pagar → `nomina_imss_retained`
-4. **Abono** Bancos → `monto` (neto)
+---
 
-### Brecha en el pipeline hoy
-`App.tsx` mapea TX a `PolizaTxInput` **sin** campos nómina → aunque existan en Firestore, la exportación no los ve.
+## 1. Diagnóstico técnico actual
 
-```1018:1029:src/App.tsx
-  const polizaExport = usePolizaExport({
-    transactions: transactionsInPeriod.map((tx) => ({
-      id: String(tx.id),
-      // ... sin is_nomina, nomina_isr_retained, etc.
-    })),
+### Qué existe
+| Área | Estado | Ruta canónica |
+|------|--------|---------------|
+| Persistencia TX | `transactions` + `writeBatch` vía `firestoreService` | `src/services/firestoreService.ts` |
+| Tipo TX | `TransactionDoc` (+ nómina E13.1) | `src/types/transaction.ts` |
+| Org activa | Multi-tenant | `useActiveOrganization.ts` |
+| Conciliación CSV | `fecha,monto,descripción` | `bankReconciliationService.ts` |
+| Póliza elegible | `account_name` + bank full/reconciled | `polizaExportService.ts` |
+| KPIs / Tax | Cliente | `operationalDashboardService.ts`, `taxCalculatorService.ts` |
+| Metadata IA ya en schema | `account_name`, `account_source: 'ai'`, `confidence_score`, `agente_ia_decision`, `status: 'revisión'` | `transaction.ts`, `cfdiBatchImportService.ts` |
+| Índice purge demo | **No existe** `(organization_id, source, demo_period_key)` en `transactions` | `firestore.indexes.json` |
+| Seed de producto | No existe | — |
+
+### Problema
+Piloto con org vacía → módulos en 0; no puede corroborar cálculos ni el ciclo contable.
+
+### Qué NO resuelve
+Descarga SAT productiva, Contalink, catálogo UI, seed sin flag en prod.
+
+---
+
+## 2. Grafo de impacto
+
+```
+[env VITE_ENABLE_DEMO_SEED=true] ──si false──► CTA oculto / service no-op
+        ↓ true
+[UI Panel: "Cargar mes demo"] (solo owner/admin)
+        ↓ confirmación
+[useDemoSeed] idle→loading→success|error
+        ↓
+[demoSeedService]
+   1. buildDemoSeedBundle(periodKey)           // determinista + demo_batch_id
+   2. purgeDemoSeed(orgId, periodKey)          // query compuesta estricta
+   3. commit batches vía firestoreService
+   4. buildDemoBankCsv(bundle) → download
+        ↓
+[Firestore] transactions { source, demo_period_key, demo_batch_id, ... }
+        ↓
+listeners → Panel / Transacciones / Fiscal / Póliza
 ```
 
-### Por qué NO crear TX de pasivo (recordatorio)
-El banco muestra 1 movimiento neto (o dispersión global). Pasivos solo en **momento exportación** — coherente con Opción B del auditor.
+**No tocar:** Groq runtime, Descarga SAT, Inventario, rules de create (salvo validación de campos nuevos si rules lo exigen — ver STOP).
 
 ---
 
-## 2. Estrategia (quirúrgica, sin tocar conciliación)
+## 3. Diseño del dataset (determinista)
 
-### 2.1 Extender contratos
-**Archivo:** `src/types/polizaExport.ts`
-
-Añadir a `PolizaTxInput` (opcionales, merge-only):
-- `is_nomina?: boolean`
-- `nomina_isr_retained?: number`
-- `nomina_imss_retained?: number`
-- `nomina_total_percepciones?: number`
-
-Añadir a `BuildPolizaDiarioParams` (opcional):
-- `nominaIsrCuenta?: string`
-- `nominaImssCuenta?: string`
-- ( `contraCuenta` ya existe para Bancos )
-
-Defaults en **`src/config/nominaDefaults.ts`** (extender, no duplicar):
+**Periodo:** `periodKey` del UI (`YYYY-MM`).  
+**Campos de gobernanza en CADA TX demo:**
 ```ts
-export const DEFAULT_NOMINA_ISR_ACCOUNT = 'ISR por Pagar';
-export const DEFAULT_NOMINA_IMSS_ACCOUNT = 'IMSS por Pagar';
+source: 'demo_seed'
+demo_period_key: 'YYYY-MM'   // = periodKey UI
+demo_batch_id: '<uuid-v4>'   // mismo UUID para todo el batch de esa carga
 ```
 
-**Alcance piloto:** solo defaults en código (como `Gastos de Nómina` en E13.1).  
-**Fuera de E13.2:** panel Configuración para editar cuentas ISR/IMSS en Firestore (E13.3 si el piloto lo pide).
+**Volumen (~18 TX):**
 
-### 2.2 Lógica de líneas nómina
-**Archivo:** `src/services/polizaExportService.ts`
+| # | Tipo | Rol | Cuenta / IA | Conciliado |
+|---|------|-----|-------------|------------|
+| 1–3 | ingreso | Ventas IVA 16% | Ingresos por Ventas | 2 sí / 1 no |
+| 4–6 | egreso | Gastos IVA acred. 16% | Gastos Operativos | 2 sí / 1 no |
+| **7** | egreso | **Showcase IA** | `account_name: 'Gastos Operativos'`, `account_source: 'ai'`, `confidence_score: 0.92`, `status: 'revisión'`, `agente_ia_decision: 'approve_with_account'` | no |
+| 8 | egreso | Cola revisión humana | cuenta + status revisión (sin IA o baja confianza) | no |
+| 9–10 | egreso | Nómina 4 líneas | Gastos de Nómina + metadatos E13 | sí |
+| 11 | egreso | Nómina sin IMSS (3 líneas) | idem | sí |
+| 12–14 | mix | partial / none bank | con cuenta | partial/none |
+| 15–16 | egreso | IVA 0% / exento | catálogo | sí |
+| 17–18 | ingreso | Diversidad proveedor | Ingresos | sí |
 
-Nueva función pura:
+> **Cambio vs rev.1:** se elimina el “gasto sin cuenta” como caso principal; el wow es **sugerencia IA lista para aprobar** (TX #7). Opcional: 1 TX adicional sin `account_name` solo si hace falta poblar KPI “Sin clasificar” — máximo 1, no el foco.
+
+**Anclas numéricas (verificación piloto):**
+
+| Caso | Monto / Neto | Bruto | ISR | IMSS | Esperado |
+|------|--------------|-------|-----|------|----------|
+| Nómina A | 8,500 | 10,000 | 1,200 | 300 | Póliza 4 líneas; Σ=10,000 |
+| Nómina B | 9,700 | (neto+ISR) | 1,200 | 0 | Póliza 3 líneas |
+| Venta 16% | 11,600 | 10,000+1,600 | — | — | IVA trasladado 1,600 |
+| Compra 16% acred. | 5,800 | 5,000+800 | — | — | IVA acreditable 800 |
+| IA #7 | monto redondo (ej. 2,320) | — | — | — | UI muestra confianza 92% + cuenta sugerida |
+
+**CSV gemelo:** generado desde el bundle (fechas/montos de TX conciliables + 1 fila split 1↔N).
+
+---
+
+## 4. Purge — contrato de seguridad (Hallazgo 1)
+
+```
+query transactions where
+  organization_id == :activeOrgId
+  AND source == 'demo_seed'
+  AND demo_period_key == :periodKey
+→ delete en batches ≤400
+```
+
+**Garantías:**
+- Nunca borrar por `source` solo.
+- Nunca borrar TX sin `demo_period_key` coincidente.
+- TX reales (sin `source: 'demo_seed'`) **intocables**.
+- Tests: fixture con TX real misma org/periodo **no** se elimina.
+- `demo_batch_id` se escribe en todas las TX del seed; útil para auditoría/debug; el purge operativo usa la tríada org+source+period (idempotencia por periodo).
+
+**Índice Firestore (obligatorio en este entregable):** agregar a `firestore.indexes.json`:
+
+```json
+{
+  "collectionGroup": "transactions",
+  "queryScope": "COLLECTION",
+  "fields": [
+    { "fieldPath": "organization_id", "order": "ASCENDING" },
+    { "fieldPath": "source", "order": "ASCENDING" },
+    { "fieldPath": "demo_period_key", "order": "ASCENDING" }
+  ]
+}
+```
+
+Desplegar índice antes o junto al merge a `main` (documentar en DoD / manual: `firebase deploy --only firestore:indexes` si CI no lo hace).
+
+**Fallback si el índice aún no está habilitado:** error claro al usuario (“índice demo en provisión”); **prohibido** escanear toda la org en cliente para borrar.
+
+---
+
+## 5. Tipificación (Hallazgo 2)
+
+En `src/types/transaction.ts` (o `src/types/demoSeed.ts` reexportado):
+
 ```ts
-buildNominaPolizaLinesForTx(tx, opts): PolizaLine[]
+export type TransactionIngestSource =
+  | 'demo_seed'
+  | 'sat_download'
+  | 'manual'
+  | 'csv_import'
+  | 'cfdi_import'
+  | 'excel_import';
+
+// en TransactionDoc:
+source?: TransactionIngestSource;
+demo_period_key?: string; // 'YYYY-MM'
+demo_batch_id?: string;
 ```
 
-Reglas:
-| # | Regla |
-|---|--------|
-| 1 | Solo si `tx.is_nomina === true` y `tipo === 'egreso'` |
-| 2 | `neto = roundMoney(tx.monto)` |
-| 3 | `isr = roundMoney(tx.nomina_isr_retained ?? 0)` |
-| 4 | `imss = roundMoney(tx.nomina_imss_retained ?? 0)` |
-| 5 | `bruto = roundMoney(tx.nomina_total_percepciones ?? neto + isr + imss)` |
-| 6 | Validar cuadre: `bruto === neto + isr + imss` (tolerancia ±0.02). Si falla → **warning en concepto** o fallback a asiento simple 2 líneas (neto) — ver §5 |
-| 7 | Generar 4 líneas; **omitir** líneas ISR/IMSS si monto = 0 |
-| 8 | Mismo `concepto` / `fecha` / `txId` en las 4 |
-| 9 | Cuentas: cargo = `tx.account_name`; abonos = defaults configurables |
-
-`buildPolizaLinesForTx`: al inicio, si nómina → delegar a `buildNominaPolizaLinesForTx`.
-
-### 2.3 Conteo de elegibles / asientos
-Hoy: `eligibleCount = lines.length / 2` → **incorrecto** con 4 líneas.
-
-Cambio: contar **transacciones exportadas** (1 nomina = 1 asiento), no pares de líneas.
-- Variable interna: `exportedTxCount`
-- Header TXT: `# elegibles=${exportedTxCount}` (semántica: asientos, no líneas)
-- Feedback UI hook: "N asiento(s)" — sin cambio de copy si ya dice asientos
-
-### 2.4 Cableado UI → service
-**Archivo:** `src/App.tsx`  
-Pasar en el map a `usePolizaExport`:
-- `is_nomina`, `nomina_isr_retained`, `nomina_imss_retained`, `nomina_total_percepciones`
-
-**Archivo:** `src/hooks/usePolizaExport.ts`  
-Opcional: pasar `contraCuenta` / cuentas pasivo si en el futuro vienen de org (E13.2 solo defaults).
-
-### 2.5 Sin cambios
-- Conciliación bancaria (E9.1)
-- Importación nómina (E13.1)
-- Firestore schema (campos ya existen)
-- Formato `.txt` (mismo delimitador `;`, mismas columnas)
-- Groq / classify
+Constante canónica: `DEMO_SEED_SOURCE = 'demo_seed' as const` en `src/config/demoSeed.ts`.
 
 ---
 
-## 3. Grafo de impacto
+## 6. Showcase IA sin costo de API (Hallazgo 3 + respuesta §11.2)
 
-```text
-Transacciones periodo (Firestore, is_nomina + metadatos)
-       → App.tsx map PolizaTxInput (+ campos nómina)
-       → usePolizaExport → buildPolizaDiarioTxt
-            → buildPolizaLinesForTx
-                 ├─ is_nomina? → buildNominaPolizaLinesForTx (4 líneas)
-                 └─ else → 2 líneas actuales
-       → computePolizaTotals (balance global)
-       → download .txt
-```
-
-**Archivos tocados:** mínimo 5 (+ tests + manual).
+- **No** invocar `groqAIService` en el seed.
+- Inyectar metadata **estática** alineada al schema real ya usado en import CFDI:
+  - `account_name: 'Gastos Operativos'`
+  - `account_source: 'ai'`
+  - `confidence_score: 0.92`
+  - `status: 'revisión'` (o el valor que la UI ya trata como “requiere aprobación”)
+  - `agente_ia_decision` / reason corta fija (“Sugerencia demo: gasto operativo recurrente”)
+- El piloto ve confianza + cuenta sugerida → puede Aprobar; eso demuestra el diferencial vs Contalink **sin** tokens Groq ni no-determinismo.
 
 ---
 
-## 4. Archivos
+## 7. Kill-switch (Hallazgo 4)
 
-| Acción | Ruta | Responsabilidad |
-|--------|------|-----------------|
-| Modificar | `src/types/polizaExport.ts` | Campos nómina en `PolizaTxInput` |
-| Modificar | `src/config/nominaDefaults.ts` | Cuentas default ISR/IMSS |
-| Modificar | `src/services/polizaExportService.ts` | `buildNominaPolizaLinesForTx` + fix conteo |
-| Modificar | `src/App.tsx` | Map metadatos nómina al export |
-| Modificar | `src/services/polizaExportService.test.ts` | Casos nómina 4 líneas + balance |
-| Modificar | `docs/MANUAL_USUARIO.md` | § Exportación: asiento nómina automático |
-| Opcional | `src/hooks/usePolizaExport.test.ts` | Smoke si hace falta |
+| Capa | Comportamiento si `VITE_ENABLE_DEMO_SEED` ≠ `'true'` |
+|------|------------------------------------------------------|
+| UI Panel | No renderiza el botón |
+| `useDemoSeed` | `enabled: false`; `runSeed` no-op / error controlado |
+| `demoSeedService.commitDemoSeed` | Guard clause: throw/`ok:false` “Demo seed deshabilitado” |
+| Producción Vercel | Flag **ausente** por defecto → inerte; solo se activa en proyecto piloto / preview con env explícito |
 
-**Prohibido:** nuevas TX en Firestore, cambios conciliación, XML ERP, cálculo ISR/IMSS.
+Documentar en `.env.example`: `VITE_ENABLE_DEMO_SEED=false`.
 
 ---
 
-## 5. Preguntas críticas (resolver en aprobación)
+## 8. Archivos a crear
 
-1. **Fallback si metadatos incompletos** (sin ISR/IMSS/percepciones):  
-   - **A)** Asiento simple 2 líneas (neto) — seguro, no bloquea export.  
-   - **B)** Omitir TX con reason `nomina_metadatos_incompletos`.  
-   **Recomendación auditoría:** **A** con concepto suffix `[nomina: pasivos omitidos]`.
-
-2. **Descuadre aritmético bruto ≠ neto+ISR+IMSS** (>0.02):  
-   - Usar `bruto = neto + isr + imss` recalculado y continuar (warning), no rechazar export.
-
-3. **¿Incluir líneas ISR/IMSS en $0.00?**  
-   **Recomendación:** no (omitir líneas cero).
-
-4. **Config cuentas pasivo en UI**  
-   **E13.2:** solo defaults. **E13.3:** catálogo org si piloto lo exige.
+| Ruta | Responsabilidad |
+|------|-----------------|
+| `src/config/demoSeed.ts` | Constantes, anclas, `DEMO_SEED_SOURCE`, copy UI |
+| `src/types/demoSeed.ts` | Bundle, Result, estados |
+| `src/services/demoSeedService.ts` | build / purge (query tríada) / commit / CSV |
+| `src/services/demoSeedService.test.ts` | ≥8 tests (ver §10) |
+| `src/hooks/useDemoSeed.ts` | Orquestación UI + gate flag + roles |
+| `docs/DEMO_SEED_VERIFICACION.md` | Hoja de verificación numérica |
 
 ---
 
-## 6. Plan de pruebas
+## 9. Archivos a modificar
 
-### Unitarias (`polizaExportService.test.ts`)
-
-| # | Caso | Esperado |
-|---|------|----------|
-| 1 | Nómina completa: neto 8500, ISR 1200, IMSS 300, percepciones 10000 | 4 líneas; cargos=10000; abonos=10000 |
-| 2 | Nómina sin IMSS (0) | 3 líneas (sin abono IMSS) |
-| 3 | TX normal egreso (no nómina) | 2 líneas — regresión |
-| 4 | Batch mixto nómina + factura | balance global TXT |
-| 5 | `eligibleCount` / asientos | 1 nomina + 1 factura = 2 asientos, no `lines/2` roto |
-
-### Regresión
-- Suite global ≥218 passed
-- `tsc --noEmit` limpio
-
-### Smoke manual piloto
-1. Importar XML nómina → conciliar banco → Exportar póliza  
-2. Abrir `.txt`: ver 4 líneas por empleado, cuadre cargos=abonos
+| Ruta | Cambio |
+|------|--------|
+| `src/types/transaction.ts` | `TransactionIngestSource` + `source` / `demo_period_key` / `demo_batch_id` |
+| `src/services/firestoreService.ts` | `queryDemoSeedTransactions(orgId, periodKey)` + `deleteTransactionDocs(ids)` (batches); sin SDK fuera de este service |
+| `firestore.indexes.json` | Índice compuesto §4 |
+| `src/components/sections/OverviewSection.tsx` (o Panel operativo) | CTA + banner si hay demo en periodo |
+| `src/App.tsx` | Wire hook, periodo, org, rol, flag |
+| `.env.example` | `VITE_ENABLE_DEMO_SEED=false` |
+| `docs/MANUAL_USUARIO.md` | Cómo activar flag (admin), cargar demo, verificar |
+| `implementation_plan.md` | Este documento |
 
 ---
 
-## 7. Manual de usuario (delta)
+## 10. Estrategia de pruebas (≥8)
 
-En **§6 Exportación contable**, añadir párrafo:
-- Las nóminas (`is_nomina`) generan asiento de 4 partidas al exportar (Gasto bruto, ISR por pagar, IMSS por pagar, Banco neto).
-- La conciliación sigue usando **solo el egreso neto** en Transacciones.
-- Cuentas de pasivo: defaults del sistema (configurables en versión futura).
+1. Bundle: conteos y anclas numéricas.  
+2. Toda TX lleva `source`, `demo_period_key`, `demo_batch_id`.  
+3. TX #7: `account_source==='ai'` y `confidence_score===0.92`.  
+4. `isPolizaEligible` count esperado > 0; póliza balancea.  
+5. Nómina A → 4 líneas; Nómina B → 3 líneas.  
+6. **Purge safety:** set mixto (demo + real) → solo se seleccionan docs con tríada; real intacto.  
+7. Guard `VITE_ENABLE_DEMO_SEED` off → commit rechazado.  
+8. CSV parseable por `parseBankCsv`.  
+9. (Opcional) Tax Preview anclas IVA ±0.01.
 
----
-
-## 8. Criterios de aceptación (DoD)
-
-- [ ] `PolizaTxInput` incluye campos nómina; `App.tsx` los pasa
-- [ ] Nómina elegible exporta 4 líneas (o 3 si IMSS/ISR = 0) balanceadas
-- [ ] Bruto = percepciones almacenadas o neto+ISR+IMSS
-- [ ] TX no-nómina sin regresión (2 líneas)
-- [ ] Conteo asientos corregido (no `lines/2`)
-- [ ] Tests ≥5 casos nuevos/extendidos en polizaExportService
-- [ ] Manual actualizado
-- [ ] Suite + tsc limpios
-- [ ] Commit solo tras evidencia cruda y OK auditor
+Regresión: suite global verde; `tsc --noEmit`.
 
 ---
 
-## 9. Fuera de alcance (E13.3+)
+## 11. Respuestas a solicitud de información (auditor)
 
-- Cuentas ISR/IMSS editables en Configuración (Firestore)
-- Agrupación de 50 nóminas en 1 asiento global (dispersión bancaria única)
-- Póliza XML CONTPAQi / COI nativo
-- Recalcular ISR/IMSS desde catálogo SAT
+### 11.1 Índices Firestore
+**Respuesta:** Hoy **no** existe un índice compuesto `(organization_id, source, demo_period_key)` en `transactions`. Los listeners cargan por `organization_id` solo; el único índice de `transactions` relevante es `(organization_id, cfdi_uuid)`.
+
+**Acción en plan:** E14.0 **incluye** agregar ese índice en `firestore.indexes.json` y listarlo en DoD. Sin índice, el purge compuesto fallará en runtime con link de consola Firebase — no se usará full-scan cliente.
+
+### 11.2 Integración con IA
+**Respuesta:** **Basta (y se exige) inyectar metadata estática** (`account_source: 'ai'`, `confidence_score`, etc.) **sin** invocar Groq. Motivos: determinismo, cero costo API, evidencias reproducibles, alineado a Memoria de contabilidad autónoma **demostrable** en UI sin acoplar el seed a latencia/red.
 
 ---
 
-**Entregable:** este plan.  
-**Siguiente paso:** respuesta **"APROBADO E13.2"** + respuestas §5 → implementación → evidencia → commit.
+## 12. Criterios de aceptación (DoD)
+
+- [ ] Flag `VITE_ENABLE_DEMO_SEED=true` requerido; sin él no hay CTA ni escritura.
+- [ ] CTA en Panel General; solo owner/admin.
+- [ ] ≥15 TX en org activa con `source/demo_period_key/demo_batch_id`.
+- [ ] Purge por tríada; test de no-borrado de TX reales.
+- [ ] Índice compuesto documentado y en `firestore.indexes.json`.
+- [ ] TX showcase IA con confianza visible (sin llamada Groq).
+- [ ] Panel KPIs ≠ 0; Tax Preview acorde a hoja; póliza balanceada; nómina 4 y 3 líneas.
+- [ ] CSV gemelo descargable / `parseBankCsv` OK.
+- [ ] Manual + `DEMO_SEED_VERIFICACION.md`.
+- [ ] ≥8 tests nuevos; suite global OK; `tsc` limpio.
+- [ ] Sin commit hasta dictamen final.
+
+---
+
+## 13. Orden de ejecución (tras Visto Bueno Final)
+
+1. Types + config + índice.  
+2. `firestoreService` query/delete + `demoSeedService` + tests.  
+3. Hook + UI Panel + banner + `.env.example`.  
+4. Docs verificación + manual.  
+5. Evidencia: vitest, tsc, diff --stat, snippet purge tríada + guard flag.  
+6. Commit tentativo: `feat(E14.0): deterministic demo month seed with safe purge and AI showcase`
+
+---
+
+## 14. Fuera de alcance
+
+- E14.1 SAT productivo  
+- E14.2 Empty states educativos ampliados  
+- E13.3 Catálogo pasivos UI  
+- Llamadas Groq dentro del seed  
+
+---
+
+**Confirmación del autor al auditor:**  
+1) Preguntas §11 respondidas.  
+2) Plan actualizado con las 4 correcciones (purge tríada + `demo_batch_id`, unión tipada, showcase IA estático, kill-switch obligatorio + índice).  
+3) **Cero código** hasta **Visto Bueno Final (APO)**.

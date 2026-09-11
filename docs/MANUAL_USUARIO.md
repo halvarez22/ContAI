@@ -37,6 +37,24 @@ Si no puedes entrar, pide a tu administrador que confirme tu invitación y que e
 
 ---
 
+## 📌 1.1 Mes demo (para conocer ContAI sin XML propios)
+
+### 🎯 Objetivo
+Cargar un mes de ejemplo con números conocidos para recorrer Panel, Transacciones, Fiscal, Conciliación y Exportar póliza **antes** de importar los XML de tu cliente.
+
+### 🛠️ Paso a paso
+1. Verifica **año y mes** arriba (el demo se carga en ese periodo).
+2. En **Panel general** (modo Operativo) → Acciones rápidas → **Cargar mes demo**.
+3. Confirma. ContAI elimina solo movimientos **demo previos del mismo periodo** y crea ~18 transacciones de ejemplo.
+4. Se descarga `banco_demo_YYYY-MM.csv` para practicar Conciliación.
+5. Verás el banner **Datos de demostración** mientras existan esos movimientos.
+
+**Requisitos:** tu administrador debe tener activada la variable `VITE_ENABLE_DEMO_SEED=true` en el entorno, y tu rol debe ser **propietario** o **administrador**. Si no ves el botón, pide que activen el flag o usa **Importar CFDI** con XML reales.
+
+**Importante:** el mes demo **no** es Descarga SAT. Los cálculos (IVA, nómina de 4 partidas, póliza) sí pasan por el mismo motor que producción. Detalle numérico: `docs/DEMO_SEED_VERIFICACION.md`.
+
+---
+
 ## 📌 2. Importación de datos
 
 ### 🎯 Objetivo
@@ -68,13 +86,56 @@ Al trabajar aquí obtendrás movimientos ya registrados (o listos para revisar),
 4. Lee el aviso de la pantalla: en el piloto suele estar en **modo simulación / prueba**, sin conexión real permanente al portal del SAT. Úsalo solo como indique tu administrador.
 
 **D) Recibos de nómina (XML timbrado)**
-1. Usa la misma puerta **Importar CFDI** (no hay módulo aparte de nómina).
-2. Si el archivo es un recibo de nómina del SAT (tipo nómina), ContAI crea **un solo egreso** por el monto neto pagado al empleado.
-3. La cuenta se asigna automáticamente a **Gastos de Nómina** (sin pedir clasificación a la asistencia).
-4. El RFC y nombre del empleado quedan en el movimiento para conciliar con el banco. Retenciones como ISR o IMSS se guardan como datos de apoyo; **no** generan movimientos bancarios aparte en esta versión.
+
+> **Importante:** ContAI **no tiene un menú aparte de “Nómina”**. Los recibos de nómina del SAT se importan por la misma puerta que los CFDI de facturas. El ciclo completo es: **importar → revisar en Transacciones → conciliar banco → exportar póliza**.
+
+**Dónde está cada paso en pantalla**
+
+| Paso | Dónde en ContAI |
+|------|-----------------|
+| Importar XML de nómina | **Panel general** → Acciones rápidas → **Importar CFDI** (también en **Fiscal** → Importar CFDI) |
+| Ver movimientos importados | Menú **Transacciones** |
+| Cruzar con el banco | Menú **Conciliación** |
+| Generar asiento de 4 partidas | **Transacciones** → **Exportar póliza (.txt)** |
+
+**Paso a paso — nómina de principio a fin**
+1. Verifica **año y mes** arriba (deben coincidir con la fecha del recibo).
+2. En **Panel general**, haz clic en **Importar CFDI** y elige el XML timbrado del recibo de nómina (puedes seleccionar varios a la vez).
+3. Espera a que termine el lote. Si un archivo falla, anota el nombre y el mensaje de error.
+4. Abre **Transacciones** y localiza los egresos nuevos:
+   - **Cuenta:** Gastos de Nómina (asignada automáticamente, sin asistencia de IA).
+   - **Concepto:** suele verse como `Nómina · [nombre del empleado] · [fecha]`.
+   - **Monto:** el **neto** pagado al empleado (lo que salió del banco), no el bruto.
+   - **Proveedor / contraparte:** nombre y RFC del empleado.
+5. Ve a **Conciliación**, sube el CSV del banco y cruza cada egreso de nómina con su transferencia o depósito. Confirma la fila.
+6. Regresa a **Transacciones** y haz clic en **Exportar póliza (.txt)**. Ahí se arma el asiento contable completo (ver sección 6).
+
+**Qué hace ContAI con cada XML de nómina**
+- Crea **un solo egreso** por recibo (monto neto = `Comprobante@Total` del XML).
+- Asigna la cuenta **Gastos de Nómina** sin pedir clasificación.
+- Guarda retenciones (ISR, IMSS) y percepciones brutas como **metadatos** para la póliza; **no** crea movimientos bancarios extra en Transacciones.
+- Los pasivos (ISR por Pagar, IMSS por Pagar) **solo aparecen al exportar** la póliza `.txt`, no en la lista de transacciones ni en conciliación.
+
+**Cómo reconocer una nómina ya importada**
+- Tipo **egreso**, cuenta **Gastos de Nómina**, concepto que empieza con **Nómina ·**.
+- No verás una etiqueta “Nómina” en pantalla; usa cuenta y concepto como señales.
+
+**Varios empleados, un solo depósito bancario**
+Si el banco muestra **un abono** por la nómina de varios empleados, en **Conciliación** usa el panel **Resolver…** para unir ese movimiento de banco contra **varios** egresos de nómina (split 1↔N).
+
+**Cuentas contables usadas en la póliza (automático)**
+
+| Partida | Cuenta en el `.txt` |
+|---------|---------------------|
+| Cargo (gasto bruto) | Gastos de Nómina |
+| Abono (retención ISR) | ISR por Pagar |
+| Abono (retención IMSS) | IMSS por Pagar |
+| Abono (pago al empleado) | Bancos |
+
+Estas cuentas vienen preconfiguradas en el piloto; no hay pantalla de configuración de catálogo de nómina en esta versión.
 
 ### 📝 Ejemplo práctico
-Te llegan 15 XML del mes. Los seleccionas juntos en **Importar CFDI**, dejas que el lote termine y abres **Transacciones** para revisar los que quedaron “en revisión”.
+Te llegan 15 XML del mes (10 facturas y 5 recibos de nómina). Los seleccionas juntos en **Importar CFDI**, dejas que el lote termine y abres **Transacciones**. Filtras por egresos con cuenta **Gastos de Nómina** para revisar solo la nómina; el resto lo revisas por los que quedaron “en revisión”. Luego concilias en **Conciliación** y exportas la póliza.
 
 ### ⚠️ Alerta Pro
 ContAI **no sustituye** la validación oficial de timbrado ante el SAT. Si un XML no carga, anota el nombre del archivo y el mensaje de error: eso acelera el soporte. Si importas nómina y el banco muestra un solo depósito por varios empleados, usa la conciliación por partes (un movimiento de banco contra varios egresos de nómina).
@@ -177,13 +238,27 @@ Al trabajar aquí obtendrás un archivo `.txt` con asientos del periodo (fecha, 
 6. En la misma barra también puedes **Exportar CSV** o generar el **Reporte mensual** si tu flujo lo pide.
 
 **Nóminas en la póliza (automático):**  
-Si importaste recibos de nómina timbrados, al exportar ContAI genera un asiento de **4 partidas** por cada egreso de nómina conciliado:
-1. Cargo → Gastos de Nómina (percepciones brutas)
-2. Abono → ISR por Pagar (retención)
-3. Abono → IMSS por Pagar (retención)
-4. Abono → Bancos (neto pagado al empleado)
+Si importaste recibos de nómina timbrados **y los conciliaste**, al exportar ContAI genera un asiento de **4 partidas** por cada egreso de nómina (en el archivo `.txt`, no en Transacciones):
 
-La conciliación bancaria sigue usando **solo el egreso neto** en Transacciones; los pasivos aparecen únicamente en el archivo `.txt`. Si faltan datos de retención en el XML, la exportación usa un asiento simple (gasto neto / banco) e indica `[nomina: pasivos omitidos]` en el concepto.
+1. **Cargo** → Gastos de Nómina (percepciones brutas)
+2. **Abono** → ISR por Pagar (retención; se omite si el monto es $0.00)
+3. **Abono** → IMSS por Pagar (retención; se omite si el monto es $0.00)
+4. **Abono** → Bancos (neto pagado al empleado)
+
+Todas las líneas del mismo recibo llevan el **mismo concepto** (ej. `Nómina · Juan Pérez · 2026-08-15`).
+
+**Por qué en Transacciones solo ves el neto:** la conciliación bancaria trabaja con lo que salió del banco. Los pasivos (ISR e IMSS retenidos) se calculan al exportar y van solo al `.txt` para tu software de captura.
+
+**Si el XML no trae retenciones completas:** la exportación no se bloquea. Genera un asiento simple de 2 líneas (gasto neto / banco) y añade `[nomina: pasivos omitidos]` al concepto para que el contador lo ajuste manualmente.
+
+**Ejemplo de asiento en el `.txt` (nómina completa)**
+
+| Fecha | Tipo | Cuenta | Concepto | Cargo | Abono |
+|-------|------|--------|----------|-------|-------|
+| 2026-08-15 | CARGO | Gastos de Nómina | Nómina · Juan Pérez · 2026-08-15 | 10,000.00 | 0.00 |
+| 2026-08-15 | ABONO | ISR por Pagar | Nómina · Juan Pérez · 2026-08-15 | 0.00 | 1,200.00 |
+| 2026-08-15 | ABONO | IMSS por Pagar | Nómina · Juan Pérez · 2026-08-15 | 0.00 | 300.00 |
+| 2026-08-15 | ABONO | Bancos | Nómina · Juan Pérez · 2026-08-15 | 0.00 | 8,500.00 |
 
 ### 📝 Ejemplo práctico
 Ya conciliaste el banco y todas las cuentas están asignadas. Exportas la póliza de agosto y se la entregas al auxiliar de captura con el resto de papeles del mes.
@@ -204,11 +279,26 @@ Porque aún no hay movimientos del periodo que cumplan: cuenta asignada **y** co
 **3. ¿Por qué mi pago o factura no aparece en “Aplicar pagos”?**  
 Casi siempre es el **periodo** (mes distinto), el documento aún no importado, o no es un origen válido (pago tipo P / pago manual frente a facturas con saldo). Cambia el mes, importa el XML faltante y vuelve a intentar.
 
+**4. ¿Dónde veo la nómina en ContAI?**  
+No hay menú “Nómina”. Importa los XML por **Importar CFDI**, revísalos en **Transacciones** (cuenta **Gastos de Nómina**, concepto `Nómina · …`), concílialos en **Conciliación** y exporta la póliza desde **Transacciones**. El asiento de 4 partidas solo lo verás dentro del archivo `.txt` descargado.
+
+**5. ¿Por qué la póliza de nómina no muestra ISR e IMSS en Transacciones?**  
+Por diseño: Transacciones y conciliación usan el **neto bancario** (lo pagado al empleado). ISR e IMSS retenidos se incluyen automáticamente al **Exportar póliza (.txt)** como abonos a ISR por Pagar e IMSS por Pagar.
+
+**6. ¿Puedo mezclar facturas y nóminas en la misma importación?**  
+Sí. Selecciona todos los XML juntos en **Importar CFDI**. ContAI detecta el tipo de cada archivo: facturas pasan por clasificación normal; nóminas se registran directo como egreso con Gastos de Nómina.
+
+**7. ¿Por qué no veo “Cargar mes demo”?**  
+Solo aparece si el entorno tiene `VITE_ENABLE_DEMO_SEED=true` y tu rol es propietario o administrador. En producción pública suele estar apagado a propósito. Usa **Importar CFDI** o pide a tu admin que active el flag en el despliegue de piloto.
+
 ---
 
 ## Notas de alcance del piloto
 
 - Menú principal: Panel general, Transacciones, Análisis, Conciliación, Descarga SAT, Fiscal, Inventario, Recurrentes, Bitácora, Configuración.
+- **Mes demo (E14.0):** opcional vía flag de entorno; purge solo de movimientos `demo_seed` del periodo; no sustituye Descarga SAT.
+- **Nómina:** no hay módulo propio; flujo vía **Importar CFDI** → **Transacciones** → **Conciliación** → **Exportar póliza (.txt)**.
 - La conciliación bancaria vive en **Conciliación** (no dentro de Análisis).
 - Descarga SAT es **Beta** (en el piloto suele operar en simulación, salvo indicación del administrador).
+- Cuentas de nómina en póliza (Gastos de Nómina, ISR por Pagar, IMSS por Pagar, Bancos) vienen predefinidas; configuración de catálogo en UI queda fuera de alcance del piloto.
 - No hay envío automático a sistemas de captura externos: la póliza se descarga como archivo de texto.

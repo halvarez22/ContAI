@@ -80,6 +80,17 @@ export type OverviewSectionProps = {
   onOpenManualTx: () => void;
   onOpenCfdiImport: () => void;
   onOpenExcelImport: () => void;
+  /** E14.0 Demo Seed */
+  demoSeed?: {
+    canShowButton: boolean;
+    buttonLabel: string;
+    status: 'idle' | 'loading' | 'success' | 'error';
+    message: string | null;
+    onLoadDemo: () => void;
+    showBanner: boolean;
+    bannerTitle: string;
+    bannerBody: string;
+  };
 };
 
 export type TransactionFilters = {

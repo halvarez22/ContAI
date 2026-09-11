@@ -30,6 +30,8 @@ export type AnalysisTransaction = {
   nomina_isr_retained?: number;
   nomina_imss_retained?: number;
   nomina_total_percepciones?: number;
+  /** E14.0 */
+  source?: string;
   rfc_contraparte?: string;
   tags?: string[];
   moneda?: string;

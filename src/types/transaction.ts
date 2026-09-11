@@ -8,6 +8,15 @@ import type { TransactionSatPaymentFields } from './transactionSat';
 
 export type TransactionTipo = 'ingreso' | 'egreso';
 
+/** Origen de ingestión (E14.0+). Unión literal — sin typos. */
+export type TransactionIngestSource =
+  | 'demo_seed'
+  | 'sat_download'
+  | 'manual'
+  | 'csv_import'
+  | 'cfdi_import'
+  | 'excel_import';
+
 export type TransactionStatus =
   | 'pendiente'
   | 'revisión'
@@ -71,5 +80,11 @@ export interface TransactionDoc extends TransactionFiscalFields, TransactionSatP
   nomina_imss_retained?: number;
   nomina_total_percepciones?: number;
   nomina_total_deducciones?: number;
+  /** E14.0 — origen de ingestión */
+  source?: TransactionIngestSource;
+  /** E14.0 — periodo del seed `YYYY-MM` (purge tríada) */
+  demo_period_key?: string;
+  /** E14.0 — UUID del batch de carga (trazabilidad) */
+  demo_batch_id?: string;
   [key: string]: unknown;
 }

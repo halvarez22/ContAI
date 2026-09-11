@@ -36,6 +36,16 @@ export type OperationalDashboardViewProps = {
   onOpenCfdiImport: () => void;
   onOpenExcelImport: () => void;
   onTaskAction: (taskId: string) => void;
+  demoSeed?: {
+    canShowButton: boolean;
+    buttonLabel: string;
+    status: 'idle' | 'loading' | 'success' | 'error';
+    message: string | null;
+    onLoadDemo: () => void;
+    showBanner: boolean;
+    bannerTitle: string;
+    bannerBody: string;
+  };
 };
 
 export function OperationalDashboardView({
@@ -46,6 +56,7 @@ export function OperationalDashboardView({
   onOpenCfdiImport,
   onOpenExcelImport,
   onTaskAction,
+  demoSeed,
 }: OperationalDashboardViewProps) {
   const { counts, tasks, alerts, periodoLabel } = snapshot;
   const showCapHint = counts.totalTasks > maxTasksShown;
@@ -57,6 +68,21 @@ export function OperationalDashboardView({
         description={`Tareas del periodo · ${periodoLabel}`}
         actions={<Badge variant="info">Operativo</Badge>}
       />
+
+      {demoSeed?.showBanner ? (
+        <Alert variant="info" title={demoSeed.bannerTitle}>
+          {demoSeed.bannerBody}
+        </Alert>
+      ) : null}
+
+      {demoSeed?.message ? (
+        <Alert
+          variant={demoSeed.status === 'error' ? 'error' : 'success'}
+          title={demoSeed.status === 'error' ? 'Demo seed' : 'Listo'}
+        >
+          {demoSeed.message}
+        </Alert>
+      ) : null}
 
       {alerts.map((a, i) => (
         <Alert key={`${a.title ?? 'alert'}-${i}`} variant={a.variant} title={a.title}>
@@ -202,6 +228,18 @@ export function OperationalDashboardView({
             <Download className="w-4 h-4" />
             Descarga SAT
           </Button>
+          {demoSeed?.canShowButton ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="justify-start"
+              disabled={demoSeed.status === 'loading'}
+              onClick={() => demoSeed.onLoadDemo()}
+            >
+              <Plus className="w-4 h-4" />
+              {demoSeed.status === 'loading' ? 'Cargando demo…' : demoSeed.buttonLabel}
+            </Button>
+          ) : null}
         </div>
       </Card>
     </div>

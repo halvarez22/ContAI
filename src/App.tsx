@@ -102,6 +102,8 @@ import { useTheme } from './hooks/useTheme';
 import { toBankLedgerItems } from './hooks/useBankReconciliation';
 import { toPaymentLedgerItems } from './hooks/usePaymentApplications';
 import { usePolizaExport } from './hooks/usePolizaExport';
+import { useDemoSeed } from './hooks/useDemoSeed';
+import { DEMO_SEED_SOURCE } from './config/demoSeed';
 import { TRANSACTIONS_TRUNCATED_HINT } from './lib/firestoreWindows';
 import { POLIZA_EXPORT_DISABLED_HINT } from './types/polizaExport';
 import type { CfdiClassificationPayload } from './types/cfdiBatch';
@@ -1044,6 +1046,19 @@ export default function App() {
     periodKey: polizaPeriodKey,
   });
 
+  const demoSeed = useDemoSeed({
+    organizationId: activeOrganizationId,
+    usuarioId: user?.uid,
+    periodKey: polizaPeriodKey,
+    orgRole: activeMembershipRole,
+  });
+
+  const hasDemoSeedInPeriod = useMemo(
+    () =>
+      transactionsInPeriod.some((tx) => tx.source === DEMO_SEED_SOURCE),
+    [transactionsInPeriod]
+  );
+
   const bankLedger: BankLedgerItem[] = useMemo(
     () =>
       toBankLedgerItems(
@@ -1353,6 +1368,18 @@ export default function App() {
                   onOpenManualTx={() => setIsManualTxModalOpen(true)}
                   onOpenCfdiImport={() => importFlow.openCfdiImport()}
                   onOpenExcelImport={() => importFlow.openExcelImport()}
+                  demoSeed={{
+                    canShowButton: demoSeed.canShowButton,
+                    buttonLabel: demoSeed.buttonLabel,
+                    status: demoSeed.status,
+                    message: demoSeed.message,
+                    onLoadDemo: () => {
+                      void demoSeed.runSeed();
+                    },
+                    showBanner: hasDemoSeedInPeriod,
+                    bannerTitle: demoSeed.bannerTitle,
+                    bannerBody: demoSeed.bannerBody,
+                  }}
                 />
               )}
               {activeTab === 'transactions' && (
