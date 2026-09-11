@@ -1,5 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 import { Button } from './ui/Button';
 import { formatCurrency } from '../lib/utils';
 import type { CfdiExtracted } from '../lib/cfdiXml';
@@ -64,6 +65,19 @@ export function ImportModals({
   onExcelFiles,
   onImportCfdi,
 }: ImportModalsProps) {
+  const cfdiFileInputRef = useRef<HTMLInputElement>(null);
+  const excelFileInputRef = useRef<HTMLInputElement>(null);
+  const [cfdiFileNames, setCfdiFileNames] = useState<string[]>([]);
+  const [excelFileNames, setExcelFileNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isCfdiImportOpen) setCfdiFileNames([]);
+  }, [isCfdiImportOpen]);
+
+  useEffect(() => {
+    if (!isExcelImportOpen) setExcelFileNames([]);
+  }, [isExcelImportOpen]);
+
   const busy = cfdiImporting || cfdiXsdValidating;
   const batchMode = cfdiBatchResults.length > 0 || (cfdiBatchProgress != null && !cfdiPreview);
   const failedResults = cfdiBatchResults.filter((r) => !r.ok);
@@ -99,22 +113,44 @@ export function ImportModals({
               </div>
               <div className="p-4 space-y-4">
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Un archivo: vista previa y registro. Varios XML: importación por lote con progreso.
+                  1) Pulsa <strong>Cargar archivo(s) XML</strong> y elige uno o varios CFDI.
+                  2) Revisa la vista previa. 3) Pulsa <strong>Registrar transacción</strong> (un
+                  archivo) o espera el lote (varios).
                 </p>
-                <label className="flex flex-col gap-2 text-sm text-gray-600 dark:text-gray-300">
-                  <span className="font-medium">Archivo(s) XML</span>
-                  <input
-                    type="file"
-                    accept=".xml,text/xml,application/xml"
-                    multiple
-                    disabled={busy}
-                    onChange={(e) => {
-                      onCfdiFiles(e.target.files);
-                      e.target.value = '';
-                    }}
-                    className="text-xs"
-                  />
-                </label>
+
+                <input
+                  ref={cfdiFileInputRef}
+                  type="file"
+                  accept=".xml,text/xml,application/xml"
+                  multiple
+                  disabled={busy}
+                  className="sr-only"
+                  aria-hidden
+                  tabIndex={-1}
+                  onChange={(e) => {
+                    const list = e.target.files;
+                    const names = list ? Array.from(list).map((f) => f.name) : [];
+                    setCfdiFileNames(names);
+                    onCfdiFiles(list);
+                    e.target.value = '';
+                  }}
+                />
+
+                <Button
+                  type="button"
+                  className="w-full justify-center"
+                  disabled={busy}
+                  onClick={() => cfdiFileInputRef.current?.click()}
+                >
+                  <Upload className="w-4 h-4" />
+                  Cargar archivo(s) XML
+                </Button>
+
+                {cfdiFileNames.length > 0 && (
+                  <p className="text-xs text-gray-600 dark:text-gray-300">
+                    Seleccionados: {cfdiFileNames.join(', ')}
+                  </p>
+                )}
 
                 {(cfdiPhase === 'uploading' || cfdiPhase === 'processing_ai') && (
                   <div className="rounded-lg border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-indigo-950/20 p-3 space-y-1">
@@ -191,26 +227,34 @@ export function ImportModals({
                     </p>
                   </div>
                 )}
-                <div className="flex gap-2 pt-2">
-                  <Button
-                    variant="secondary"
-                    className="flex-1"
-                    type="button"
-                    disabled={busy}
-                    onClick={onCloseCfdi}
-                  >
-                    {batchMode && cfdiPhase === 'success' ? 'Cerrar' : 'Cancelar'}
-                  </Button>
-                  {!batchMode && (
+                <div className="flex flex-col gap-2 pt-2">
+                  {!batchMode && !cfdiPreview && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                      Primero carga un XML. “Registrar transacción” se activa cuando haya vista
+                      previa.
+                    </p>
+                  )}
+                  <div className="flex gap-2">
                     <Button
+                      variant="secondary"
                       className="flex-1"
                       type="button"
-                      disabled={!cfdiPreview || busy}
-                      onClick={() => onImportCfdi()}
+                      disabled={busy}
+                      onClick={onCloseCfdi}
                     >
-                      {cfdiImporting ? 'Guardando…' : 'Registrar transacción'}
+                      {batchMode && cfdiPhase === 'success' ? 'Cerrar' : 'Cancelar'}
                     </Button>
-                  )}
+                    {!batchMode && (
+                      <Button
+                        className="flex-1"
+                        type="button"
+                        disabled={!cfdiPreview || busy}
+                        onClick={() => onImportCfdi()}
+                      >
+                        {cfdiImporting ? 'Guardando…' : 'Registrar transacción'}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -253,20 +297,41 @@ export function ImportModals({
                   <strong>Utilidad de ventas</strong> (Hoja1). Se crearán transacciones conciliadas y
                   productos; las fechas en periodos cerrados se omiten.
                 </p>
-                <label className="flex flex-col gap-2">
-                  <span className="font-medium">Archivos .xlsx</span>
-                  <input
-                    type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    multiple
-                    disabled={excelImporting}
-                    onChange={(e) => {
-                      void onExcelFiles(e.target.files);
-                      e.target.value = '';
-                    }}
-                    className="text-xs"
-                  />
-                </label>
+
+                <input
+                  ref={excelFileInputRef}
+                  type="file"
+                  accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  multiple
+                  disabled={excelImporting}
+                  className="sr-only"
+                  aria-hidden
+                  tabIndex={-1}
+                  onChange={(e) => {
+                    const list = e.target.files;
+                    const names = list ? Array.from(list).map((f) => f.name) : [];
+                    setExcelFileNames(names);
+                    void onExcelFiles(list);
+                    e.target.value = '';
+                  }}
+                />
+
+                <Button
+                  type="button"
+                  className="w-full justify-center"
+                  disabled={excelImporting}
+                  onClick={() => excelFileInputRef.current?.click()}
+                >
+                  <Upload className="w-4 h-4" />
+                  Cargar archivo(s) Excel
+                </Button>
+
+                {excelFileNames.length > 0 && (
+                  <p className="text-xs text-gray-600 dark:text-gray-300">
+                    Seleccionados: {excelFileNames.join(', ')}
+                  </p>
+                )}
+
                 {excelImporting && (
                   <p className="text-xs text-gray-500 dark:text-gray-400">Importando…</p>
                 )}
