@@ -446,42 +446,56 @@ export function useImportFlow({
         moneda: d.moneda || 'MXN',
       };
 
-      const decision = await classify(AGENT_TYPES.CLASIFICADOR, classificationPayload);
-      if (decision) {
-        const requiresPolicyReview = d.total > highAmountReviewThreshold;
-        const requiresHumanApproval = decision.requires_human_approval || requiresPolicyReview;
-        await setTransaction(docRef.id, {
-          tipo,
-          monto: d.total,
-          moneda: d.moneda || 'MXN',
-          concepto,
-          proveedor,
-          fecha: fechaIso,
-          status: requiresHumanApproval ? 'revisión' : 'conciliado',
-          account_name: decision.account_name,
-          agente_ia_decision: decision.decision,
-          confidence_score: decision.confidence_score,
-          account_source: 'ai',
-          policy_review_reason: requiresPolicyReview
-            ? `Monto mayor a ${highAmountReviewThreshold}`
-            : null,
-          organization_id: organizationId,
-          usuario_id: userId,
-          iva_tasa,
-          egreso_acredita_iva: tipo === 'egreso',
-          deducible: tipo === 'egreso',
-          fiscal_subtotal: d.subtotal,
-          fiscal_iva: d.totalIvaTrasladado,
-          rfc_contraparte: tipo === 'ingreso' ? d.receptorRfc : d.emisorRfc,
-          uso_cfdi: d.receptorUsoCfdi || undefined,
-          forma_pago_sat: d.formaPago || undefined,
-          metodo_pago_sat: d.metodoPago || undefined,
-          cp_expedicion: d.lugarExpedicion || undefined,
-          cfdi_uuid: d.uuid || undefined,
-          importado_cfdi: true,
-          creado_en: serverTimestamp(),
-        });
+      const fallbackAccount =
+        tipo === 'ingreso' ? 'Ingresos por Ventas' : 'Gastos Operativos';
+      let decision = await classify(AGENT_TYPES.CLASIFICADOR, classificationPayload);
+      if (!decision) {
+        // Groq caído / modelo 404: no bloquear el registro; cuenta provisional.
+        decision = {
+          decision: 'approve_with_account',
+          account_name: fallbackAccount,
+          confidence_score: 0,
+          reason: 'Clasificación IA no disponible; cuenta provisional asignada.',
+          requires_human_approval: true,
+        };
       }
+
+      const requiresPolicyReview = d.total > highAmountReviewThreshold;
+      const requiresHumanApproval =
+        decision.requires_human_approval || requiresPolicyReview || decision.confidence_score === 0;
+      await setTransaction(docRef.id, {
+        tipo,
+        monto: d.total,
+        moneda: d.moneda || 'MXN',
+        concepto,
+        proveedor,
+        fecha: fechaIso,
+        status: requiresHumanApproval ? 'revisión' : 'conciliado',
+        account_name: decision.account_name || fallbackAccount,
+        agente_ia_decision: decision.decision,
+        confidence_score: decision.confidence_score,
+        account_source: decision.confidence_score > 0 ? 'ai' : 'manual_fallback',
+        policy_review_reason: requiresPolicyReview
+          ? `Monto mayor a ${highAmountReviewThreshold}`
+          : decision.confidence_score === 0
+            ? decision.reason
+            : null,
+        organization_id: organizationId,
+        usuario_id: userId,
+        iva_tasa,
+        egreso_acredita_iva: tipo === 'egreso',
+        deducible: tipo === 'egreso',
+        fiscal_subtotal: d.subtotal,
+        fiscal_iva: d.totalIvaTrasladado,
+        rfc_contraparte: tipo === 'ingreso' ? d.receptorRfc : d.emisorRfc,
+        uso_cfdi: d.receptorUsoCfdi || undefined,
+        forma_pago_sat: d.formaPago || undefined,
+        metodo_pago_sat: d.metodoPago || undefined,
+        cp_expedicion: d.lugarExpedicion || undefined,
+        cfdi_uuid: d.uuid || undefined,
+        importado_cfdi: true,
+        creado_en: serverTimestamp(),
+      });
 
       await logAuditEntry('IMPORT_CFDI', 'transactions', { id: docRef.id, uuid: d.uuid });
       const periodHint = fechaIso.slice(0, 7);

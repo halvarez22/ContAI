@@ -427,6 +427,11 @@ export default function App() {
         error instanceof Error
           ? error.message
           : 'No se pudo clasificar con Groq. Revisa GROQ_API_KEY e intenta de nuevo.';
+      // model_not_found: el import CFDI aplica fallback de cuenta; no bloquear con alert agresivo
+      if (/model_not_found|does not exist|404/i.test(msg)) {
+        console.warn('[Groq] Modelo no disponible. Usa GROQ_MODEL=openai/gpt-oss-20b en Vercel.');
+        return undefined;
+      }
       alert(msg);
     } finally {
       setIsProcessing(false);
