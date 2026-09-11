@@ -10,7 +10,9 @@ Para validar contra el esquema oficial del SAT (cfdv40.xsd y dependencias):
    - Todos los XSD que importe ese archivo (catálogos, complementos, etc.)
 
 3. La app intentará cargar /cfdi/xsd/cfdv40.xsd en el navegador.
-   Si faltan imports, la validación puede fallar y se usará el esquema "lite" embebido.
+   Si el archivo no existe, en Vercel el hosting puede devolver index.html (200):
+   ContAI detecta HTML y degrada automáticamente al esquema "lite" embebido.
+   Si faltan imports del XSD oficial, también se usa "lite".
 
 4. Tras un build, los archivos en public/ se sirven desde la raíz del sitio.
 
