@@ -113,6 +113,24 @@ describe('FiscalSection', () => {
     expect(screen.getByTestId('fiscal-risk-panel')).toBeTruthy();
   });
 
+  it('avisa cuando la balanza del año está cortada', () => {
+    render(
+      <FiscalSection
+        taxPreview={preview}
+        periodLabel="2026-08"
+        periodoActualCerrado={false}
+        onTogglePeriodo={vi.fn()}
+        onOpenCfdiImport={vi.fn()}
+        periodYear={2026}
+        periodMonth={7}
+        reportsTruncated
+        reportChart={[]}
+        reportTransactions={[]}
+      />
+    );
+    expect(screen.getByText(/balanza es preliminar/i)).toBeTruthy();
+  });
+
   it('smoke axe', async () => {
     const { container } = render(
       <FiscalSection

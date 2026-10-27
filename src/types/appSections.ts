@@ -9,6 +9,7 @@ import type { ExecutiveSnapshot } from './executiveDashboard';
 import type { OperationalSnapshot } from './operationalDashboard';
 import type { PaymentLedgerItem } from '../hooks/usePaymentApplications';
 import type { FiscalRiskIndex } from './fiscalRisk';
+import type { CatalogAccount } from './chartOfAccounts';
 
 /** Tabs extraídas a Section Views en E7.3 */
 export const MIGRATED_NAV_TAB_IDS = [
@@ -159,6 +160,12 @@ export type FiscalSectionProps = {
   /** E11.1 UI — panel 69-B solo si canManageOrg (owner/admin) */
   canManageFiscalRisk?: boolean;
   onFiscalRiskListPublished?: (index: FiscalRiskIndex) => void;
+  /** E17 — mismas transacciones del año, catálogo y periodo del panel */
+  reportTransactions?: { id?: string; fecha: string; asiento_devengo?: unknown }[];
+  reportChart?: CatalogAccount[];
+  periodYear?: number;
+  periodMonth?: number;
+  reportsTruncated?: boolean;
 };
 
 /** Mapa tipado de render (documentación; App compone hijos directamente) */

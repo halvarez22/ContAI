@@ -392,3 +392,15 @@ Condiciones vinculantes del dictamen:
 3. `accrualPostingService.ts` audita únicamente con `logAuditEntry` de `auditService.ts`. Acción `POLIZA_DEVENGO_GENERADA`. Sin RFC ni nombre de contraparte. Si hubo atajo, `detalles` incluye el texto `Aplicado atajo PUE a Bancos`.
 
 Asiento: ingreso cargo `105.01` por el total, abono de la cuenta clasificada por el subtotal y abono `209.01` por el IVA si es mayor a cero. Egreso al revés, con `119.01` y `201.01`. El atajo, solo con el flag activo y método PUE, cambia la contrapartida a `102.01`. Un PPD no lo usa. El flag nace apagado.
+
+## 12. E17 — Balanza y estado de resultados (dictamen 2026-10-27, ejecución autorizada)
+
+`buildFinancialReports` consume los `asiento_devengo` ya guardados y el catálogo activo. No reescribe asientos ni abre otra consulta: usa las transacciones del año que ya carga el listener (`organization_id` + `fecha`, tope 5,000).
+
+Saldo final = saldo inicial + cargos − abonos. El saldo inicial de enero es 0; el de los meses siguientes acumula desde el 1 de enero. El estado de resultados toma solo el mes y solo naturalezas `ingreso` y `gasto`. El IVA queda en la balanza.
+
+Condiciones vinculantes:
+
+1. Si `truncated` es true, Fiscal muestra un aviso visible de que la balanza es preliminar.
+2. Las filas con saldo inicial, cargos y abonos en cero no se muestran. Las anomalías sí, aunque el monto sea cero.
+3. Si `financialReportsService.ts` pasa de 400 líneas, la agregación se extrae a una función del mismo archivo.

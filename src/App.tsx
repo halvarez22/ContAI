@@ -1575,6 +1575,11 @@ export default function App() {
                   onFiscalRiskListPublished={(index) => {
                     setFiscalRiskIndex(index);
                   }}
+                  reportTransactions={transactions}
+                  reportChart={catalogApi.accounts}
+                  periodYear={periodYear}
+                  periodMonth={periodMonth}
+                  reportsTruncated={transactionsTruncated}
                 />
               )}
             </AppTabRouter>

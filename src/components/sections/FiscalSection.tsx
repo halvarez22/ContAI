@@ -5,6 +5,9 @@ import { Card } from '../ui/Card';
 import { TaxPreviewCard } from '../TaxPreviewCard';
 import { PaymentApplicationsCard } from '../PaymentApplicationsCard';
 import { FiscalRiskListPanel } from '../FiscalRiskListPanel';
+import { TrialBalanceSection } from './TrialBalanceSection';
+import { IncomeStatementSection } from './IncomeStatementSection';
+import { useFinancialReports } from '../../hooks/useFinancialReports';
 import type { FiscalSectionProps } from '../../types/appSections';
 
 export function FiscalSection({
@@ -20,8 +23,22 @@ export function FiscalSection({
   onPaymentApplicationsConfirmed,
   canManageFiscalRisk = false,
   onFiscalRiskListPublished,
+  reportTransactions = [],
+  reportChart = [],
+  periodYear,
+  periodMonth,
+  reportsTruncated = false,
 }: FiscalSectionProps) {
   const canApplyPayments = Boolean(organizationId && userId);
+  const showReports = periodYear != null && periodMonth != null;
+  const financialReports = useFinancialReports({
+    transactions: reportTransactions,
+    chart: reportChart,
+    year: periodYear ?? 0,
+    monthIndex: periodMonth ?? 0,
+    truncated: reportsTruncated,
+    organizationId,
+  });
   const showFiscalRiskPanel =
     canManageFiscalRisk && Boolean(organizationId && userId);
 
@@ -90,6 +107,33 @@ export function FiscalSection({
             ledger={paymentLedger}
             onConfirmed={onPaymentApplicationsConfirmed}
           />
+        </Card>
+      ) : null}
+
+      {showReports ? (
+        <Card className="p-6 space-y-6">
+          <TrialBalanceSection report={financialReports.trialBalance} />
+          <IncomeStatementSection report={financialReports.incomeStatement} />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!financialReports.canRegister || financialReports.registering}
+              title={
+                financialReports.canRegister
+                  ? 'Deja constancia del cuadre en la bitácora'
+                  : 'Elige una organización para registrar'
+              }
+              onClick={() => {
+                void financialReports.register();
+              }}
+            >
+              {financialReports.registering ? 'Registrando…' : 'Registrar reportes del periodo'}
+            </Button>
+            {financialReports.registered ? (
+              <p className="text-xs text-ink-muted">Quedó asentado en la bitácora.</p>
+            ) : null}
+          </div>
         </Card>
       ) : null}
 
