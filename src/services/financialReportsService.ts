@@ -4,10 +4,12 @@
 
 import type { AccountNaturaleza, CatalogAccount } from '../types/chartOfAccounts';
 import type {
+  BalanceSheetReport,
   FinancialReports,
   ReportAnomaly,
   ReportRow,
 } from '../types/financialReports';
+import { UTILIDAD_EJERCICIO_LABEL } from '../types/financialReports';
 import type { JournalLine } from '../types/journalEntry';
 import { periodKey } from '../lib/periodClose';
 import { roundMoney } from '../types/paymentApplication';
@@ -22,6 +24,7 @@ type Bucket = {
   code: string;
   name: string;
   naturaleza: AccountNaturaleza;
+  tipo_iva?: CatalogAccount['tipo_iva'];
   openingNet: number;
   cargos: number;
   abonos: number;
@@ -74,6 +77,7 @@ function toRow(bucket: Bucket, saldoInicial: number): ReportRow {
     account_code: bucket.code,
     account_name: bucket.name,
     naturaleza: bucket.naturaleza,
+    ...(bucket.tipo_iva ? { tipo_iva: bucket.tipo_iva } : {}),
     saldo_inicial: saldoInicial,
     cargos: bucket.cargos,
     abonos: bucket.abonos,
@@ -144,6 +148,7 @@ function aggregateEntries(
         code: account.code,
         name: account.name,
         naturaleza: account.naturaleza,
+        ...(account.tipo_iva ? { tipo_iva: account.tipo_iva } : {}),
         openingNet: 0,
         cargos: 0,
         abonos: 0,
@@ -163,6 +168,70 @@ function aggregateEntries(
   return { buckets, anomalies, totalCargos, totalAbonos, sinDevengo };
 }
 
+function balanceGroup(
+  account: CatalogAccount | undefined,
+  naturaleza: ReportRow['naturaleza']
+): 'activo' | 'pasivo' | 'capital' | null {
+  if (naturaleza === 'activo') return 'activo';
+  if (naturaleza === 'pasivo') return 'pasivo';
+  if (naturaleza === 'capital') return 'capital';
+  if (naturaleza === 'iva' && account?.tipo_iva === 'acreditable') return 'activo';
+  if (naturaleza === 'iva' && account?.tipo_iva === 'trasladado') return 'pasivo';
+  return null;
+}
+
+function buildBalanceSheet(
+  trialRows: readonly ReportRow[],
+  chart: Map<string, CatalogAccount>,
+  utilidadNeta: number,
+  key: string,
+  truncated: boolean
+): BalanceSheetReport {
+  const rows: ReportRow[] = [];
+  let totalActivo = 0;
+  let totalPasivo = 0;
+  let totalCapital = 0;
+
+  for (const row of trialRows) {
+    const group = balanceGroup(chart.get(row.account_code), row.naturaleza);
+    if (!group) continue;
+    rows.push(row);
+    if (group === 'activo') {
+      totalActivo = roundMoney(totalActivo + row.saldo_final);
+    } else if (group === 'pasivo') {
+      totalPasivo = roundMoney(totalPasivo - row.saldo_final);
+    } else {
+      totalCapital = roundMoney(totalCapital - row.saldo_final);
+    }
+  }
+
+  if (utilidadNeta !== 0) {
+    rows.push({
+      account_code: '',
+      account_name: UTILIDAD_EJERCICIO_LABEL,
+      naturaleza: 'capital',
+      saldo_inicial: 0,
+      cargos: 0,
+      abonos: 0,
+      saldo_final: utilidadNeta,
+    });
+    totalCapital = roundMoney(totalCapital + utilidadNeta);
+  }
+
+  const total_activo = roundMoney(totalActivo);
+  const total_pasivo = roundMoney(totalPasivo);
+  const total_capital = roundMoney(totalCapital);
+  return {
+    periodKey: key,
+    rows,
+    total_activo,
+    total_pasivo,
+    total_capital,
+    is_balanced: total_activo === roundMoney(total_pasivo + total_capital),
+    truncated,
+  };
+}
+
 export function buildFinancialReports(input: {
   transactions: readonly ReportTransaction[];
   chart: readonly CatalogAccount[];
@@ -171,9 +240,10 @@ export function buildFinancialReports(input: {
   truncated: boolean;
 }): FinancialReports {
   const key = periodKey(input.year, input.monthIndex);
+  const chart = activeChart(input.chart);
   const { buckets, anomalies, totalCargos, totalAbonos, sinDevengo } = aggregateEntries(
     input.transactions,
-    activeChart(input.chart),
+    chart,
     input.year,
     input.monthIndex
   );
@@ -221,5 +291,12 @@ export function buildFinancialReports(input: {
       total_gastos: totalGastos,
       utilidad_neta: roundMoney(totalIngresos - totalGastos),
     },
+    balanceSheet: buildBalanceSheet(
+      rows,
+      chart,
+      roundMoney(totalIngresos - totalGastos),
+      key,
+      input.truncated
+    ),
   };
 }

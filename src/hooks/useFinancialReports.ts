@@ -68,6 +68,7 @@ export function useFinancialReports(input: {
   return {
     trialBalance: reports.trialBalance,
     incomeStatement: reports.incomeStatement,
+    balanceSheet: reports.balanceSheet,
     register,
     registering,
     registered: registeredKey === reports.trialBalance.periodKey,

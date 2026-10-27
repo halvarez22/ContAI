@@ -1,7 +1,18 @@
+import { Button } from '../ui/Button';
 import { formatCurrency } from '../../lib/utils';
 import type { IncomeStatementReport } from '../../types/financialReports';
 
-export function IncomeStatementSection({ report }: { report: IncomeStatementReport }) {
+export function IncomeStatementSection({
+  report,
+  onExport,
+  exportDisabled = false,
+  exportDisabledHint = '',
+}: {
+  report: IncomeStatementReport;
+  onExport?: () => void;
+  exportDisabled?: boolean;
+  exportDisabledHint?: string;
+}) {
   return (
     <div className="space-y-4">
       <div>
@@ -45,6 +56,19 @@ export function IncomeStatementSection({ report }: { report: IncomeStatementRepo
         <p>Gastos {formatCurrency(report.total_gastos)}</p>
         <p className="font-semibold">Utilidad neta {formatCurrency(report.utilidad_neta)}</p>
       </div>
+
+      {onExport ? (
+        <div className="space-y-1">
+          <span title={exportDisabled ? exportDisabledHint : 'Descarga el estado de resultados'}>
+            <Button type="button" variant="secondary" disabled={exportDisabled} onClick={onExport}>
+              Exportar estado de resultados
+            </Button>
+          </span>
+          {exportDisabled && exportDisabledHint ? (
+            <p className="text-xs text-ink-muted">{exportDisabledHint}</p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

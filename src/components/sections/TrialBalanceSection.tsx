@@ -1,4 +1,5 @@
 import { Alert } from '../ui/Alert';
+import { Button } from '../ui/Button';
 import { formatCurrency } from '../../lib/utils';
 import {
   TRIAL_BALANCE_TRUNCATED_HINT,
@@ -11,7 +12,17 @@ function signedBalance(amount: number): string {
   return amount < 0 ? `${text} acreedor` : text;
 }
 
-export function TrialBalanceSection({ report }: { report: TrialBalanceReport }) {
+export function TrialBalanceSection({
+  report,
+  onExport,
+  exportDisabled = false,
+  exportDisabledHint = '',
+}: {
+  report: TrialBalanceReport;
+  onExport?: () => void;
+  exportDisabled?: boolean;
+  exportDisabledHint?: string;
+}) {
   return (
     <div className="space-y-4">
       <div>
@@ -75,6 +86,19 @@ export function TrialBalanceSection({ report }: { report: TrialBalanceReport }) 
         Cargos del mes {formatCurrency(report.total_cargos)} · Abonos del mes{' '}
         {formatCurrency(report.total_abonos)}
       </p>
+
+      {onExport ? (
+        <div className="space-y-1">
+          <span title={exportDisabled ? exportDisabledHint : 'Descarga la balanza'}>
+            <Button type="button" variant="secondary" disabled={exportDisabled} onClick={onExport}>
+              Exportar balanza
+            </Button>
+          </span>
+          {exportDisabled && exportDisabledHint ? (
+            <p className="text-xs text-ink-muted">{exportDisabledHint}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {report.anomalies.length > 0 ? (
         <div className="space-y-2">

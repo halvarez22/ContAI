@@ -416,3 +416,15 @@ Condición vinculante:
 1. `planBatchApproval` recibe `periodos_cerrados` y rechaza cada transacción cuya fecha cae en un periodo cerrado, con el motivo `Periodo cerrado`. El caso queda en `batchApprovalService.test.ts`.
 
 Bitácora `APROBACION_LOTE_EJECUTADA`: `organization_id`, `periodKey`, `action`, `affected_count` y `reason` solo en el rechazo. Sin lista de ids ni RFC.
+
+## 14. Fase 1 — Balance general y exportación (dictamen 2026-10-27, ejecución autorizada)
+
+El balance se arma con las mismas filas de la balanza. El activo conserva el saldo final. El pasivo y el capital se presentan con el signo invertido, para leer el acreedor en positivo. La utilidad del ejercicio se suma al capital. No hay póliza de cierre.
+
+`301.01 Capital Social` entra a la semilla. La reciben las organizaciones nuevas. El catálogo ya guardado no se reescribe.
+
+La exportación de la balanza y del estado de resultados es CSV con separador `;` y UTF-8. Si el año viene cortado, la descarga queda deshabilitada.
+
+Condición vinculante:
+
+1. `total_activo` suma el saldo final de las cuentas de activo y del IVA acreditable. `total_pasivo` suma la presentación acreedora del pasivo y del IVA trasladado. `total_capital` suma la presentación acreedora del capital más `utilidad_neta`. `is_balanced` es verdadero solo si `roundMoney(total_activo) === roundMoney(total_pasivo + total_capital)`. El caso de prueba cubre el IVA y la utilidad.

@@ -66,6 +66,13 @@ const SEED: readonly CatalogAccount[] = [
     activa: true,
   },
   {
+    code: '301.01',
+    name: 'Capital Social',
+    sat_name: 'Capital social',
+    naturaleza: 'capital',
+    activa: true,
+  },
+  {
     code: '401.01',
     name: 'Ingresos por Ventas',
     sat_name: 'Ventas y/o servicios gravados a la tasa general',

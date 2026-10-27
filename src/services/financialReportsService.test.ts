@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getChartOfAccountsSeed } from '../config/chartOfAccounts';
+import { UTILIDAD_EJERCICIO_LABEL } from '../types/financialReports';
 import { buildFinancialReports } from './financialReportsService';
 import type { JournalLine } from '../types/journalEntry';
 
@@ -40,6 +41,11 @@ describe('buildFinancialReports', () => {
     expect(report.trialBalance.is_balanced).toBe(true);
     expect(report.trialBalance.rows).toEqual([]);
     expect(report.incomeStatement.utilidad_neta).toBe(0);
+    expect(report.balanceSheet.total_activo).toBe(0);
+    expect(report.balanceSheet.total_pasivo).toBe(0);
+    expect(report.balanceSheet.total_capital).toBe(0);
+    expect(report.balanceSheet.is_balanced).toBe(true);
+    expect(report.balanceSheet.rows).toEqual([]);
   });
 
   it('cuadra el mes y manda el ingreso al estado de resultados sin el IVA', () => {
@@ -168,5 +174,58 @@ describe('buildFinancialReports', () => {
     expect(report.trialBalance.sin_devengo).toBe(1);
     expect(report.trialBalance.total_cargos).toBe(0);
     expect(report.trialBalance.is_balanced).toBe(true);
+  });
+
+  it('suma el IVA acreditable al activo, el trasladado al pasivo y la utilidad al capital', () => {
+    const report = buildFinancialReports({
+      transactions: [
+        tx('ing', '2026-01-15T12:00:00.000Z', [
+          line('105.01', 'Clientes', 'cargo', 1160),
+          line('401.01', 'Ventas', 'abono', 1000),
+          line('209.01', 'IVA', 'abono', 160),
+        ]),
+        tx('egr', '2026-01-20T12:00:00.000Z', [
+          line('601.84', 'Gastos', 'cargo', 500),
+          line('119.01', 'IVA', 'cargo', 80),
+          line('201.01', 'Proveedores', 'abono', 580),
+        ]),
+      ],
+      chart,
+      year: 2026,
+      monthIndex: 0,
+      truncated: false,
+    });
+    const sheet = report.balanceSheet;
+    const clientes = sheet.rows.find((row) => row.account_code === '105.01');
+    const clientesBalanza = report.trialBalance.rows.find((row) => row.account_code === '105.01');
+    expect(clientes?.saldo_final).toBe(clientesBalanza?.saldo_final);
+    expect(sheet.rows.some((row) => row.account_code === '119.01')).toBe(true);
+    expect(sheet.rows.some((row) => row.account_code === '209.01')).toBe(true);
+    expect(sheet.rows.some((row) => row.account_code === '401.01')).toBe(false);
+    expect(sheet.rows.some((row) => row.account_code === '601.84')).toBe(false);
+    expect(sheet.rows.some((row) => row.account_name === UTILIDAD_EJERCICIO_LABEL)).toBe(true);
+    expect(report.incomeStatement.utilidad_neta).toBe(500);
+    expect(sheet.total_activo).toBe(1240);
+    expect(sheet.total_pasivo).toBe(740);
+    expect(sheet.total_capital).toBe(500);
+    expect(sheet.is_balanced).toBe(true);
+  });
+
+  it('deja el balance descuadrado cuando el importe no tiene naturaleza', () => {
+    const report = buildFinancialReports({
+      transactions: [
+        tx('x', '2026-02-01T12:00:00.000Z', [
+          line('999.01', 'Ajena', 'cargo', 100),
+          line('401.01', 'Ventas', 'abono', 100),
+        ]),
+      ],
+      chart,
+      year: 2026,
+      monthIndex: 1,
+      truncated: false,
+    });
+    expect(report.balanceSheet.total_activo).toBe(0);
+    expect(report.balanceSheet.total_capital).toBe(100);
+    expect(report.balanceSheet.is_balanced).toBe(false);
   });
 });

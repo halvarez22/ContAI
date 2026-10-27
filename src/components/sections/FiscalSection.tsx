@@ -7,7 +7,14 @@ import { PaymentApplicationsCard } from '../PaymentApplicationsCard';
 import { FiscalRiskListPanel } from '../FiscalRiskListPanel';
 import { TrialBalanceSection } from './TrialBalanceSection';
 import { IncomeStatementSection } from './IncomeStatementSection';
+import { BalanceSheetSection } from './BalanceSheetSection';
 import { useFinancialReports } from '../../hooks/useFinancialReports';
+import { downloadTextFileBrowser } from '../../hooks/usePolizaExport';
+import {
+  formatIncomeStatementToCsv,
+  formatTrialBalanceToCsv,
+  reportExportGate,
+} from '../../lib/reportFormatters';
 import type { FiscalSectionProps } from '../../types/appSections';
 
 export function FiscalSection({
@@ -41,6 +48,14 @@ export function FiscalSection({
   });
   const showFiscalRiskPanel =
     canManageFiscalRisk && Boolean(organizationId && userId);
+  const trialExport = reportExportGate({
+    truncated: financialReports.trialBalance.truncated,
+    rowCount: financialReports.trialBalance.rows.length,
+  });
+  const statementExport = reportExportGate({
+    truncated: financialReports.trialBalance.truncated,
+    rowCount: financialReports.incomeStatement.rows.length,
+  });
 
   return (
     <div className="space-y-6">
@@ -112,8 +127,29 @@ export function FiscalSection({
 
       {showReports ? (
         <Card className="p-6 space-y-6">
-          <TrialBalanceSection report={financialReports.trialBalance} />
-          <IncomeStatementSection report={financialReports.incomeStatement} />
+          <TrialBalanceSection
+            report={financialReports.trialBalance}
+            onExport={() =>
+              downloadTextFileBrowser(
+                formatTrialBalanceToCsv(financialReports.trialBalance),
+                `balanza_ContAI_${financialReports.trialBalance.periodKey}.csv`
+              )
+            }
+            exportDisabled={trialExport.disabled}
+            exportDisabledHint={trialExport.hint}
+          />
+          <IncomeStatementSection
+            report={financialReports.incomeStatement}
+            onExport={() =>
+              downloadTextFileBrowser(
+                formatIncomeStatementToCsv(financialReports.incomeStatement),
+                `estado_resultados_ContAI_${financialReports.incomeStatement.periodKey}.csv`
+              )
+            }
+            exportDisabled={statementExport.disabled}
+            exportDisabledHint={statementExport.hint}
+          />
+          <BalanceSheetSection report={financialReports.balanceSheet} />
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <Button
               type="button"
