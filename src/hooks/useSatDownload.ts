@@ -13,6 +13,7 @@ import type {
   SatDownloadTipo,
 } from '../types/satDownload';
 import type { CfdiBatchFileResult, CfdiBatchImportSummary } from '../types/cfdiBatch';
+import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 
 export type UseSatDownloadParams = {
   userId: string | undefined;
@@ -22,6 +23,9 @@ export type UseSatDownloadParams = {
   highAmountReviewThreshold: number;
   classify: ClassifyBatchFn;
   provider?: SatDownloadProvider;
+  accounts?: readonly CatalogAccount[];
+  rules?: readonly AccountMappingRule[];
+  atajoPueBancos?: boolean;
 };
 
 export function useSatDownload({
@@ -32,6 +36,9 @@ export function useSatDownload({
   highAmountReviewThreshold,
   classify,
   provider = resolveSatDownloadProvider(),
+  accounts,
+  rules,
+  atajoPueBancos,
 }: UseSatDownloadParams) {
   const [phase, setPhase] = useState<SatDownloadPhase>('idle');
   const [rfc, setRfc] = useState(defaultRfc);
@@ -103,10 +110,14 @@ export function useSatDownload({
       const summary = await runCfdiBatchImport({
         userId,
         organizationId: organizationId!,
+        organizationRfc: defaultRfc,
         periodosCerrados,
         highAmountReviewThreshold,
         inputs: packagesToBatchInputs(download.packages),
         classify,
+        accounts,
+        rules,
+        atajoPueBancos,
         onProgress: (p) => {
           setProgressLabel(
             p.message ||
@@ -157,6 +168,9 @@ export function useSatDownload({
     highAmountReviewThreshold,
     classify,
     organizationId,
+    accounts,
+    rules,
+    atajoPueBancos,
   ]);
 
   return {

@@ -460,7 +460,8 @@ export function buildPolizaDevengoTxt(
   const entries: JournalEntry[] = [];
   const lines: PolizaLine[] = [];
   for (const tx of params.transactions) {
-    const entry = parseJournalEntry(tx.asiento_devengo);
+    const entry =
+      parseJournalEntry(tx.asiento_devengo) ?? parseJournalEntry(tx.asiento_liquidacion);
     if (!entry || !journalEntryBalances(entry)) {
       skipped.push({ id: String(tx.id), reason: 'sin_asiento_devengo' });
       continue;

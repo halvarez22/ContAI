@@ -426,6 +426,7 @@ export default function App() {
     accounts: catalogApi.accounts,
     rules: catalogApi.rules,
     atajoPueBancos: catalogApi.atajoPueBancos,
+    organizationRfc: activeOrg?.rfc,
   });
 
   const resolveFormAccount = async (input: {
@@ -1575,6 +1576,9 @@ export default function App() {
                   periodosCerrados={periodosCerrados}
                   highAmountReviewThreshold={HIGH_AMOUNT_REVIEW_THRESHOLD}
                   classify={triggerAgent}
+                  accounts={catalogApi.accounts}
+                  rules={catalogApi.rules}
+                  atajoPueBancos={catalogApi.atajoPueBancos}
                 />
               )}
               {activeTab === 'fiscal' && (

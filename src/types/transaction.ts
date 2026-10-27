@@ -58,6 +58,8 @@ export interface TransactionDoc extends TransactionFiscalFields, TransactionSatP
   account_source?: string;
   /** E16 — asiento de devengo calculado al clasificar. */
   asiento_devengo?: JournalEntry;
+  /** E19 — liquidación de un CFDI tipo P. No convive con el devengo. */
+  asiento_liquidacion?: JournalEntry;
   tags?: string[];
   agente_ia_decision?: string;
   confidence_score?: number;

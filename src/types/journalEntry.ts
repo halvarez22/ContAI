@@ -37,3 +37,21 @@ export type NominaAccrualAmounts = {
   isr_retained: number;
   imss_retained: number;
 };
+
+export const AUDIT_ASIENTO_LIQUIDACION_GENERADO = 'ASIENTO_LIQUIDACION_GENERADO';
+export const LIQUIDACION_LINE_CONCEPTO = 'Liquidación';
+export const LIQUIDACION_MONEDA_REASON = 'Moneda distinta de MXN en complemento de pago';
+export const LIQUIDACION_RFC_REASON = 'No se pudo determinar si es cobro o pago';
+export const LIQUIDACION_REASSIGN_BLOCKED =
+  'La liquidación del complemento de pago no puede reclasificarse a una cuenta de resultados';
+
+export type LiquidationOperation = 'cobro' | 'pago';
+
+export type LiquidationDraft = {
+  id: string;
+  monto_total: number;
+  tipo_operacion: LiquidationOperation;
+  account_code: string;
+  fecha: string | Date;
+  moneda: string;
+};

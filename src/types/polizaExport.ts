@@ -32,6 +32,8 @@ export type PolizaTxInput = {
   nomina_total_percepciones?: number;
   /** E16 — presente solo si el devengo ya se guardó. */
   asiento_devengo?: JournalEntry;
+  /** E19 — liquidación de complemento de pago. */
+  asiento_liquidacion?: JournalEntry;
 };
 
 export type PolizaSkipReason =

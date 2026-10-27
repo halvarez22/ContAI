@@ -170,6 +170,8 @@ export function buildCfdiTransactionDraftExtended(
     },
     requiresGroqClassification: !isTipoP,
     paymentPagos: isTipoP && d.pagos.length > 0 ? d.pagos : undefined,
+    emisorRfc: d.emisorRfc,
+    receptorRfc: d.receptorRfc,
   };
 
   return { ok: true, draft };
@@ -371,6 +373,7 @@ export type RunCfdiBatchParams = {
   accounts?: readonly CatalogAccount[];
   rules?: readonly AccountMappingRule[];
   atajoPueBancos?: boolean;
+  organizationRfc?: string;
   onProgress?: (p: CfdiBatchProgress) => void;
   paymentImportStore?: PaymentImportStore;
 };
@@ -392,6 +395,7 @@ export async function runCfdiBatchImport(
     accounts = [],
     rules = [],
     atajoPueBancos = false,
+    organizationRfc = '',
     onProgress,
     paymentImportStore = createFirestorePaymentImportStore(),
   } = params;
@@ -482,6 +486,7 @@ export async function runCfdiBatchImport(
     atajoPueBancos,
     highAmountReviewThreshold,
     organizationId,
+    organizationRfc,
     userId,
     periodosCerrados,
     paymentImportStore,

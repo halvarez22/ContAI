@@ -137,3 +137,17 @@ export function seedAccountByContaiName(name: string): CatalogAccount {
   }
   return { ...found };
 }
+
+/** Cuenta activa del catálogo que conserva el nombre y la naturaleza de la semilla. */
+export function activeSeedAccount(
+  chart: readonly CatalogAccount[],
+  seedName: string
+): CatalogAccount | undefined {
+  const seed = seedAccountByContaiName(seedName);
+  return chart.find(
+    (account) =>
+      account.activa !== false &&
+      account.name === seed.name &&
+      account.naturaleza === seed.naturaleza
+  );
+}

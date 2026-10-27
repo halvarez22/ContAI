@@ -228,4 +228,32 @@ describe('buildFinancialReports', () => {
     expect(report.balanceSheet.total_capital).toBe(100);
     expect(report.balanceSheet.is_balanced).toBe(false);
   });
+
+  it('la liquidación mueve bancos y clientes sin tocar resultados', () => {
+    const report = buildFinancialReports({
+      transactions: [
+        {
+          id: 'pago',
+          fecha: '2026-03-15T12:00:00.000Z',
+          asiento_liquidacion: {
+            lines: [
+              line('102.01', 'Bancos', 'cargo', 1160),
+              line('105.01', 'Clientes', 'abono', 1160),
+            ],
+          },
+        },
+      ],
+      chart,
+      year: 2026,
+      monthIndex: 2,
+      truncated: false,
+    });
+    const bancos = report.trialBalance.rows.find((row) => row.account_code === '102.01');
+    const clientes = report.trialBalance.rows.find((row) => row.account_code === '105.01');
+    expect(bancos?.cargos).toBe(1160);
+    expect(clientes?.abonos).toBe(1160);
+    expect(report.incomeStatement.total_ingresos).toBe(0);
+    expect(report.incomeStatement.total_gastos).toBe(0);
+    expect(report.trialBalance.sin_devengo).toBe(0);
+  });
 });

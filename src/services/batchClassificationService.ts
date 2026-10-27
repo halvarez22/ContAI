@@ -19,7 +19,7 @@ import type {
 import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import { logAuditEntry } from './auditService';
 import { decideAccount } from './accountMappingService';
-import { postClassifiedAccrual } from './accrualPostingService';
+import { liquidationPatchForTipoP, postClassifiedAccrual } from './accrualPostingService';
 import {
   processTipoPPaymentImport,
   type PaymentImportStore,
@@ -48,6 +48,7 @@ export async function classifyBatchTransactions(params: {
   atajoPueBancos?: boolean;
   highAmountReviewThreshold: number;
   organizationId: string;
+  organizationRfc?: string;
   userId: string;
   periodosCerrados: string[];
   paymentImportStore: PaymentImportStore;
@@ -62,6 +63,7 @@ export async function classifyBatchTransactions(params: {
     atajoPueBancos = false,
     highAmountReviewThreshold,
     organizationId,
+    organizationRfc = '',
     userId,
     periodosCerrados,
     paymentImportStore,
@@ -226,31 +228,41 @@ export async function classifyBatchTransactions(params: {
           nomina_isr_retained: draft.payload.nomina_isr_retained,
           nomina_imss_retained: draft.payload.nomina_imss_retained,
         });
-      } else if (draft.paymentPagos && draft.payload.cfdi_uuid) {
-        const outcome = await processTipoPPaymentImport({
-          organizationId,
-          userId,
-          paymentTxId: documentId,
-          cfdiUuid: draft.payload.cfdi_uuid,
-          pagos: draft.paymentPagos,
-          periodosCerrados,
-          store: paymentImportStore,
-        });
-        if (outcome.status === 'applied') {
-          paymentsLinked += outcome.applicationsCount;
-          results.push({
-            fileName: draft.fileName,
-            ok: true,
-            documentId,
-            paymentsLinked: outcome.applicationsCount,
+      } else {
+        if (draft.paymentPagos && draft.payload.cfdi_uuid) {
+          const outcome = await processTipoPPaymentImport({
+            organizationId,
+            userId,
+            paymentTxId: documentId,
+            cfdiUuid: draft.payload.cfdi_uuid,
+            pagos: draft.paymentPagos,
+            periodosCerrados,
+            store: paymentImportStore,
           });
-        } else if (outcome.status === 'already_processed') {
-          results.push({
-            fileName: draft.fileName,
-            ok: true,
-            documentId,
-            paymentsLinked: 0,
-          });
+          if (outcome.status === 'applied') {
+            paymentsLinked += outcome.applicationsCount;
+            results.push({
+              fileName: draft.fileName,
+              ok: true,
+              documentId,
+              paymentsLinked: outcome.applicationsCount,
+            });
+          } else if (outcome.status === 'already_processed') {
+            results.push({
+              fileName: draft.fileName,
+              ok: true,
+              documentId,
+              paymentsLinked: 0,
+            });
+          } else {
+            paymentsPendingReview += 1;
+            results.push({
+              fileName: draft.fileName,
+              ok: true,
+              documentId,
+              paymentPendingReview: true,
+            });
+          }
         } else {
           paymentsPendingReview += 1;
           results.push({
@@ -260,20 +272,32 @@ export async function classifyBatchTransactions(params: {
             paymentPendingReview: true,
           });
         }
-        await logAuditEntry('IMPORT_CFDI', 'transactions', {
-          id: documentId,
-          uuid: draft.payload.cfdi_uuid,
-          batch: true,
-          fileName: draft.fileName,
-          cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
-        });
-      } else {
-        paymentsPendingReview += 1;
-        results.push({
-          fileName: draft.fileName,
-          ok: true,
+        const liquidacion = await liquidationPatchForTipoP({
+          organizationId,
           documentId,
-          paymentPendingReview: true,
+          fecha: String(draft.payload.fecha ?? ''),
+          organizationRfc,
+          emisorRfc: draft.emisorRfc ?? '',
+          receptorRfc: draft.receptorRfc ?? '',
+          pagos: draft.paymentPagos ?? [],
+          chart: accounts,
+        });
+        patchUpdates.push({
+          id: documentId,
+          payload: {
+            status: liquidacion.status,
+            policy_review_reason: liquidacion.policy_review_reason,
+            ...(liquidacion.asiento_liquidacion
+              ? { asiento_liquidacion: liquidacion.asiento_liquidacion }
+              : {}),
+            ...(liquidacion.account_code
+              ? {
+                  account_code: liquidacion.account_code,
+                  account_name: liquidacion.account_name,
+                }
+              : {}),
+            actualizado_en: serverTimestamp(),
+          },
         });
         await logAuditEntry('IMPORT_CFDI', 'transactions', {
           id: documentId,

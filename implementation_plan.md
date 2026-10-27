@@ -440,3 +440,15 @@ Condiciones vinculantes:
 1. `total_percepciones`, `isr_retained` e `imss_retained` son `number` en `src/types/journalEntry.ts`. La rama de nómina no los trata como cero si faltan.
 2. Además del asiento de cuatro líneas, una prueba con ISR en cero exige tres líneas, sin una línea de monto cero.
 3. La reasignación de una nómina falla con el texto exacto «La clasificación de nómina es automática y no puede modificarse manualmente».
+
+## 16. E19 — Liquidación de CFDI tipo P (dictamen 2026-10-27, ejecución autorizada)
+
+Un complemento de pago no devenga ingreso ni gasto. Liquida Bancos contra Clientes o contra Proveedores. El cobro o el pago se decide comparando el RFC de la empresa con el emisor y el receptor del complemento. La aplicación por UUID que ya existe no se modifica y no condiciona el asiento.
+
+El asiento se guarda en `asiento_liquidacion`. La balanza, el balance y la póliza de devengo lo suman. El estado de resultados no recibe esas líneas.
+
+Condiciones vinculantes:
+
+1. Bancos, Clientes y Proveedores se resuelven en el catálogo activo por el nombre de la semilla. `buildPaymentApplicationEntry` no escribe los códigos `102.01`, `105.01` ni `201.01`. Si el catálogo cambia el código, el asiento usa el código nuevo.
+2. Si la liquidación cuadra, el estado queda en `conciliado`. Si falla, queda en `revisión` con un motivo: «Moneda distinta de MXN en complemento de pago» o «No se pudo determinar si es cobro o pago», o la cuenta inactiva.
+3. La prueba del RFC cubre emisor → `cobro`, receptor → `pago`, y sin coincidencia → vacío, que provoca el fallo controlado.

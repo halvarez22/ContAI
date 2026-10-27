@@ -9,7 +9,7 @@ import type { ExecutiveSnapshot } from './executiveDashboard';
 import type { OperationalSnapshot } from './operationalDashboard';
 import type { PaymentLedgerItem } from '../hooks/usePaymentApplications';
 import type { FiscalRiskIndex } from './fiscalRisk';
-import type { CatalogAccount } from './chartOfAccounts';
+import type { AccountMappingRule, CatalogAccount } from './chartOfAccounts';
 
 /** Tabs extraídas a Section Views en E7.3 */
 export const MIGRATED_NAV_TAB_IDS = [
@@ -143,6 +143,9 @@ export type SatDownloadSectionProps = {
   periodosCerrados: string[];
   highAmountReviewThreshold: number;
   classify: ClassifyBatchFn;
+  accounts?: readonly CatalogAccount[];
+  rules?: readonly AccountMappingRule[];
+  atajoPueBancos?: boolean;
 };
 
 export type FiscalSectionProps = {

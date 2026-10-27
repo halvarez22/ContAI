@@ -4,6 +4,11 @@
  */
 
 import type { PagoExtracted } from '../lib/cfdiPagosParser';
+import {
+  LIQUIDACION_MONEDA_REASON,
+  LIQUIDACION_RFC_REASON,
+  type LiquidationOperation,
+} from '../types/journalEntry';
 import type { InformacionGlobalExtracted } from '../lib/cfdiPagosParser';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
@@ -94,6 +99,52 @@ export function buildGlobalSatFields(
     global_periodicidad: global.periodicidad || undefined,
     global_meses: global.meses || undefined,
   };
+}
+
+function normalizeRfc(rfc: string): string {
+  return rfc.trim().toUpperCase();
+}
+
+export function resolveTipoPOperation(
+  orgRfc: string,
+  emisorRfc: string,
+  receptorRfc: string
+): LiquidationOperation | null {
+  const org = normalizeRfc(orgRfc);
+  const emisor = normalizeRfc(emisorRfc);
+  const receptor = normalizeRfc(receptorRfc);
+  if (!org) return null;
+  if (org === emisor && org !== receptor) return 'cobro';
+  if (org === receptor && org !== emisor) return 'pago';
+  return null;
+}
+
+export type TipoPLiquidacionEvaluation =
+  | { ok: true; tipo_operacion: LiquidationOperation; monto_total: number; moneda: 'MXN' }
+  | { ok: false; reason: string };
+
+export function evaluateTipoPLiquidacion(params: {
+  orgRfc: string;
+  emisorRfc: string;
+  receptorRfc: string;
+  pagos: readonly PagoExtracted[];
+}): TipoPLiquidacionEvaluation {
+  const tipo_operacion = resolveTipoPOperation(
+    params.orgRfc,
+    params.emisorRfc,
+    params.receptorRfc
+  );
+  if (!tipo_operacion) return { ok: false, reason: LIQUIDACION_RFC_REASON };
+  for (const pago of params.pagos) {
+    if (pago.monedaP.trim().toUpperCase() !== 'MXN') {
+      return { ok: false, reason: LIQUIDACION_MONEDA_REASON };
+    }
+  }
+  const monto_total = sumTipoPPaymentAmount(params.pagos);
+  if (monto_total <= 0) {
+    return { ok: false, reason: 'El complemento de pago no tiene monto.' };
+  }
+  return { ok: true, tipo_operacion, monto_total, moneda: 'MXN' };
 }
 
 export function sumTipoPPaymentAmount(pagos: readonly PagoExtracted[]): number {

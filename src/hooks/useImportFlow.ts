@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { CfdiExtracted } from '../lib/cfdiXml';
 import {
   parseCfdiXml,
@@ -12,7 +12,11 @@ import {
 } from '../lib/nominaXmlParser';
 import type { NominaExtracted } from '../types/nominaImport';
 import { decideAccount } from '../services/accountMappingService';
-import { createImportedNomina, postClassifiedAccrual } from '../services/accrualPostingService';
+import {
+  createImportedNomina,
+  createImportedTipoP,
+  postClassifiedAccrual,
+} from '../services/accrualPostingService';
 import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
@@ -48,6 +52,7 @@ export type UseImportFlowParams = {
   accounts: readonly CatalogAccount[];
   rules: readonly AccountMappingRule[];
   atajoPueBancos: boolean;
+  organizationRfc?: string;
 };
 
 export function useImportFlow({
@@ -59,7 +64,9 @@ export function useImportFlow({
   accounts,
   rules,
   atajoPueBancos,
+  organizationRfc,
 }: UseImportFlowParams) {
+  const cfdiXmlTextRef = useRef('');
   const [isCfdiImportOpen, setIsCfdiImportOpen] = useState(false);
   const [cfdiPreview, setCfdiPreview] = useState<CfdiExtracted | null>(null);
   const [cfdiNominaPreview, setCfdiNominaPreview] = useState<NominaExtracted | null>(
@@ -117,6 +124,7 @@ export function useImportFlow({
     const reader = new FileReader();
     reader.onload = async () => {
       const text = String(reader.result || '');
+      cfdiXmlTextRef.current = text;
       setCfdiXsdValidating(true);
       try {
         const { validateCfdiXmlAgainstXsd } = await import('../lib/cfdiXsdValidate');
@@ -197,6 +205,7 @@ export function useImportFlow({
           accounts,
           rules,
           atajoPueBancos,
+          organizationRfc,
           onProgress: (p) => {
             setCfdiBatchProgress(p);
             setCfdiPhase(p.phase === 'uploading' ? 'uploading' : 'processing_ai');
@@ -375,6 +384,31 @@ export function useImportFlow({
       alert('El periodo de la fecha del CFDI está cerrado.');
       return;
     }
+    if (String(d.tipoComprobante || '').toUpperCase() === 'P') {
+      setCfdiImporting(true);
+      setCfdiPhase('processing_ai');
+      try {
+        await createImportedTipoP({
+          organizationId,
+          userId,
+          organizationRfc: organizationRfc ?? '',
+          xmlText: cfdiXmlTextRef.current,
+          chart: accounts,
+          periodosCerrados,
+        });
+        setIsCfdiImportOpen(false);
+        setCfdiPreview(null);
+        setCfdiNominaPreview(null);
+        setCfdiPhase('idle');
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : 'Error al registrar el complemento de pago.';
+        setCfdiImportError(detail);
+        setCfdiPhase('error');
+      } finally {
+        setCfdiImporting(false);
+      }
+      return;
+    }
     setCfdiImporting(true);
     setCfdiImportError(null);
     setCfdiPhase('processing_ai');
@@ -537,6 +571,7 @@ export function useImportFlow({
     accounts,
     rules,
     atajoPueBancos,
+    organizationRfc,
   ]);
 
   return {

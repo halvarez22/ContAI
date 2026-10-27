@@ -18,6 +18,7 @@ export type ReportTransaction = {
   id?: string;
   fecha: string;
   asiento_devengo?: unknown;
+  asiento_liquidacion?: unknown;
 };
 
 type Bucket = {
@@ -85,6 +86,71 @@ function toRow(bucket: Bucket, saldoInicial: number): ReportRow {
   };
 }
 
+function absorbJournal(
+  raw: unknown,
+  phase: 'month' | 'opening',
+  transactionId: string,
+  illegibleMessage: string,
+  chart: Map<string, CatalogAccount>,
+  buckets: Map<string, Bucket>,
+  anomalies: ReportAnomaly[]
+): { cargos: number; abonos: number } {
+  const lines = readLines(raw);
+  if (!lines) {
+    anomalies.push({
+      account_code: '',
+      transaction_id: transactionId,
+      message: illegibleMessage,
+      cargos: 0,
+      abonos: 0,
+    });
+    return { cargos: 0, abonos: 0 };
+  }
+  let cargos = 0;
+  let abonos = 0;
+  for (const line of lines) {
+    const cargo = line.tipo === 'cargo' ? roundMoney(line.monto) : 0;
+    const abono = line.tipo === 'abono' ? roundMoney(line.monto) : 0;
+    const account = chart.get(line.account_code);
+    if (!account) {
+      anomalies.push({
+        account_code: line.account_code,
+        transaction_id: transactionId,
+        message:
+          phase === 'opening'
+            ? 'Cuenta sin catálogo en el saldo inicial.'
+            : 'Cuenta sin catálogo.',
+        cargos: cargo,
+        abonos: abono,
+      });
+      if (phase === 'month') {
+        cargos = roundMoney(cargos + cargo);
+        abonos = roundMoney(abonos + abono);
+      }
+      continue;
+    }
+    const current = buckets.get(account.code) ?? {
+      code: account.code,
+      name: account.name,
+      naturaleza: account.naturaleza,
+      ...(account.tipo_iva ? { tipo_iva: account.tipo_iva } : {}),
+      openingNet: 0,
+      cargos: 0,
+      abonos: 0,
+    };
+    if (phase === 'opening') {
+      current.openingNet = roundMoney(current.openingNet + cargo - abono);
+    } else {
+      current.cargos = roundMoney(current.cargos + cargo);
+      current.abonos = roundMoney(current.abonos + abono);
+      cargos = roundMoney(cargos + cargo);
+      abonos = roundMoney(abonos + abono);
+    }
+    buckets.set(account.code, current);
+  }
+  return { cargos, abonos };
+}
+
 function aggregateEntries(
   transactions: readonly ReportTransaction[],
   chart: Map<string, CatalogAccount>,
@@ -108,60 +174,32 @@ function aggregateEntries(
     const transactionId = String(tx.id ?? '');
     if (!when || when.year !== year || when.month > monthIndex) continue;
     const phase = when.month === monthIndex ? 'month' : 'opening';
-    if (tx.asiento_devengo == null) {
+    const sources: Array<{ raw: unknown; illegible: string }> = [];
+    if (tx.asiento_devengo != null) {
+      sources.push({ raw: tx.asiento_devengo, illegible: 'Asiento de devengo ilegible.' });
+    }
+    if (tx.asiento_liquidacion != null) {
+      sources.push({
+        raw: tx.asiento_liquidacion,
+        illegible: 'Asiento de liquidación ilegible.',
+      });
+    }
+    if (sources.length === 0) {
       if (phase === 'month') sinDevengo += 1;
       continue;
     }
-    const lines = readLines(tx.asiento_devengo);
-    if (!lines) {
-      anomalies.push({
-        account_code: '',
-        transaction_id: transactionId,
-        message: 'Asiento de devengo ilegible.',
-        cargos: 0,
-        abonos: 0,
-      });
-      continue;
-    }
-    for (const line of lines) {
-      const cargo = line.tipo === 'cargo' ? roundMoney(line.monto) : 0;
-      const abono = line.tipo === 'abono' ? roundMoney(line.monto) : 0;
-      const account = chart.get(line.account_code);
-      if (!account) {
-        anomalies.push({
-          account_code: line.account_code,
-          transaction_id: transactionId,
-          message:
-            phase === 'opening'
-              ? 'Cuenta sin catálogo en el saldo inicial.'
-              : 'Cuenta sin catálogo.',
-          cargos: cargo,
-          abonos: abono,
-        });
-        if (phase === 'month') {
-          totalCargos = roundMoney(totalCargos + cargo);
-          totalAbonos = roundMoney(totalAbonos + abono);
-        }
-        continue;
-      }
-      const current = buckets.get(account.code) ?? {
-        code: account.code,
-        name: account.name,
-        naturaleza: account.naturaleza,
-        ...(account.tipo_iva ? { tipo_iva: account.tipo_iva } : {}),
-        openingNet: 0,
-        cargos: 0,
-        abonos: 0,
-      };
-      if (phase === 'opening') {
-        current.openingNet = roundMoney(current.openingNet + cargo - abono);
-      } else {
-        current.cargos = roundMoney(current.cargos + cargo);
-        current.abonos = roundMoney(current.abonos + abono);
-        totalCargos = roundMoney(totalCargos + cargo);
-        totalAbonos = roundMoney(totalAbonos + abono);
-      }
-      buckets.set(account.code, current);
+    for (const source of sources) {
+      const absorbed = absorbJournal(
+        source.raw,
+        phase,
+        transactionId,
+        source.illegible,
+        chart,
+        buckets,
+        anomalies
+      );
+      totalCargos = roundMoney(totalCargos + absorbed.cargos);
+      totalAbonos = roundMoney(totalAbonos + absorbed.abonos);
     }
   }
 

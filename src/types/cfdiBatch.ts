@@ -84,6 +84,9 @@ export interface CfdiTransactionDraft {
   requiresGroqClassification: boolean;
   /** Datos Pagos 2.0 para post-proceso (solo tipo P). */
   paymentPagos?: PagoExtracted[];
+  /** RFC del comprobante. Sirven para decidir cobro o pago y no se auditan. */
+  emisorRfc?: string;
+  receptorRfc?: string;
 }
 
 export interface CfdiBatchImportSummary {

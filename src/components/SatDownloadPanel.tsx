@@ -4,6 +4,7 @@ import { Card } from './ui/Card';
 import { useSatDownload } from '../hooks/useSatDownload';
 import type { ClassifyBatchFn } from '../services/cfdiBatchImportService';
 import type { SatDownloadProvider } from '../types/satDownload';
+import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import { cn } from '../lib/utils';
 
 export type SatDownloadPanelProps = {
@@ -14,6 +15,9 @@ export type SatDownloadPanelProps = {
   highAmountReviewThreshold: number;
   classify: ClassifyBatchFn;
   provider?: SatDownloadProvider;
+  accounts?: readonly CatalogAccount[];
+  rules?: readonly AccountMappingRule[];
+  atajoPueBancos?: boolean;
 };
 
 export function SatDownloadPanel(props: SatDownloadPanelProps) {

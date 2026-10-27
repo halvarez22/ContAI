@@ -43,6 +43,7 @@ export type BatchApprovalTransaction = {
   concepto?: string;
   proveedor?: string;
   is_nomina?: boolean;
+  cfdi_tipo_comprobante?: string;
   policy_review_reason?: string | null;
 };
 

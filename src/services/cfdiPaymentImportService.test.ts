@@ -5,11 +5,14 @@ vi.mock('./auditService', () => ({
 }));
 
 import type { PagoExtracted } from '../lib/cfdiPagosParser';
+import { LIQUIDACION_RFC_REASON } from '../types/journalEntry';
 import {
   deriveInvoicePaymentState,
   evaluateTipoPAutoApply,
+  evaluateTipoPLiquidacion,
   normalizeCfdiTipo,
   processTipoPPaymentImport,
+  resolveTipoPOperation,
   type PaymentImportStore,
   type ResolvedInvoiceTarget,
 } from './cfdiPaymentImportService';
@@ -333,5 +336,31 @@ describe('buildCfdiTransactionDraftExtended E9.2 F2', () => {
     expect(r.draft.payload.cfdi_tipo_comprobante).toBe('P');
     expect(r.draft.payload.monto).toBe(1000);
     expect(r.draft.paymentPagos).toHaveLength(1);
+  });
+});
+
+describe('resolveTipoPOperation', () => {
+  const pagoMxn: PagoExtracted = {
+    fechaPago: '2026-03-01T12:00:00',
+    formaDePagoP: '03',
+    monedaP: 'MXN',
+    monto: 100,
+    documentos: [],
+  };
+
+  it('emisor es cobro, receptor es pago, y sin coincidencia no hay operación', () => {
+    expect(resolveTipoPOperation('AAA010101AAA', 'AAA010101AAA', 'BBB010101BBB')).toBe('cobro');
+    expect(resolveTipoPOperation('bbb010101bbb', 'AAA010101AAA', 'BBB010101BBB')).toBe('pago');
+    expect(resolveTipoPOperation('CCC010101CCC', 'AAA010101AAA', 'BBB010101BBB')).toBeNull();
+    const failed = evaluateTipoPLiquidacion({
+      orgRfc: 'CCC010101CCC',
+      emisorRfc: 'AAA010101AAA',
+      receptorRfc: 'BBB010101BBB',
+      pagos: [pagoMxn],
+    });
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    expect(failed.reason).toBe(LIQUIDACION_RFC_REASON);
+    expect(failed.reason).toBe('No se pudo determinar si es cobro o pago');
   });
 });

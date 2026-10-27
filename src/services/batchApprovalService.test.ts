@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getChartOfAccountsSeed } from '../config/chartOfAccounts';
 import { NOMINA_REASSIGN_BLOCKED } from '../config/nominaDefaults';
+import { LIQUIDACION_REASSIGN_BLOCKED } from '../types/journalEntry';
 import { CLOSED_PERIOD_REASON } from '../types/batchApproval';
 import type { BatchApprovalTransaction } from '../types/batchApproval';
 import {
@@ -139,6 +140,24 @@ describe('planAccountReassignment', () => {
     );
     expect(planned.reason).toBe(
       'La clasificación de nómina es automática y no puede modificarse manualmente'
+    );
+  });
+
+  it('no reclasifica un complemento de pago', () => {
+    const planned = planAccountReassignment({
+      transaction: review('pago', '2026-03-10T12:00:00.000Z', { cfdi_tipo_comprobante: 'P' }),
+      chart,
+      accountCode: '601.84',
+      atajoPueBancos: false,
+      periodosCerrados: [],
+    });
+    expect(planned.ok).toBe(false);
+    if (planned.ok) return;
+    expect(LIQUIDACION_REASSIGN_BLOCKED).toBe(
+      'La liquidación del complemento de pago no puede reclasificarse a una cuenta de resultados'
+    );
+    expect(planned.reason).toBe(
+      'La liquidación del complemento de pago no puede reclasificarse a una cuenta de resultados'
     );
   });
 

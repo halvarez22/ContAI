@@ -8,6 +8,7 @@ import {
   ACCRUAL_IVA_ACREDITABLE_CODE,
   ACCRUAL_IVA_TRASLADADO_CODE,
   ACCRUAL_PROVEEDORES_CODE,
+  activeSeedAccount,
 } from '../config/chartOfAccounts';
 import type { CatalogAccount } from '../types/chartOfAccounts';
 import {
@@ -20,9 +21,12 @@ import {
 } from '../config/nominaDefaults';
 import {
   ATAJO_PUE_CONCEPTO,
+  LIQUIDACION_LINE_CONCEPTO,
+  LIQUIDACION_MONEDA_REASON,
   type AccrualResult,
   type JournalEntry,
   type JournalLine,
+  type LiquidationDraft,
   type NominaAccrualAmounts,
 } from '../types/journalEntry';
 import { POLIZA_CONCEPTO_MAX } from '../types/polizaExport';
@@ -223,6 +227,70 @@ export function buildAccrualJournalEntry(
   if (!journalEntryBalances(entry)) {
     return { ok: false, reason: UNBALANCED };
   }
+  return { ok: true, entry };
+}
+
+function seedAccountOrFail(
+  chart: readonly CatalogAccount[],
+  seedName: string
+): { ok: true; account: CatalogAccount } | { ok: false; reason: string } {
+  const account = activeSeedAccount(chart, seedName);
+  if (!account) {
+    return { ok: false, reason: `La cuenta ${seedName} no está activa en el catálogo.` };
+  }
+  if (
+    account.naturaleza === 'ingreso' ||
+    account.naturaleza === 'gasto' ||
+    account.naturaleza === 'iva'
+  ) {
+    return { ok: false, reason: `La cuenta ${seedName} no es de balance.` };
+  }
+  return { ok: true, account };
+}
+
+export function buildPaymentApplicationEntry(
+  draft: LiquidationDraft,
+  chart: readonly CatalogAccount[]
+): AccrualResult {
+  if (draft.moneda.trim().toUpperCase() !== 'MXN') {
+    return { ok: false, reason: LIQUIDACION_MONEDA_REASON };
+  }
+  if (!Number.isFinite(draft.monto_total)) {
+    return { ok: false, reason: UNBALANCED };
+  }
+  const monto = roundMoney(draft.monto_total);
+  if (monto <= 0) return { ok: false, reason: UNBALANCED };
+  if (draft.tipo_operacion !== 'cobro' && draft.tipo_operacion !== 'pago') {
+    return { ok: false, reason: 'La liquidación no indica si es cobro o pago.' };
+  }
+
+  const bancos = seedAccountOrFail(chart, 'Bancos');
+  if (bancos.ok === false) return bancos;
+  const contraName = draft.tipo_operacion === 'cobro' ? 'Clientes' : 'Proveedores';
+  const contra = seedAccountOrFail(chart, contraName);
+  if (contra.ok === false) return contra;
+  if (draft.account_code !== contra.account.code) {
+    return { ok: false, reason: 'La cuenta de la liquidación no corresponde al cobro ni al pago.' };
+  }
+
+  const lines: JournalLine[] =
+    draft.tipo_operacion === 'cobro'
+      ? [
+          line(bancos.account, 'cargo', monto, LIQUIDACION_LINE_CONCEPTO),
+          line(contra.account, 'abono', monto, LIQUIDACION_LINE_CONCEPTO),
+        ]
+      : [
+          line(contra.account, 'cargo', monto, LIQUIDACION_LINE_CONCEPTO),
+          line(bancos.account, 'abono', monto, LIQUIDACION_LINE_CONCEPTO),
+        ];
+  const entry: JournalEntry = {
+    transaction_id: String(draft.id),
+    tipo: draft.tipo_operacion === 'cobro' ? 'ingreso' : 'egreso',
+    fecha: fechaIso(draft.fecha),
+    atajo_pue_bancos: false,
+    lines,
+  };
+  if (!journalEntryBalances(entry)) return { ok: false, reason: UNBALANCED };
   return { ok: true, entry };
 }
 

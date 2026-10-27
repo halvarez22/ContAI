@@ -41,6 +41,7 @@ export type ReviewSource = {
   concepto?: string | null;
   proveedor?: string | null;
   is_nomina?: boolean;
+  cfdi_tipo_comprobante?: string;
   policy_review_reason?: string | null;
 };
 
@@ -67,6 +68,7 @@ function toQueueRow(tx: ReviewSource): BatchApprovalTransaction {
     concepto: tx.concepto ?? undefined,
     proveedor: tx.proveedor ?? undefined,
     is_nomina: tx.is_nomina,
+    cfdi_tipo_comprobante: tx.cfdi_tipo_comprobante,
     policy_review_reason: tx.policy_review_reason,
   };
 }
