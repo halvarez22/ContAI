@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { getChartOfAccountsSeed } from '../config/chartOfAccounts';
+import {
+  DEFAULT_NOMINA_ACCOUNT_CODE,
+  DEFAULT_NOMINA_BANCOS_CODE,
+  DEFAULT_NOMINA_IMSS_CODE,
+  DEFAULT_NOMINA_ISR_CODE,
+  NOMINA_LINE_CONCEPTO,
+} from '../config/nominaDefaults';
 import { isPolizaEligible } from './polizaExportService';
 import {
   accrualPersistence,
@@ -135,13 +142,49 @@ describe('buildAccrualJournalEntry', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('la nómina no arma devengo', () => {
+  it('la nómina de cuatro líneas cuadra con los códigos de la semilla', () => {
     const result = buildAccrualJournalEntry(
-      draft({ id: 'nom', tipo: 'egreso', is_nomina: true, account_code: '601.01' }),
+      draft({
+        id: 'nom',
+        tipo: 'egreso',
+        monto: 8600,
+        is_nomina: true,
+        nomina: { total_percepciones: 10000, isr_retained: 1000, imss_retained: 400 },
+      }),
       chart,
       false
     );
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.lines).toHaveLength(4);
+    expect(result.entry.lines.map((item) => [item.tipo, item.account_code, item.monto])).toEqual([
+      ['cargo', DEFAULT_NOMINA_ACCOUNT_CODE, 10000],
+      ['abono', DEFAULT_NOMINA_ISR_CODE, 1000],
+      ['abono', DEFAULT_NOMINA_IMSS_CODE, 400],
+      ['abono', DEFAULT_NOMINA_BANCOS_CODE, 8600],
+    ]);
+    expect(result.entry.lines.every((item) => item.concepto === NOMINA_LINE_CONCEPTO)).toBe(true);
+    expect(journalEntryBalances(result.entry)).toBe(true);
+  });
+
+  it('omite la línea de ISR cuando la retención es cero', () => {
+    const result = buildAccrualJournalEntry(
+      draft({
+        id: 'nom0',
+        tipo: 'egreso',
+        monto: 9600,
+        is_nomina: true,
+        nomina: { total_percepciones: 10000, isr_retained: 0, imss_retained: 400 },
+      }),
+      chart,
+      false
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.lines).toHaveLength(3);
+    expect(result.entry.lines.some((item) => item.account_code === DEFAULT_NOMINA_ISR_CODE)).toBe(false);
+    expect(result.entry.lines.some((item) => item.monto === 0)).toBe(false);
+    expect(journalEntryBalances(result.entry)).toBe(true);
   });
 
   it('un asiento guardado es elegible de devengo aunque no esté conciliado', () => {

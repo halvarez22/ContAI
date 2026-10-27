@@ -9,6 +9,7 @@ import { seedAccountByContaiName } from './chartOfAccounts';
 const nominaGasto = seedAccountByContaiName('Gastos de Nómina');
 const nominaIsr = seedAccountByContaiName('ISR por Pagar');
 const nominaImss = seedAccountByContaiName('IMSS por Pagar');
+const nominaBancos = seedAccountByContaiName('Bancos');
 
 export const DEFAULT_NOMINA_ACCOUNT_NAME = nominaGasto.name;
 export const DEFAULT_NOMINA_ACCOUNT_CODE = nominaGasto.code;
@@ -18,6 +19,12 @@ export const DEFAULT_NOMINA_ISR_ACCOUNT = nominaIsr.name;
 export const DEFAULT_NOMINA_ISR_CODE = nominaIsr.code;
 export const DEFAULT_NOMINA_IMSS_ACCOUNT = nominaImss.name;
 export const DEFAULT_NOMINA_IMSS_CODE = nominaImss.code;
+export const DEFAULT_NOMINA_BANCOS_ACCOUNT = nominaBancos.name;
+export const DEFAULT_NOMINA_BANCOS_CODE = nominaBancos.code;
+
+export const NOMINA_LINE_CONCEPTO = 'Nómina';
+export const NOMINA_REASSIGN_BLOCKED =
+  'La clasificación de nómina es automática y no puede modificarse manualmente';
 
 export const NOMINA_ACCOUNT_SOURCE = 'nomina_default';
 

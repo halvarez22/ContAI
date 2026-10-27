@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getChartOfAccountsSeed } from '../config/chartOfAccounts';
+import { NOMINA_REASSIGN_BLOCKED } from '../config/nominaDefaults';
 import { CLOSED_PERIOD_REASON } from '../types/batchApproval';
 import type { BatchApprovalTransaction } from '../types/batchApproval';
 import {
@@ -133,7 +134,12 @@ describe('planAccountReassignment', () => {
     });
     expect(planned.ok).toBe(false);
     if (planned.ok) return;
-    expect(planned.reason.toLowerCase()).toContain('nómina');
+    expect(NOMINA_REASSIGN_BLOCKED).toBe(
+      'La clasificación de nómina es automática y no puede modificarse manualmente'
+    );
+    expect(planned.reason).toBe(
+      'La clasificación de nómina es automática y no puede modificarse manualmente'
+    );
   });
 
   it('no cambia la cuenta de un periodo cerrado', () => {

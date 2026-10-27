@@ -19,6 +19,7 @@ import {
   REJECT_REASON_TOO_LONG,
 } from '../types/batchApproval';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
+import { NOMINA_REASSIGN_BLOCKED } from '../config/nominaDefaults';
 import { manualAccountFields } from './accountMappingService';
 import { buildAccrualJournalEntry } from './journalEntryService';
 
@@ -126,6 +127,7 @@ export function planAccountReassignment(input: {
   periodosCerrados: readonly string[];
 }): { ok: true; patch: AccountReassignmentPatch } | { ok: false; reason: string } {
   const tx = input.transaction;
+  if (tx.is_nomina === true) return { ok: false, reason: NOMINA_REASSIGN_BLOCKED };
   if (tx.status !== 'revisión') return { ok: false, reason: NOT_IN_REVIEW_REASON };
   if (Number.isNaN(new Date(tx.fecha).getTime())) {
     return { ok: false, reason: 'Fecha inválida.' };
@@ -147,7 +149,6 @@ export function planAccountReassignment(input: {
       metodo_pago_sat: tx.metodo_pago_sat,
       concepto: tx.concepto,
       proveedor: tx.proveedor,
-      is_nomina: tx.is_nomina === true,
     },
     input.chart,
     input.atajoPueBancos === true

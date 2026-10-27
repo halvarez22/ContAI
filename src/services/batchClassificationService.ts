@@ -175,13 +175,40 @@ export async function classifyBatchTransactions(params: {
           cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
         });
       } else if (draft.payload.is_nomina) {
+        const percepciones = draft.payload.nomina_total_percepciones;
+        const isr = draft.payload.nomina_isr_retained;
+        const imss = draft.payload.nomina_imss_retained;
+        const persisted = await postClassifiedAccrual({
+          organizationId,
+          draft: {
+            id: documentId,
+            tipo: 'egreso',
+            monto: Number(draft.payload.monto) || 0,
+            fecha: String(draft.payload.fecha ?? ''),
+            is_nomina: true,
+            nomina: {
+              total_percepciones: typeof percepciones === 'number' ? percepciones : Number.NaN,
+              isr_retained: typeof isr === 'number' ? isr : Number.NaN,
+              imss_retained: typeof imss === 'number' ? imss : Number.NaN,
+            },
+          },
+          chart: accounts,
+          atajoPueBancos: false,
+          proposedStatus: 'conciliado',
+          proposedReason: null,
+          subtotal: typeof percepciones === 'number' ? percepciones : 0,
+          iva: 0,
+          total: Number(draft.payload.monto) || 0,
+        });
         patchUpdates.push({
           id: documentId,
           payload: {
-            status: 'conciliado',
+            status: persisted.status,
             account_name: draft.payload.account_name || DEFAULT_NOMINA_ACCOUNT_NAME,
             account_code: draft.payload.account_code || DEFAULT_NOMINA_ACCOUNT_CODE,
             account_source: draft.payload.account_source || NOMINA_ACCOUNT_SOURCE,
+            policy_review_reason: persisted.policy_review_reason,
+            ...(persisted.asiento_devengo ? { asiento_devengo: persisted.asiento_devengo } : {}),
             actualizado_en: serverTimestamp(),
           },
         });

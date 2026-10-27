@@ -11,10 +11,19 @@ import {
 } from '../config/chartOfAccounts';
 import type { CatalogAccount } from '../types/chartOfAccounts';
 import {
+  DEFAULT_NOMINA_ACCOUNT_CODE,
+  DEFAULT_NOMINA_BANCOS_CODE,
+  DEFAULT_NOMINA_IMSS_CODE,
+  DEFAULT_NOMINA_ISR_CODE,
+  NOMINA_LINE_CONCEPTO,
+  NOMINA_TOTAL_ARITH_TOLERANCE,
+} from '../config/nominaDefaults';
+import {
   ATAJO_PUE_CONCEPTO,
   type AccrualResult,
   type JournalEntry,
   type JournalLine,
+  type NominaAccrualAmounts,
 } from '../types/journalEntry';
 import { POLIZA_CONCEPTO_MAX } from '../types/polizaExport';
 import { roundMoney } from '../types/paymentApplication';
@@ -31,12 +40,13 @@ export type AccrualDraft = {
   concepto?: string | null;
   proveedor?: string | null;
   is_nomina?: boolean;
+  nomina?: NominaAccrualAmounts;
 };
 
 const MISSING_FISCAL = 'Faltan el subtotal y el IVA del comprobante.';
 const UNBALANCED = 'El subtotal más el IVA no iguala el total.';
 const MISSING_ACCOUNT = 'Falta el código de la cuenta del movimiento.';
-const NOMINA_EXCLUDED = 'La nómina no entra a la póliza de devengo.';
+const MISSING_NOMINA = 'Faltan las percepciones o las retenciones de la nómina.';
 
 function inactiveAccount(code: string): string {
   return `La cuenta ${code} no está activa en el catálogo.`;
@@ -94,12 +104,64 @@ export function journalEntryBalances(entry: JournalEntry): boolean {
   return entry.lines.length >= 2 && cargos > 0 && cargos === abonos;
 }
 
+function finiteAmount(value: number | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function buildNominaEntry(
+  draft: AccrualDraft,
+  chart: readonly CatalogAccount[]
+): AccrualResult {
+  const amounts = draft.nomina;
+  if (
+    !amounts ||
+    !finiteAmount(amounts.total_percepciones) ||
+    !finiteAmount(amounts.isr_retained) ||
+    !finiteAmount(amounts.imss_retained)
+  ) {
+    return { ok: false, reason: MISSING_NOMINA };
+  }
+  const neto = roundMoney(Math.abs(Number(draft.monto) || 0));
+  const isr = roundMoney(amounts.isr_retained);
+  const imss = roundMoney(amounts.imss_retained);
+  let bruto = roundMoney(amounts.total_percepciones);
+  if (neto <= 0 || isr < 0 || imss < 0 || bruto < 0) {
+    return { ok: false, reason: UNBALANCED };
+  }
+  const expected = roundMoney(neto + isr + imss);
+  if (Math.abs(bruto - expected) > NOMINA_TOTAL_ARITH_TOLERANCE) bruto = expected;
+
+  const gasto = activeAccount(chart, DEFAULT_NOMINA_ACCOUNT_CODE);
+  const bancos = activeAccount(chart, DEFAULT_NOMINA_BANCOS_CODE);
+  const isrAccount = isr > 0 ? activeAccount(chart, DEFAULT_NOMINA_ISR_CODE) : undefined;
+  const imssAccount = imss > 0 ? activeAccount(chart, DEFAULT_NOMINA_IMSS_CODE) : undefined;
+  if (!gasto) return { ok: false, reason: inactiveAccount(DEFAULT_NOMINA_ACCOUNT_CODE) };
+  if (!bancos) return { ok: false, reason: inactiveAccount(DEFAULT_NOMINA_BANCOS_CODE) };
+  if (isr > 0 && !isrAccount) return { ok: false, reason: inactiveAccount(DEFAULT_NOMINA_ISR_CODE) };
+  if (imss > 0 && !imssAccount) return { ok: false, reason: inactiveAccount(DEFAULT_NOMINA_IMSS_CODE) };
+
+  const lines: JournalLine[] = [line(gasto, 'cargo', bruto, NOMINA_LINE_CONCEPTO)];
+  if (isrAccount) lines.push(line(isrAccount, 'abono', isr, NOMINA_LINE_CONCEPTO));
+  if (imssAccount) lines.push(line(imssAccount, 'abono', imss, NOMINA_LINE_CONCEPTO));
+  lines.push(line(bancos, 'abono', neto, NOMINA_LINE_CONCEPTO));
+
+  const entry: JournalEntry = {
+    transaction_id: String(draft.id),
+    tipo: 'egreso',
+    fecha: fechaIso(draft.fecha),
+    atajo_pue_bancos: false,
+    lines,
+  };
+  if (!journalEntryBalances(entry)) return { ok: false, reason: UNBALANCED };
+  return { ok: true, entry };
+}
+
 export function buildAccrualJournalEntry(
   draft: AccrualDraft,
   chart: readonly CatalogAccount[],
   atajoPueBancos: boolean
 ): AccrualResult {
-  if (draft.is_nomina === true) return { ok: false, reason: NOMINA_EXCLUDED };
+  if (draft.is_nomina === true) return buildNominaEntry(draft, chart);
   const tipo = String(draft.tipo || '').toLowerCase();
   if (tipo !== 'ingreso' && tipo !== 'egreso') {
     return { ok: false, reason: 'El movimiento no es ingreso ni egreso.' };

@@ -428,3 +428,15 @@ La exportación de la balanza y del estado de resultados es CSV con separador `;
 Condición vinculante:
 
 1. `total_activo` suma el saldo final de las cuentas de activo y del IVA acreditable. `total_pasivo` suma la presentación acreedora del pasivo y del IVA trasladado. `total_capital` suma la presentación acreedora del capital más `utilidad_neta`. `is_balanced` es verdadero solo si `roundMoney(total_activo) === roundMoney(total_pasivo + total_capital)`. El caso de prueba cubre el IVA y la utilidad.
+
+## 15. E16.1 — Devengo de nómina (dictamen 2026-10-27, ejecución autorizada)
+
+`buildAccrualJournalEntry` deja de rechazar la nómina. Si `is_nomina` es true, arma el asiento y lo valida con `journalEntryBalances`. No hay un segundo constructor.
+
+Cargo a gastos de nómina por las percepciones. Abono al ISR, al IMSS y a bancos por el neto. Una retención en cero no genera línea. El concepto de la línea es «Nómina».
+
+Condiciones vinculantes:
+
+1. `total_percepciones`, `isr_retained` e `imss_retained` son `number` en `src/types/journalEntry.ts`. La rama de nómina no los trata como cero si faltan.
+2. Además del asiento de cuatro líneas, una prueba con ISR en cero exige tres líneas, sin una línea de monto cero.
+3. La reasignación de una nómina falla con el texto exacto «La clasificación de nómina es automática y no puede modificarse manualmente».

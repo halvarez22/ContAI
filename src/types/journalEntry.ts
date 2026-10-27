@@ -30,3 +30,10 @@ export type JournalEntry = {
 export type AccrualOk = { ok: true; entry: JournalEntry };
 export type AccrualFail = { ok: false; reason: string };
 export type AccrualResult = AccrualOk | AccrualFail;
+
+/** Importes de nómina. En la rama `is_nomina` los tres son obligatorios. */
+export type NominaAccrualAmounts = {
+  total_percepciones: number;
+  isr_retained: number;
+  imss_retained: number;
+};

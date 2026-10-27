@@ -11,13 +11,8 @@ import {
   parseNominaXml,
 } from '../lib/nominaXmlParser';
 import type { NominaExtracted } from '../types/nominaImport';
-import {
-  DEFAULT_NOMINA_ACCOUNT_CODE,
-  DEFAULT_NOMINA_ACCOUNT_NAME,
-  NOMINA_ACCOUNT_SOURCE,
-} from '../config/nominaDefaults';
 import { decideAccount } from '../services/accountMappingService';
-import { postClassifiedAccrual } from '../services/accrualPostingService';
+import { createImportedNomina, postClassifiedAccrual } from '../services/accrualPostingService';
 import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
@@ -346,43 +341,12 @@ export function useImportFlow({
       setCfdiImportError(null);
       setCfdiPhase('processing_ai');
       try {
-        const empleadoLabel = n.empleadoNombre.trim() || n.empleadoRfc || 'Empleado';
-        const concepto = `Nómina · ${empleadoLabel}${n.fechaPago ? ` · ${n.fechaPago}` : ''}`;
-        const docRef = await createTransaction({
-          organization_id: organizationId,
-          usuario_id: userId,
-          tipo: 'egreso',
-          monto: n.total,
-          moneda: n.moneda || 'MXN',
-          concepto,
-          proveedor: empleadoLabel,
-          fecha: fechaIso,
-          status: 'conciliado',
-          account_name: DEFAULT_NOMINA_ACCOUNT_NAME,
-          account_code: DEFAULT_NOMINA_ACCOUNT_CODE,
-          account_source: NOMINA_ACCOUNT_SOURCE,
-          tags: ['nomina'],
-          iva_tasa: 'na',
-          egreso_acredita_iva: false,
-          deducible: false,
-          fiscal_subtotal: n.subtotal,
-          fiscal_iva: 0,
-          rfc_contraparte: n.empleadoRfc || undefined,
-          cfdi_uuid: n.cfdiUuid || undefined,
-          importado_cfdi: true,
-          cfdi_tipo_comprobante: 'N',
-          is_nomina: true,
-          nomina_isr_retained: n.isrRetenido,
-          nomina_imss_retained: n.imssRetenido,
-          nomina_total_percepciones: n.totalPercepciones,
-          nomina_total_deducciones: n.totalDeducciones,
-        });
-        await logAuditEntry('NOMINA_IMPORTED', 'transactions', {
-          id: docRef.id,
-          uuid: n.cfdiUuid,
-          monto: n.total,
-          nomina_isr_retained: n.isrRetenido,
-          nomina_imss_retained: n.imssRetenido,
+        await createImportedNomina({
+          organizationId,
+          userId,
+          preview: n,
+          fechaIso,
+          chart: accounts,
         });
         setIsCfdiImportOpen(false);
         setCfdiPreview(null);
