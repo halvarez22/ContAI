@@ -404,3 +404,15 @@ Condiciones vinculantes:
 1. Si `truncated` es true, Fiscal muestra un aviso visible de que la balanza es preliminar.
 2. Las filas con saldo inicial, cargos y abonos en cero no se muestran. Las anomalías sí, aunque el monto sea cero.
 3. Si `financialReportsService.ts` pasa de 400 líneas, la agregación se extrae a una función del mismo archivo.
+
+## 13. E18 — Aprobación en lote (dictamen 2026-10-27, ejecución autorizada)
+
+La cola muestra las transacciones del mes en `revisión`. Aprobar escribe `conciliado`. Rechazar escribe `rechazado` y exige motivo. No se crea el estado `aprobado`. Cambiar la cuenta de una fila en revisión usa el catálogo activo y `buildAccrualJournalEntry`; no llama a Groq ni crea una regla. La nómina no reconstruye el devengo. Una transacción `conciliado` no vuelve a clasificarse.
+
+La función pura arma los parches. La escritura usa `commitTransactionUpdatesBatch` (`writeBatch`, `merge`, bloques de 400). Quien aprueba es `canWriteOrg` (dueño, admin o contador).
+
+Condición vinculante:
+
+1. `planBatchApproval` recibe `periodos_cerrados` y rechaza cada transacción cuya fecha cae en un periodo cerrado, con el motivo `Periodo cerrado`. El caso queda en `batchApprovalService.test.ts`.
+
+Bitácora `APROBACION_LOTE_EJECUTADA`: `organization_id`, `periodKey`, `action`, `affected_count` y `reason` solo en el rechazo. Sin lista de ids ni RFC.

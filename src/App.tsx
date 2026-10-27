@@ -82,7 +82,8 @@ import {
   clearInviteQueryFromUrl,
   readInviteTokenFromLocation,
 } from './services/organizationInviteService';
-import { canManageOrg } from './types/organization';
+import { canManageOrg, canWriteOrg } from './types/organization';
+import { canReclassify } from './services/batchApprovalService';
 import {
   filterTransactionsByMonth,
   filterTransactionsYtdThroughMonth,
@@ -143,6 +144,11 @@ const SatDownloadSection = lazy(() =>
 const FiscalSection = lazy(() =>
   import('./components/sections/FiscalSection').then((m) => ({
     default: m.FiscalSection,
+  }))
+);
+const BatchApprovalSection = lazy(() =>
+  import('./components/sections/BatchApprovalSection').then((m) => ({
+    default: m.BatchApprovalSection,
   }))
 );
 const DesignSystemGallery = lazy(() =>
@@ -997,6 +1003,10 @@ export default function App() {
   const saveEditedTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user || !selectedTransaction) return;
+    if (!canReclassify(selectedTransaction.status)) {
+      alert('Esta transacción ya está aprobada.');
+      return;
+    }
 
     const formData = new FormData(e.currentTarget);
     const rawTags = String(formData.get('tags') || '');
@@ -1500,6 +1510,20 @@ export default function App() {
                 />
               )}
               {activeTab === 'transactions' && (
+                <>
+                <BatchApprovalSection
+                  transactions={transactions}
+                  chart={catalogApi.accounts}
+                  year={periodYear}
+                  monthIndex={periodMonth}
+                  organizationId={activeOrganizationId ?? undefined}
+                  periodosCerrados={periodosCerrados}
+                  canWrite={
+                    activeMembershipRole ? canWriteOrg(activeMembershipRole) : false
+                  }
+                  atajoPueBancos={catalogApi.atajoPueBancos}
+                  actorLabel={user?.email || user?.uid || ''}
+                />
                 <TransactionsSection
                   transactionsCount={transactions.length}
                   filteredTransactions={enrichedFilteredTransactions}
@@ -1533,6 +1557,7 @@ export default function App() {
                     setSelectedTransaction(tx as TransactionListenerDoc)
                   }
                 />
+                </>
               )}
               {activeTab === 'reconciliation' && (
                 <ReconciliationSection
@@ -2876,7 +2901,17 @@ export default function App() {
                 <Button variant="secondary" className="flex-1" onClick={() => setSelectedTransaction(null)}>
                   Cerrar
                 </Button>
-                <Button variant="secondary" className="flex-1" onClick={() => setIsEditTxModalOpen(true)}>
+                <Button
+                  variant="secondary"
+                  className="flex-1"
+                  disabled={!canReclassify(selectedTransaction.status)}
+                  title={
+                    canReclassify(selectedTransaction.status)
+                      ? 'Editar movimiento'
+                      : 'Esta transacción ya está aprobada'
+                  }
+                  onClick={() => setIsEditTxModalOpen(true)}
+                >
                   <Edit2 className="w-4 h-4" />
                   Editar
                 </Button>
