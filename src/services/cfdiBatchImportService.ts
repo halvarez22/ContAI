@@ -370,6 +370,7 @@ export type RunCfdiBatchParams = {
   classify: ClassifyBatchFn;
   accounts?: readonly CatalogAccount[];
   rules?: readonly AccountMappingRule[];
+  atajoPueBancos?: boolean;
   onProgress?: (p: CfdiBatchProgress) => void;
   paymentImportStore?: PaymentImportStore;
 };
@@ -390,6 +391,7 @@ export async function runCfdiBatchImport(
     classify,
     accounts = [],
     rules = [],
+    atajoPueBancos = false,
     onProgress,
     paymentImportStore = createFirestorePaymentImportStore(),
   } = params;
@@ -477,6 +479,7 @@ export async function runCfdiBatchImport(
     classify,
     accounts,
     rules,
+    atajoPueBancos,
     highAmountReviewThreshold,
     organizationId,
     userId,

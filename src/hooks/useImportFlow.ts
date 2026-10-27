@@ -17,6 +17,7 @@ import {
   NOMINA_ACCOUNT_SOURCE,
 } from '../config/nominaDefaults';
 import { decideAccount } from '../services/accountMappingService';
+import { postClassifiedAccrual } from '../services/accrualPostingService';
 import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
@@ -51,6 +52,7 @@ export type UseImportFlowParams = {
   highAmountReviewThreshold: number;
   accounts: readonly CatalogAccount[];
   rules: readonly AccountMappingRule[];
+  atajoPueBancos: boolean;
 };
 
 export function useImportFlow({
@@ -61,6 +63,7 @@ export function useImportFlow({
   highAmountReviewThreshold,
   accounts,
   rules,
+  atajoPueBancos,
 }: UseImportFlowParams) {
   const [isCfdiImportOpen, setIsCfdiImportOpen] = useState(false);
   const [cfdiPreview, setCfdiPreview] = useState<CfdiExtracted | null>(null);
@@ -198,6 +201,7 @@ export function useImportFlow({
           classify: async (agentType, payload) => classify(agentType, payload),
           accounts,
           rules,
+          atajoPueBancos,
           onProgress: (p) => {
             setCfdiBatchProgress(p);
             setCfdiPhase(p.phase === 'uploading' ? 'uploading' : 'processing_ai');
@@ -468,8 +472,29 @@ export function useImportFlow({
       );
 
       const requiresPolicyReview = d.total > highAmountReviewThreshold;
-      const requiresHumanApproval =
-        assignment.requires_human_approval || requiresPolicyReview;
+      const persisted = await postClassifiedAccrual({
+        organizationId,
+        draft: {
+          id: docRef.id,
+          tipo,
+          monto: d.total,
+          fecha: fechaIso,
+          fiscal_subtotal: d.subtotal,
+          fiscal_iva: d.totalIvaTrasladado,
+          account_code: assignment.account_code,
+          metodo_pago_sat: d.metodoPago,
+          concepto,
+          proveedor,
+        },
+        chart: accounts,
+        atajoPueBancos,
+        proposedStatus:
+          assignment.requires_human_approval || requiresPolicyReview ? 'revisión' : 'conciliado',
+        proposedReason: requiresPolicyReview ? `Monto mayor a ${highAmountReviewThreshold}` : null,
+        subtotal: d.subtotal,
+        iva: d.totalIvaTrasladado,
+        total: d.total,
+      });
       await setTransaction(docRef.id, {
         tipo,
         monto: d.total,
@@ -477,17 +502,18 @@ export function useImportFlow({
         concepto,
         proveedor,
         fecha: fechaIso,
-        status: requiresHumanApproval ? 'revisión' : 'conciliado',
+        status: persisted.status,
         account_name: assignment.account_name,
         account_code: assignment.account_code,
         agente_ia_decision: assignment.decision,
         confidence_score: assignment.confidence_score,
         account_source: assignment.account_source,
-        policy_review_reason: requiresPolicyReview
-          ? `Monto mayor a ${highAmountReviewThreshold}`
-          : assignment.confidence_score === 0
-            ? assignment.reason
-            : null,
+        policy_review_reason:
+          persisted.policy_review_reason ??
+          (assignment.confidence_score === 0 ? assignment.reason : null),
+        ...(persisted.asiento_devengo
+          ? { asiento_devengo: persisted.asiento_devengo }
+          : {}),
         organization_id: organizationId,
         usuario_id: userId,
         iva_tasa,
@@ -546,6 +572,7 @@ export function useImportFlow({
     highAmountReviewThreshold,
     accounts,
     rules,
+    atajoPueBancos,
   ]);
 
   return {

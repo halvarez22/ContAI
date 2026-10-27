@@ -74,6 +74,7 @@ export function organizationFromData(
     catalogo_pendientes: stringList(data.catalogo_pendientes),
     periodos_cerrados: periodos,
     creado_por: String(data.creado_por ?? ''),
+    atajo_pue_bancos: data.atajo_pue_bancos === true,
   };
 }
 
@@ -246,6 +247,20 @@ export async function updateOrganizationSettings(
     {
       nombre: data.nombre.trim(),
       rfc: data.rfc.trim().toUpperCase(),
+      actualizado_en: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+export async function updateAtajoPueBancos(
+  organizationId: string,
+  enabled: boolean
+): Promise<void> {
+  await setDoc(
+    doc(db, 'organizations', organizationId),
+    {
+      atajo_pue_bancos: enabled === true,
       actualizado_en: serverTimestamp(),
     },
     { merge: true }

@@ -47,11 +47,15 @@ import { ContAILogo } from './components/brand/ContAILogo';
 import { getNavTitle, getNavItems } from './components/layout/navItems';
 import { executeAgent, AGENT_TYPES } from './services/groqAIService';
 import { decideAccount, manualAccountFields } from './services/accountMappingService';
+import { postClassifiedAccrual } from './services/accrualPostingService';
+import { countStoredAccruals, parseJournalEntry } from './services/journalEntryService';
+import { buildPolizaDevengoTxt } from './services/polizaExportService';
 import { useAccountCatalog } from './hooks/useAccountCatalog';
 import {
   AccountCodeOptions,
   ChartOfAccountsSection,
 } from './components/settings/ChartOfAccountsSection';
+import { AtajoPueSection } from './components/settings/AtajoPueSection';
 import type { AgentDecision, AgentType } from './types/agentDecision';
 import { logAuditEntry } from './services/auditService';
 import {
@@ -111,6 +115,7 @@ import { usePolizaExport } from './hooks/usePolizaExport';
 import { useDemoSeed } from './hooks/useDemoSeed';
 import { DEMO_SEED_SOURCE } from './config/demoSeed';
 import { TRANSACTIONS_TRUNCATED_HINT } from './lib/firestoreWindows';
+import { POLIZA_DEVENGO_DISABLED_HINT } from './types/journalEntry';
 import { POLIZA_EXPORT_DISABLED_HINT } from './types/polizaExport';
 import type { BankLedgerItem } from './types/bankReconciliation';
 import { SectionSuspenseFallback } from './components/SectionSuspenseFallback';
@@ -414,6 +419,7 @@ export default function App() {
     highAmountReviewThreshold: HIGH_AMOUNT_REVIEW_THRESHOLD,
     accounts: catalogApi.accounts,
     rules: catalogApi.rules,
+    atajoPueBancos: catalogApi.atajoPueBancos,
   });
 
   const resolveFormAccount = async (input: {
@@ -696,17 +702,43 @@ export default function App() {
         metodo_pago_sat: String(formData.get('metodo_pago_sat') || '') || undefined,
       });
       const requiresPolicyReview = transactionData.monto > HIGH_AMOUNT_REVIEW_THRESHOLD;
+      const persisted = await postClassifiedAccrual({
+        organizationId: activeOrganizationId ?? '',
+        draft: {
+          id: docRef.id,
+          tipo: tipoTx,
+          monto: montoNum,
+          fecha: transactionData.fecha,
+          fiscal_subtotal: fiscalExtra.fiscal_subtotal,
+          fiscal_iva: fiscalExtra.fiscal_iva,
+          account_code: decision.account_code,
+          metodo_pago_sat: fiscalExtra.metodo_pago_sat,
+          concepto: transactionData.concepto,
+          proveedor: transactionData.proveedor,
+        },
+        chart: catalogApi.accounts,
+        atajoPueBancos: catalogApi.atajoPueBancos,
+        proposedStatus:
+          decision.requires_human_approval || requiresPolicyReview ? 'revisión' : 'conciliado',
+        proposedReason: requiresPolicyReview
+          ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}`
+          : null,
+        subtotal: fiscalExtra.fiscal_subtotal,
+        iva: fiscalExtra.fiscal_iva,
+        total: montoNum,
+      });
       await setTransaction(docRef.id, {
         ...transactionData,
-        status: decision.requires_human_approval || requiresPolicyReview ? 'revisión' : 'conciliado',
+        status: persisted.status,
         agente_ia_decision: decision.decision,
         confidence_score: decision.confidence_score,
         account_name: decision.account_name,
         account_code: decision.account_code,
         account_source: decision.account_source,
-        policy_review_reason: requiresPolicyReview
-          ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}`
-          : null,
+        policy_review_reason: persisted.policy_review_reason,
+        ...(persisted.asiento_devengo
+          ? { asiento_devengo: persisted.asiento_devengo }
+          : {}),
         creado_en: serverTimestamp(),
       });
       if (decision.account_source === 'rule' && decision.rule_id) {
@@ -1014,15 +1046,44 @@ export default function App() {
         metodo_pago_sat: String(formData.get('metodo_pago_sat') || '') || undefined,
       });
       const requiresPolicyReview = updatedData.monto > HIGH_AMOUNT_REVIEW_THRESHOLD;
+      const persisted = await postClassifiedAccrual({
+        organizationId: activeOrganizationId ?? '',
+        draft: {
+          id: selectedTransaction.id,
+          tipo: tipoEd,
+          monto: montoEd,
+          fecha: updatedData.fecha,
+          fiscal_subtotal: fiscalEd.fiscal_subtotal,
+          fiscal_iva: fiscalEd.fiscal_iva,
+          account_code: decision.account_code,
+          metodo_pago_sat: fiscalEd.metodo_pago_sat,
+          concepto: updatedData.concepto,
+          proveedor: String(updatedData.proveedor || ''),
+        },
+        chart: catalogApi.accounts,
+        atajoPueBancos: catalogApi.atajoPueBancos,
+        proposedStatus:
+          decision.requires_human_approval || requiresPolicyReview ? 'revisión' : 'conciliado',
+        proposedReason: requiresPolicyReview
+          ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}`
+          : null,
+        subtotal: fiscalEd.fiscal_subtotal,
+        iva: fiscalEd.fiscal_iva,
+        total: montoEd,
+      });
+      const { asiento_devengo: _asientoPrevio, ...withoutEntry } = updatedData;
       const finalData = {
-        ...updatedData,
-        status: (decision.requires_human_approval || requiresPolicyReview) ? 'revisión' : 'conciliado',
+        ...withoutEntry,
+        status: persisted.status,
         agente_ia_decision: decision.decision,
         confidence_score: decision.confidence_score,
         account_name: decision.account_name,
         account_code: decision.account_code,
         account_source: decision.account_source,
-        policy_review_reason: requiresPolicyReview ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}` : null,
+        policy_review_reason: persisted.policy_review_reason,
+        ...(persisted.asiento_devengo
+          ? { asiento_devengo: persisted.asiento_devengo }
+          : {}),
       };
       if (decision.account_source === 'rule' && decision.rule_id) {
         await logAuditEntry('ACCOUNT_MAPPED_BY_RULE', 'transactions', {
@@ -1058,33 +1119,48 @@ export default function App() {
     [periodYear, periodMonth]
   );
 
+  const polizaInputs = useMemo(
+    () =>
+      transactionsInPeriod.map((tx) => ({
+        id: String(tx.id),
+        fecha: tx.fecha,
+        tipo: String(tx.tipo),
+        monto: Number(tx.monto) || 0,
+        concepto: String(tx.concepto || ''),
+        proveedor: tx.proveedor,
+        account_name: tx.account_name,
+        bank_reconciled: tx.bank_reconciled,
+        bank_reconcile_status: tx.bank_reconcile_status,
+        is_nomina: tx.is_nomina === true,
+        nomina_isr_retained:
+          typeof tx.nomina_isr_retained === 'number'
+            ? tx.nomina_isr_retained
+            : undefined,
+        nomina_imss_retained:
+          typeof tx.nomina_imss_retained === 'number'
+            ? tx.nomina_imss_retained
+            : undefined,
+        nomina_total_percepciones:
+          typeof tx.nomina_total_percepciones === 'number'
+            ? tx.nomina_total_percepciones
+            : undefined,
+        asiento_devengo: parseJournalEntry(tx.asiento_devengo),
+      })),
+    [transactionsInPeriod]
+  );
+
   const polizaExport = usePolizaExport({
-    transactions: transactionsInPeriod.map((tx) => ({
-      id: String(tx.id),
-      fecha: tx.fecha,
-      tipo: String(tx.tipo),
-      monto: Number(tx.monto) || 0,
-      concepto: String(tx.concepto || ''),
-      proveedor: tx.proveedor,
-      account_name: tx.account_name,
-      bank_reconciled: tx.bank_reconciled,
-      bank_reconcile_status: tx.bank_reconcile_status,
-      is_nomina: tx.is_nomina === true,
-      nomina_isr_retained:
-        typeof tx.nomina_isr_retained === 'number'
-          ? tx.nomina_isr_retained
-          : undefined,
-      nomina_imss_retained:
-        typeof tx.nomina_imss_retained === 'number'
-          ? tx.nomina_imss_retained
-          : undefined,
-      nomina_total_percepciones:
-        typeof tx.nomina_total_percepciones === 'number'
-          ? tx.nomina_total_percepciones
-          : undefined,
-    })),
+    transactions: polizaInputs,
     organizationId: activeOrganizationId ?? 'unknown',
     periodKey: polizaPeriodKey,
+  });
+
+  const polizaDevengoExport = usePolizaExport({
+    transactions: polizaInputs,
+    organizationId: activeOrganizationId ?? 'unknown',
+    periodKey: polizaPeriodKey,
+    build: buildPolizaDevengoTxt,
+    countEligible: countStoredAccruals,
   });
 
   const demoSeed = useDemoSeed({
@@ -1448,6 +1524,9 @@ export default function App() {
                   onExportPolizaTxt={polizaExport.exportPoliza}
                   polizaExportDisabled={polizaExport.exportDisabled}
                   polizaExportDisabledHint={POLIZA_EXPORT_DISABLED_HINT}
+                  onExportPolizaDevengo={polizaDevengoExport.exportPoliza}
+                  polizaDevengoDisabled={polizaDevengoExport.exportDisabled}
+                  polizaDevengoDisabledHint={POLIZA_DEVENGO_DISABLED_HINT}
                   onOpenExcelImport={() => importFlow.openExcelImport()}
                   onOpenManualTx={() => setIsManualTxModalOpen(true)}
                   onSelectTransaction={(tx: TransactionRow) =>
@@ -2016,6 +2095,15 @@ export default function App() {
                       onSaveAccounts={catalogApi.saveAccounts}
                       onSaveRule={catalogApi.saveRule}
                       onDeleteRule={catalogApi.removeRule}
+                    />
+
+                    <AtajoPueSection
+                      enabled={catalogApi.atajoPueBancos}
+                      canManage={
+                        activeMembershipRole ? canManageOrg(activeMembershipRole) : false
+                      }
+                      saving={catalogApi.saving}
+                      onSave={catalogApi.saveAtajoPueBancos}
                     />
 
                     <Button className="w-full" onClick={saveSettingsProfile} disabled={isSavingSettings}>

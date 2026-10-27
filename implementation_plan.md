@@ -380,3 +380,15 @@ UI: la sección muestra un pendiente y no ofrece ese nombre como destino de una 
 ## 10. Cierre del dictamen
 
 El auditor autorizó la semilla de la sección 4.3 y la ejecución de las secciones 5 y 6 el 2026-10-27. E16 (devengo, atajo PUE, cambio de `isPolizaEligible`) y E17 (balanza) no forman parte de esta escritura. No hay pregunta abierta.
+
+## 11. E16 — Póliza de devengo (dictamen 2026-10-27, ejecución autorizada)
+
+`isPolizaEligible` no cambia: sigue exigiendo cuenta y conciliación, y gobierna el TXT de efectivo. El devengo se guarda en `asiento_devengo` al clasificar y se exporta con otro botón. Nómina, tipo P, Excel, históricos, balanza y las cuentas `118.01` / `208.01` quedan fuera.
+
+Condiciones vinculantes del dictamen:
+
+1. `buildAccrualJournalEntry` regresa `{ ok: true, entry } | { ok: false, reason }`. Si `ok` es false, `useImportFlow` y `batchClassificationService` dejan la transacción en `revisión` y escriben el motivo. No hay fallo silencioso.
+2. `formatAccrualJournalToTxt` vive en `journalEntryService.ts`. `polizaExportService.ts` solo elige los asientos y llama a esa función.
+3. `accrualPostingService.ts` audita únicamente con `logAuditEntry` de `auditService.ts`. Acción `POLIZA_DEVENGO_GENERADA`. Sin RFC ni nombre de contraparte. Si hubo atajo, `detalles` incluye el texto `Aplicado atajo PUE a Bancos`.
+
+Asiento: ingreso cargo `105.01` por el total, abono de la cuenta clasificada por el subtotal y abono `209.01` por el IVA si es mayor a cero. Egreso al revés, con `119.01` y `201.01`. El atajo, solo con el flag activo y método PUE, cambia la contrapartida a `102.01`. Un PPD no lo usa. El flag nace apagado.

@@ -1,5 +1,6 @@
 /** Análisis determinista sobre transacciones de un periodo (sin IA). */
 
+import type { JournalEntry } from '../types/journalEntry';
 import { computeMonthlyIva } from './ivaMonth';
 import { computeIsrProvisionalSummary } from './isrProvisional';
 
@@ -32,6 +33,8 @@ export type AnalysisTransaction = {
   nomina_total_percepciones?: number;
   /** E14.0 */
   source?: string;
+  /** E16 */
+  asiento_devengo?: JournalEntry;
   rfc_contraparte?: string;
   tags?: string[];
   moneda?: string;

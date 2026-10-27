@@ -24,6 +24,7 @@ export type UsePolizaExportParams = {
   organizationId: string;
   periodKey: string;
   build?: typeof buildPolizaDiarioTxt;
+  countEligible?: (transactions: ReadonlyArray<PolizaTxInput>) => number;
   downloadTextFile?: (text: string, fileName: string) => void;
   audit?: typeof logAuditEntry;
 };
@@ -47,6 +48,7 @@ export function usePolizaExport(params: UsePolizaExportParams) {
     organizationId,
     periodKey,
     build = buildPolizaDiarioTxt,
+    countEligible = countPolizaEligible,
     downloadTextFile = downloadTextFileBrowser,
     audit = logAuditEntry,
   } = params;
@@ -54,8 +56,8 @@ export function usePolizaExport(params: UsePolizaExportParams) {
   const [feedback, setFeedback] = useState<PolizaExportFeedback | null>(null);
 
   const eligibleCount = useMemo(
-    () => countPolizaEligible(transactions),
-    [transactions]
+    () => countEligible(transactions),
+    [countEligible, transactions]
   );
 
   const exportPoliza = useCallback(() => {

@@ -4,6 +4,7 @@
  */
 
 import type { IvaTasaCode } from '../lib/fiscal';
+import type { JournalEntry } from './journalEntry';
 import type { TransactionSatPaymentFields } from './transactionSat';
 
 export type TransactionTipo = 'ingreso' | 'egreso';
@@ -55,6 +56,8 @@ export interface TransactionDoc extends TransactionFiscalFields, TransactionSatP
   account_name?: string;
   account_code?: string;
   account_source?: string;
+  /** E16 — asiento de devengo calculado al clasificar. */
+  asiento_devengo?: JournalEntry;
   tags?: string[];
   agente_ia_decision?: string;
   confidence_score?: number;

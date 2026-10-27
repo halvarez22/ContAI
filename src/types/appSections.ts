@@ -120,6 +120,9 @@ export type TransactionsSectionProps = {
   onExportPolizaTxt?: () => void;
   polizaExportDisabled?: boolean;
   polizaExportDisabledHint?: string;
+  onExportPolizaDevengo?: () => void;
+  polizaDevengoDisabled?: boolean;
+  polizaDevengoDisabledHint?: string;
   onOpenExcelImport: () => void;
   onOpenManualTx: () => void;
   onSelectTransaction: (tx: TransactionRow) => void;

@@ -11,6 +11,12 @@ import {
 } from '../config/nominaDefaults';
 import { roundMoney } from './taxCalculatorService';
 import {
+  formatAccrualJournalToTxt,
+  journalEntryBalances,
+  parseJournalEntry,
+} from './journalEntryService';
+import type { JournalEntry } from '../types/journalEntry';
+import {
   POLIZA_CONCEPTO_MAX,
   POLIZA_CONTRA_CUENTA_DEFAULT,
   POLIZA_CUENTA_MAX,
@@ -431,5 +437,72 @@ export function buildPolizaDiarioTxt(
     totalCargos,
     totalAbonos,
     fileName,
+  };
+}
+
+function accrualLines(entry: JournalEntry): PolizaLine[] {
+  return entry.lines.map((item) => ({
+    fecha: entry.fecha,
+    tipo: item.tipo === 'cargo' ? 'CARGO' : 'ABONO',
+    cuenta: item.account_code,
+    concepto: item.concepto,
+    cargo: item.tipo === 'cargo' ? item.monto : 0,
+    abono: item.tipo === 'abono' ? item.monto : 0,
+    txId: entry.transaction_id.slice(0, 40),
+  }));
+}
+
+/** Elige asientos ya guardados y delega el texto a formatAccrualJournalToTxt. */
+export function buildPolizaDevengoTxt(
+  params: BuildPolizaDiarioParams
+): PolizaExportResult {
+  const skipped: PolizaSkipped[] = [];
+  const entries: JournalEntry[] = [];
+  const lines: PolizaLine[] = [];
+  for (const tx of params.transactions) {
+    const entry = parseJournalEntry(tx.asiento_devengo);
+    if (!entry || !journalEntryBalances(entry)) {
+      skipped.push({ id: String(tx.id), reason: 'sin_asiento_devengo' });
+      continue;
+    }
+    entries.push(entry);
+    lines.push(...accrualLines(entry));
+  }
+
+  if (entries.length === 0) {
+    return {
+      ok: false,
+      reason: 'No hay asientos de devengo en este periodo para exportar',
+      eligibleCount: 0,
+      skipped,
+    };
+  }
+
+  const { totalCargos, totalAbonos, balanced } = computePolizaTotals(lines);
+  if (!balanced) {
+    return {
+      ok: false,
+      reason: 'Desequilibrio en la póliza',
+      eligibleCount: entries.length,
+      skipped,
+    };
+  }
+
+  const generatedAt = params.generatedAt ?? new Date();
+  return {
+    ok: true,
+    text: formatAccrualJournalToTxt(entries, {
+      organizationId: params.organizationId,
+      periodKey: params.periodKey,
+      generatedAt,
+      eligibleCount: entries.length,
+      skippedCount: skipped.length,
+    }),
+    lines,
+    eligibleCount: entries.length,
+    skipped,
+    totalCargos,
+    totalAbonos,
+    fileName: `poliza_devengo_ContAI_${params.periodKey}.txt`,
   };
 }

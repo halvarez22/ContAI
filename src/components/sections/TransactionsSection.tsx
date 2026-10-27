@@ -7,6 +7,7 @@ import { DataTable } from '../ui/DataTable';
 import { Input } from '../ui/Input';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { FISCAL_RISK_COPY } from '../../types/fiscalRisk';
+import { POLIZA_DEVENGO_DISABLED_HINT } from '../../types/journalEntry';
 import { POLIZA_EXPORT_DISABLED_HINT } from '../../types/polizaExport';
 import type { TransactionRow, TransactionsSectionProps } from '../../types/appSections';
 
@@ -34,6 +35,9 @@ export function TransactionsSection({
   onExportPolizaTxt,
   polizaExportDisabled = true,
   polizaExportDisabledHint = POLIZA_EXPORT_DISABLED_HINT,
+  onExportPolizaDevengo,
+  polizaDevengoDisabled = true,
+  polizaDevengoDisabledHint = POLIZA_DEVENGO_DISABLED_HINT,
   onOpenExcelImport,
   onOpenManualTx,
   onSelectTransaction,
@@ -179,6 +183,26 @@ export function TransactionsSection({
               >
                 <Download className="w-4 h-4" />
                 Exportar póliza (.txt)
+              </Button>
+            </span>
+            <span
+              className="inline-flex flex-1 sm:flex-none"
+              title={
+                polizaDevengoDisabled
+                  ? polizaDevengoDisabledHint
+                  : 'Descargar la póliza de devengo (.txt) del periodo'
+              }
+            >
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => onExportPolizaDevengo?.()}
+                disabled={polizaDevengoDisabled || !onExportPolizaDevengo}
+                className="w-full"
+                title={polizaDevengoDisabled ? polizaDevengoDisabledHint : undefined}
+              >
+                <Download className="w-4 h-4" />
+                Póliza de devengo
               </Button>
             </span>
             <Button

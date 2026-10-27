@@ -19,6 +19,8 @@ export type Organization = {
   catalogo_pendientes: string[];
   periodos_cerrados: string[];
   creado_por: string;
+  /** PUE contra Bancos en el devengo. Ausente o false = Clientes/Proveedores. */
+  atajo_pue_bancos?: boolean;
 };
 
 export type OrganizationMember = {

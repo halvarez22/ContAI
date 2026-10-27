@@ -4,6 +4,7 @@ import {
   deleteMappingRule,
   listMappingRules,
   saveMappingRule,
+  updateAtajoPueBancos,
   updateOrganizationChart,
 } from '../services/organizationService';
 import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
@@ -13,6 +14,7 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
   const [accounts, setAccounts] = useState<CatalogAccount[]>([]);
   const [pendientes, setPendientes] = useState<string[]>([]);
   const [rules, setRules] = useState<AccountMappingRule[]>([]);
+  const [atajoPueBancos, setAtajoPueBancos] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,8 +23,10 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
       setAccounts([]);
       setPendientes([]);
       setRules([]);
+      setAtajoPueBancos(false);
       return;
     }
+    setAtajoPueBancos(org.atajo_pue_bancos === true);
     const resolved = resolveEffectiveChart(org);
     setAccounts(resolved.accounts);
     setPendientes(resolved.pendientes);
@@ -96,10 +100,29 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
     [org, canManage]
   );
 
+  const saveAtajoPueBancos = useCallback(
+    async (enabled: boolean) => {
+      if (!org || !canManage) return;
+      setSaving(true);
+      setError(null);
+      try {
+        await updateAtajoPueBancos(org.id, enabled);
+        setAtajoPueBancos(enabled);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'No se pudo guardar el atajo PUE.');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [org, canManage]
+  );
+
   return {
     accounts,
     pendientes,
     rules,
+    atajoPueBancos,
+    saveAtajoPueBancos,
     saving,
     error,
     saveAccounts,

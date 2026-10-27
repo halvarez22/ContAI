@@ -8,6 +8,13 @@ import type { CatalogAccount } from '../types/chartOfAccounts';
 export const PROVISIONAL_INGRESO_CODE = '401.01';
 export const PROVISIONAL_EGRESO_CODE = '601.84';
 
+/** Contrapartidas y IVA del devengo (Anexo 24). El nombre sale del catálogo activo. */
+export const ACCRUAL_CLIENTES_CODE = '105.01';
+export const ACCRUAL_PROVEEDORES_CODE = '201.01';
+export const ACCRUAL_BANCOS_CODE = '102.01';
+export const ACCRUAL_IVA_TRASLADADO_CODE = '209.01';
+export const ACCRUAL_IVA_ACREDITABLE_CODE = '119.01';
+
 const SEED: readonly CatalogAccount[] = [
   { code: '102.01', name: 'Bancos', sat_name: 'Bancos nacionales', naturaleza: 'activo', activa: true },
   { code: '105.01', name: 'Clientes', sat_name: 'Clientes nacionales', naturaleza: 'activo', activa: true },

@@ -19,6 +19,7 @@ import type {
 import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import { logAuditEntry } from './auditService';
 import { decideAccount } from './accountMappingService';
+import { postClassifiedAccrual } from './accrualPostingService';
 import {
   processTipoPPaymentImport,
   type PaymentImportStore,
@@ -44,6 +45,7 @@ export async function classifyBatchTransactions(params: {
   classify: ClassifyBatchFn;
   accounts: readonly CatalogAccount[];
   rules: readonly AccountMappingRule[];
+  atajoPueBancos?: boolean;
   highAmountReviewThreshold: number;
   organizationId: string;
   userId: string;
@@ -57,6 +59,7 @@ export async function classifyBatchTransactions(params: {
     classify,
     accounts,
     rules,
+    atajoPueBancos = false,
     highAmountReviewThreshold,
     organizationId,
     userId,
@@ -109,18 +112,44 @@ export async function classifyBatchTransactions(params: {
         const requiresPolicyReview = draft.payload.monto > highAmountReviewThreshold;
         const requiresHumanApproval =
           assignment.requires_human_approval || requiresPolicyReview;
+        const persisted = await postClassifiedAccrual({
+          organizationId,
+          draft: {
+            id: documentId,
+            tipo: draft.payload.tipo,
+            monto: draft.payload.monto,
+            fecha: draft.payload.fecha,
+            fiscal_subtotal: draft.payload.fiscal_subtotal,
+            fiscal_iva: draft.payload.fiscal_iva,
+            account_code: assignment.account_code,
+            metodo_pago_sat: draft.payload.metodo_pago_sat,
+            concepto: draft.classification.concepto,
+            proveedor: draft.classification.proveedor,
+            is_nomina: false,
+          },
+          chart: accounts,
+          atajoPueBancos,
+          proposedStatus: requiresHumanApproval ? 'revisión' : 'conciliado',
+          proposedReason: requiresPolicyReview
+            ? `Monto mayor a ${highAmountReviewThreshold}`
+            : null,
+          subtotal: draft.payload.fiscal_subtotal,
+          iva: draft.payload.fiscal_iva,
+          total: draft.payload.monto,
+        });
         patchUpdates.push({
           id: documentId,
           payload: {
-            status: requiresHumanApproval ? 'revisión' : 'conciliado',
+            status: persisted.status,
             account_name: assignment.account_name,
             account_code: assignment.account_code,
             agente_ia_decision: assignment.decision,
             confidence_score: assignment.confidence_score,
             account_source: assignment.account_source,
-            policy_review_reason: requiresPolicyReview
-              ? `Monto mayor a ${highAmountReviewThreshold}`
-              : null,
+            policy_review_reason: persisted.policy_review_reason,
+            ...(persisted.asiento_devengo
+              ? { asiento_devengo: persisted.asiento_devengo }
+              : {}),
             actualizado_en: serverTimestamp(),
           },
         });

@@ -52,7 +52,8 @@ service cloud.firestore {
 
     function catalogFieldsOk(data) {
       return (!('catalogo_cuentas' in data) || (data.catalogo_cuentas is list && data.catalogo_cuentas.size() < 200))
-        && (!('catalogo_pendientes' in data) || (data.catalogo_pendientes is list && data.catalogo_pendientes.size() < 200));
+        && (!('catalogo_pendientes' in data) || (data.catalogo_pendientes is list && data.catalogo_pendientes.size() < 200))
+        && (!('atajo_pue_bancos' in data) || data.atajo_pue_bancos is bool);
     }
 
     /** E8.2: cambios de rol sin auto-escalamiento / sin promover a owner. */

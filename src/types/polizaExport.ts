@@ -3,6 +3,8 @@
  * Un formato .txt delimitado `;`. Sin XML ERP.
  */
 
+import type { JournalEntry } from './journalEntry';
+
 export const POLIZA_CONTRA_CUENTA_DEFAULT = 'Bancos';
 export const POLIZA_CONCEPTO_MAX = 40;
 export const POLIZA_CUENTA_MAX = 40;
@@ -28,13 +30,16 @@ export type PolizaTxInput = {
   nomina_isr_retained?: number;
   nomina_imss_retained?: number;
   nomina_total_percepciones?: number;
+  /** E16 — presente solo si el devengo ya se guardó. */
+  asiento_devengo?: JournalEntry;
 };
 
 export type PolizaSkipReason =
   | 'sin_cuenta'
   | 'sin_conciliacion_bancaria'
   | 'tipo_desconocido'
-  | 'monto_invalido';
+  | 'monto_invalido'
+  | 'sin_asiento_devengo';
 
 export type PolizaSkipped = {
   id: string;
