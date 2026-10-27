@@ -45,15 +45,10 @@ Reglas:
 - No inventes IDs: solo usa ids presentes en candidates.
 Responde ÚNICAMENTE con JSON.`,
 
-  clasificador: `Eres un agente autónomo de clasificación de gastos contables para una empresa.
-Tu tarea es asignar la cuenta contable correcta a cada gasto.
-Contexto: Empresa comercial o de servicios con operaciones nacionales.
-Cuentas principales:
-- Insumos y Mercancías
-- Gastos Operativos (luz, renta, servicios)
-- Viáticos y Viajes
-- Nómina y Honorarios
-- Marketing y Publicidad
+  clasificador: `Eres un agente de clasificación contable para una empresa en México.
+El mensaje de usuario incluye catalog: cuentas activas con code, name y naturaleza.
+Asigna account_code usando únicamente un code de ese catálogo. No inventes códigos ni nombres.
+Si ninguna cuenta encaja, deja account_code vacío y requires_human_approval en true.
 Responde en formato JSON.`,
 
   auditor: `Eres un agente autónomo de auditoría y detección de anomalías.

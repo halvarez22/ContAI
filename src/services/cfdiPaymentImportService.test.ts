@@ -40,6 +40,7 @@ function sampleCfdi(overrides: Partial<CfdiExtracted> = {}): CfdiExtracted {
     totalIvaTrasladado: 160,
     uuid: '12345678-1234-1234-1234-123456789012',
     descripcionPrimerConcepto: 'Servicio de prueba',
+    claveProdServ: '',
     ...overrides,
   };
 }

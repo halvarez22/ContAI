@@ -22,6 +22,7 @@ export interface CfdiExtracted {
   totalIvaTrasladado: number;
   uuid: string | null;
   descripcionPrimerConcepto: string;
+  claveProdServ: string;
 }
 
 function firstByLocalName(doc: Document, local: string): Element | null {
@@ -113,6 +114,7 @@ export function parseCfdiXml(xmlText: string): { ok: true; data: CfdiExtracted }
     totalIvaTrasladado: totalIva,
     uuid: timbre ? attrStr(timbre, 'UUID') || null : null,
     descripcionPrimerConcepto: primerConcepto ? attrStr(primerConcepto, 'Descripcion') : '',
+    claveProdServ: primerConcepto ? attrStr(primerConcepto, 'ClaveProdServ') : '',
   };
 
   if (!data.fecha) errors.push('Falta Fecha en el comprobante.');

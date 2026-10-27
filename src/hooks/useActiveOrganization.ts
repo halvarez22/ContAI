@@ -10,6 +10,7 @@ import {
   bootstrapUserOrganizations,
   createOrganizationForUser,
   listOrganizationSummaries,
+  organizationFromData,
   setActiveOrganizationId,
 } from '../services/organizationService';
 
@@ -156,21 +157,7 @@ export function useActiveOrganization({
         setActiveOrg(null);
         return;
       }
-      const data = snap.data();
-      setActiveOrg({
-        id: snap.id,
-        nombre: String(data.nombre ?? '').trim(),
-        rfc: String(data.rfc ?? '').trim().toUpperCase(),
-        activa: data.activa !== false,
-        plan: data.plan === 'pro' ? 'pro' : 'free',
-        cuentas_contables: Array.isArray(data.cuentas_contables)
-          ? data.cuentas_contables.map((s: unknown) => String(s).trim()).filter(Boolean)
-          : [],
-        periodos_cerrados: Array.isArray(data.periodos_cerrados)
-          ? data.periodos_cerrados.map((x: unknown) => String(x))
-          : [],
-        creado_por: String(data.creado_por ?? ''),
-      });
+      setActiveOrg(organizationFromData(snap.id, snap.data()));
     });
   }, [activeOrganizationId]);
 

@@ -4,6 +4,7 @@
  */
 
 import type { PagoExtracted } from '../lib/cfdiPagosParser';
+import type { AccountClassifyPayload } from './chartOfAccounts';
 import type { TransactionSatPaymentFields } from './transactionSat';
 
 export type CfdiImportPhase =
@@ -47,6 +48,8 @@ export interface CfdiTransactionDraft {
     fecha: string;
     status: 'pendiente';
     account_name: string;
+    account_code?: string;
+    clave_prod_serv?: string;
     tags: string[];
     iva_tasa: string;
     egreso_acredita_iva: boolean;
@@ -95,11 +98,7 @@ export interface CfdiBatchImportSummary {
 }
 
 /** Payload tipado para clasificación tras importar CFDI (sin any). */
-export interface CfdiClassificationPayload {
-  tipo: string;
-  monto: number;
-  concepto: string;
-  proveedor: string;
-  fecha: string;
-  moneda: string;
-}
+export type CfdiClassificationPayload = AccountClassifyPayload & {
+  tags?: string[];
+  account_name?: string;
+};

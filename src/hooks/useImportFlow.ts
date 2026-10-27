@@ -12,9 +12,12 @@ import {
 } from '../lib/nominaXmlParser';
 import type { NominaExtracted } from '../types/nominaImport';
 import {
+  DEFAULT_NOMINA_ACCOUNT_CODE,
   DEFAULT_NOMINA_ACCOUNT_NAME,
   NOMINA_ACCOUNT_SOURCE,
 } from '../config/nominaDefaults';
+import { decideAccount } from '../services/accountMappingService';
+import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
   createTransaction,
@@ -46,6 +49,8 @@ export type UseImportFlowParams = {
   periodosCerrados: string[];
   classify: ClassifyFn;
   highAmountReviewThreshold: number;
+  accounts: readonly CatalogAccount[];
+  rules: readonly AccountMappingRule[];
 };
 
 export function useImportFlow({
@@ -54,6 +59,8 @@ export function useImportFlow({
   periodosCerrados,
   classify,
   highAmountReviewThreshold,
+  accounts,
+  rules,
 }: UseImportFlowParams) {
   const [isCfdiImportOpen, setIsCfdiImportOpen] = useState(false);
   const [cfdiPreview, setCfdiPreview] = useState<CfdiExtracted | null>(null);
@@ -189,6 +196,8 @@ export function useImportFlow({
           highAmountReviewThreshold,
           inputs,
           classify: async (agentType, payload) => classify(agentType, payload),
+          accounts,
+          rules,
           onProgress: (p) => {
             setCfdiBatchProgress(p);
             setCfdiPhase(p.phase === 'uploading' ? 'uploading' : 'processing_ai');
@@ -215,7 +224,7 @@ export function useImportFlow({
         setCfdiImporting(false);
       }
     },
-    [userId, organizationId, periodosCerrados, highAmountReviewThreshold, classify]
+    [userId, organizationId, periodosCerrados, highAmountReviewThreshold, classify, accounts, rules]
   );
 
   /** Entrada del input: 1 archivo → preview; N → batch automático. */
@@ -346,6 +355,7 @@ export function useImportFlow({
           fecha: fechaIso,
           status: 'conciliado',
           account_name: DEFAULT_NOMINA_ACCOUNT_NAME,
+          account_code: DEFAULT_NOMINA_ACCOUNT_CODE,
           account_source: NOMINA_ACCOUNT_SOURCE,
           tags: ['nomina'],
           iva_tasa: 'na',
@@ -422,6 +432,7 @@ export function useImportFlow({
         fecha: fechaIso,
         status: 'pendiente',
         account_name: '',
+        clave_prod_serv: d.claveProdServ || undefined,
         tags: [],
         iva_tasa,
         egreso_acredita_iva: tipo === 'egreso',
@@ -437,32 +448,28 @@ export function useImportFlow({
         importado_cfdi: true,
       });
 
-      const classificationPayload: CfdiClassificationPayload = {
-        tipo,
-        monto: d.total,
-        concepto,
-        proveedor,
-        fecha: fechaIso,
-        moneda: d.moneda || 'MXN',
-      };
-
-      const fallbackAccount =
-        tipo === 'ingreso' ? 'Ingresos por Ventas' : 'Gastos Operativos';
-      let decision = await classify(AGENT_TYPES.CLASIFICADOR, classificationPayload);
-      if (!decision) {
-        // Groq caído / modelo 404: no bloquear el registro; cuenta provisional.
-        decision = {
-          decision: 'approve_with_account',
-          account_name: fallbackAccount,
-          confidence_score: 0,
-          reason: 'Clasificación IA no disponible; cuenta provisional asignada.',
-          requires_human_approval: true,
-        };
-      }
+      const assignment = await decideAccount(
+        {
+          tipo,
+          cfdi_tipo: d.tipoComprobante,
+          clave_prod_serv: d.claveProdServ,
+          metodo_pago_sat: d.metodoPago,
+          uso_cfdi: d.receptorUsoCfdi,
+          rfc_contraparte: tipo === 'ingreso' ? d.receptorRfc : d.emisorRfc,
+          monto: d.total,
+          concepto,
+          proveedor,
+          fecha: fechaIso,
+          moneda: d.moneda || 'MXN',
+        },
+        accounts,
+        rules,
+        (payload) => classify(AGENT_TYPES.CLASIFICADOR, payload)
+      );
 
       const requiresPolicyReview = d.total > highAmountReviewThreshold;
       const requiresHumanApproval =
-        decision.requires_human_approval || requiresPolicyReview || decision.confidence_score === 0;
+        assignment.requires_human_approval || requiresPolicyReview;
       await setTransaction(docRef.id, {
         tipo,
         monto: d.total,
@@ -471,14 +478,15 @@ export function useImportFlow({
         proveedor,
         fecha: fechaIso,
         status: requiresHumanApproval ? 'revisión' : 'conciliado',
-        account_name: decision.account_name || fallbackAccount,
-        agente_ia_decision: decision.decision,
-        confidence_score: decision.confidence_score,
-        account_source: decision.confidence_score > 0 ? 'ai' : 'manual_fallback',
+        account_name: assignment.account_name,
+        account_code: assignment.account_code,
+        agente_ia_decision: assignment.decision,
+        confidence_score: assignment.confidence_score,
+        account_source: assignment.account_source,
         policy_review_reason: requiresPolicyReview
           ? `Monto mayor a ${highAmountReviewThreshold}`
-          : decision.confidence_score === 0
-            ? decision.reason
+          : assignment.confidence_score === 0
+            ? assignment.reason
             : null,
         organization_id: organizationId,
         usuario_id: userId,
@@ -493,10 +501,18 @@ export function useImportFlow({
         metodo_pago_sat: d.metodoPago || undefined,
         cp_expedicion: d.lugarExpedicion || undefined,
         cfdi_uuid: d.uuid || undefined,
+        clave_prod_serv: d.claveProdServ || undefined,
         importado_cfdi: true,
         creado_en: serverTimestamp(),
       });
 
+      if (assignment.account_source === 'rule' && assignment.rule_id) {
+        await logAuditEntry('ACCOUNT_MAPPED_BY_RULE', 'transactions', {
+          id: docRef.id,
+          account_code: assignment.account_code,
+          rule_id: assignment.rule_id,
+        });
+      }
       await logAuditEntry('IMPORT_CFDI', 'transactions', { id: docRef.id, uuid: d.uuid });
       const periodHint = fechaIso.slice(0, 7);
       setCfdiImportError(null);
@@ -528,6 +544,8 @@ export function useImportFlow({
     periodosCerrados,
     classify,
     highAmountReviewThreshold,
+    accounts,
+    rules,
   ]);
 
   return {

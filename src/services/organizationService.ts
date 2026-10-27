@@ -15,8 +15,20 @@ import {
   setDoc,
   where,
   writeBatch,
+  deleteDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { getChartOfAccountsSeed } from '../config/chartOfAccounts';
+import { logAuditEntry } from './auditService';
+import {
+  migrateLegacyNames,
+  parseCatalogList,
+  projectAccountNames,
+  toFirestoreAccount,
+  assertCatalog,
+  mappingRuleIssue,
+} from './accountMappingService';
+import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import {
   BACKFILL_CHUNK_SIZE,
   LEGACY_ORG_MAIN,
@@ -36,11 +48,18 @@ const BACKFILL_COLLECTIONS = [
   'inventory_movements',
 ] as const;
 
-function mapOrganization(id: string, data: Record<string, unknown>): Organization {
+function stringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((s) => String(s).trim()).filter(Boolean);
+}
+
+export function organizationFromData(
+  id: string,
+  data: Record<string, unknown>
+): Organization {
   const plan = data.plan === 'pro' ? 'pro' : 'free';
-  const cuentas = Array.isArray(data.cuentas_contables)
-    ? data.cuentas_contables.map((s) => String(s).trim()).filter(Boolean)
-    : [];
+  const catalogo = parseCatalogList(data.catalogo_cuentas);
+  const cuentas = stringList(data.cuentas_contables);
   const periodos = Array.isArray(data.periodos_cerrados)
     ? data.periodos_cerrados.map((s) => String(s))
     : [];
@@ -51,9 +70,32 @@ function mapOrganization(id: string, data: Record<string, unknown>): Organizatio
     activa: data.activa !== false,
     plan,
     cuentas_contables: cuentas,
+    catalogo_cuentas: catalogo,
+    catalogo_pendientes: stringList(data.catalogo_pendientes),
     periodos_cerrados: periodos,
     creado_por: String(data.creado_por ?? ''),
   };
+}
+
+function mapOrganization(id: string, data: Record<string, unknown>): Organization {
+  return organizationFromData(id, data);
+}
+
+function chartWrite(accounts: readonly CatalogAccount[], pendientes: readonly string[]) {
+  return {
+    catalogo_cuentas: accounts.map((a) => toFirestoreAccount(a)),
+    catalogo_pendientes: [...pendientes],
+    cuentas_contables: projectAccountNames(accounts),
+  };
+}
+
+function initialChart(legacyNames: readonly string[]) {
+  if (legacyNames.length === 0) {
+    const accounts = getChartOfAccountsSeed();
+    return chartWrite(accounts, []);
+  }
+  const migrated = migrateLegacyNames(legacyNames);
+  return chartWrite(migrated.accounts, migrated.pendientes);
 }
 
 function mapMember(id: string, data: Record<string, unknown>): OrganizationMember {
@@ -147,7 +189,7 @@ export async function ensurePersonalOrg(
       rfc,
       activa: true,
       plan: 'free',
-      cuentas_contables: cuentas,
+      ...initialChart(cuentas),
       periodos_cerrados: periodos,
       creado_por: input.userId,
       creado_en: serverTimestamp(),
@@ -197,7 +239,6 @@ export async function updateOrganizationSettings(
   data: {
     nombre: string;
     rfc: string;
-    cuentas_contables: string[];
   }
 ): Promise<void> {
   await setDoc(
@@ -205,11 +246,34 @@ export async function updateOrganizationSettings(
     {
       nombre: data.nombre.trim(),
       rfc: data.rfc.trim().toUpperCase(),
-      cuentas_contables: data.cuentas_contables,
       actualizado_en: serverTimestamp(),
     },
     { merge: true }
   );
+}
+
+export async function updateOrganizationChart(
+  organizationId: string,
+  accounts: readonly CatalogAccount[],
+  pendientes: readonly string[]
+): Promise<void> {
+  const check = assertCatalog(accounts);
+  if (!check.ok) {
+    throw new Error(check.message);
+  }
+  await setDoc(
+    doc(db, 'organizations', organizationId),
+    {
+      ...chartWrite(accounts, pendientes),
+      actualizado_en: serverTimestamp(),
+    },
+    { merge: true }
+  );
+  await logAuditEntry('CATALOGO_CUENTAS_UPDATED', 'organizations', {
+    organization_id: organizationId,
+    cuentas: accounts.length,
+    pendientes: pendientes.length,
+  });
 }
 
 export async function toggleOrganizationPeriodClosed(
@@ -247,7 +311,7 @@ export async function createOrganizationForUser(
     rfc: data.rfc.trim().toUpperCase(),
     activa: true,
     plan: 'free',
-    cuentas_contables: [],
+    ...initialChart([]),
     periodos_cerrados: [],
     creado_por: userId,
     creado_en: serverTimestamp(),
@@ -400,4 +464,85 @@ export async function bootstrapUserOrganizations(
     backfillDone = true;
   }
   return { organizationId, backfillDone };
+}
+
+function mappingCollection(organizationId: string) {
+  return collection(db, 'organizations', organizationId, 'mapeo_cuentas');
+}
+
+function ruleToFirestore(rule: AccountMappingRule): Record<string, unknown> {
+  const match: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rule.match)) {
+    if (typeof value === 'string' && value.trim()) match[key] = value.trim();
+  }
+  return {
+    organization_id: rule.organization_id,
+    priority: rule.priority,
+    enabled: rule.enabled,
+    account_code: rule.account_code,
+    match,
+  };
+}
+
+export function parseMappingRule(id: string, data: Record<string, unknown>): AccountMappingRule | null {
+  if (typeof data.account_code !== 'string' || typeof data.organization_id !== 'string') {
+    return null;
+  }
+  const matchRaw = data.match;
+  const match: AccountMappingRule['match'] = {};
+  if (matchRaw && typeof matchRaw === 'object') {
+    const row = matchRaw as Record<string, unknown>;
+    if (row.tipo === 'ingreso' || row.tipo === 'egreso') match.tipo = row.tipo;
+    if (row.cfdi_tipo === 'I' || row.cfdi_tipo === 'E' || row.cfdi_tipo === 'N' || row.cfdi_tipo === 'P' || row.cfdi_tipo === 'T') {
+      match.cfdi_tipo = row.cfdi_tipo;
+    }
+    if (row.metodo_pago_sat === 'PUE' || row.metodo_pago_sat === 'PPD') {
+      match.metodo_pago_sat = row.metodo_pago_sat;
+    }
+    if (typeof row.clave_prod_serv === 'string') match.clave_prod_serv = row.clave_prod_serv;
+    if (typeof row.uso_cfdi === 'string') match.uso_cfdi = row.uso_cfdi;
+    if (typeof row.rfc_contraparte === 'string') match.rfc_contraparte = row.rfc_contraparte;
+  }
+  return {
+    id,
+    organization_id: data.organization_id,
+    priority: typeof data.priority === 'number' ? data.priority : 100,
+    enabled: data.enabled !== false,
+    account_code: data.account_code,
+    match,
+  };
+}
+
+export async function listMappingRules(organizationId: string): Promise<AccountMappingRule[]> {
+  const snap = await getDocs(mappingCollection(organizationId));
+  const rules: AccountMappingRule[] = [];
+  snap.forEach((item) => {
+    const parsed = parseMappingRule(item.id, item.data() as Record<string, unknown>);
+    if (parsed) rules.push(parsed);
+  });
+  return rules.sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+}
+
+export async function saveMappingRule(rule: AccountMappingRule): Promise<void> {
+  const issue = mappingRuleIssue(rule);
+  if (issue) throw new Error(issue);
+  const batch = writeBatch(db);
+  batch.set(doc(mappingCollection(rule.organization_id), rule.id), ruleToFirestore(rule));
+  await batch.commit();
+  await logAuditEntry('MAPEO_CUENTA_SAVED', 'mapeo_cuentas', {
+    organization_id: rule.organization_id,
+    rule_id: rule.id,
+    account_code: rule.account_code,
+  });
+}
+
+export async function deleteMappingRule(
+  organizationId: string,
+  ruleId: string
+): Promise<void> {
+  await deleteDoc(doc(mappingCollection(organizationId), ruleId));
+  await logAuditEntry('MAPEO_CUENTA_DELETED', 'mapeo_cuentas', {
+    organization_id: organizationId,
+    rule_id: ruleId,
+  });
 }

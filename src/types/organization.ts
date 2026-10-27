@@ -1,5 +1,7 @@
 /** Contratos multi-empresa E8.1. Sin any. */
 
+import type { CatalogAccount } from './chartOfAccounts';
+
 export const LEGACY_ORG_MAIN = 'org_main';
 
 export const ORG_ROLES = ['owner', 'admin', 'contador', 'viewer'] as const;
@@ -11,7 +13,10 @@ export type Organization = {
   rfc: string;
   activa: boolean;
   plan: 'free' | 'pro';
+  /** Proyección de nombres activos. La fuente es `catalogo_cuentas`. */
   cuentas_contables: string[];
+  catalogo_cuentas: CatalogAccount[];
+  catalogo_pendientes: string[];
   periodos_cerrados: string[];
   creado_por: string;
 };

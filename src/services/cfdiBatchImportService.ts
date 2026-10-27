@@ -1,5 +1,6 @@
 /**
- * Orquestación batch de CFDI: parse → filtro periodo → writeBatch → Groq secuencial.
+ * Orquestación batch de CFDI: parse → filtro periodo → writeBatch.
+ * La pasada de cada documento (regla o Groq, nómina, complemento P) vive en batchClassificationService.
  * E9.2 F2: ramificación tipo P / global / PPD.
  * Sin React. Firestore solo vía firestoreService.
  */
@@ -18,6 +19,7 @@ import {
   parseNominaXml,
 } from '../lib/nominaXmlParser';
 import {
+  DEFAULT_NOMINA_ACCOUNT_CODE,
   DEFAULT_NOMINA_ACCOUNT_NAME,
   NOMINA_ACCOUNT_SOURCE,
 } from '../config/nominaDefaults';
@@ -26,16 +28,13 @@ import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
   commitCfdiTransactionBatch,
   commitTransactionUpdatesBatch,
-  serverTimestamp,
   BATCH_CHUNK,
 } from './firestoreService';
-import { logAuditEntry } from './auditService';
 import {
   buildGlobalSatFields,
   deriveInvoicePaymentState,
   detectEsAnticipo,
   normalizeCfdiTipo,
-  processTipoPPaymentImport,
   sumTipoPPaymentAmount,
   type PaymentImportStore,
 } from './cfdiPaymentImportService';
@@ -44,17 +43,16 @@ import type {
   CfdiBatchFileResult,
   CfdiBatchImportSummary,
   CfdiBatchProgress,
-  CfdiClassificationPayload,
   CfdiTransactionDraft,
 } from '../types/cfdiBatch';
-import type { AgentDecision } from '../types/agentDecision';
-import { AGENT_TYPES } from '../types/agentDecision';
+import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
 import { roundMoney } from '../types/paymentApplication';
+import {
+  classifyBatchTransactions,
+  type ClassifyBatchFn,
+} from './batchClassificationService';
 
-export type ClassifyBatchFn = (
-  agentType: typeof AGENT_TYPES.CLASIFICADOR,
-  payload: CfdiClassificationPayload
-) => Promise<AgentDecision | undefined>;
+export type { ClassifyBatchFn };
 
 export function chunkArray<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -139,6 +137,7 @@ export function buildCfdiTransactionDraftExtended(
       fecha: fechaIso,
       status: 'pendiente',
       account_name: '',
+      clave_prod_serv: d.claveProdServ || undefined,
       tags: [],
       iva_tasa,
       egreso_acredita_iva: tipo === 'egreso' && !isTipoP,
@@ -207,6 +206,7 @@ export function buildNominaTransactionDraft(
       fecha: fechaIso,
       status: 'pendiente',
       account_name: DEFAULT_NOMINA_ACCOUNT_NAME,
+      account_code: DEFAULT_NOMINA_ACCOUNT_CODE,
       account_source: NOMINA_ACCOUNT_SOURCE,
       tags: ['nomina'],
       iva_tasa: 'na',
@@ -356,6 +356,7 @@ function nominaToExtendedStub(n: NominaExtracted): CfdiExtractedExtended {
     totalIvaTrasladado: 0,
     uuid: n.cfdiUuid,
     descripcionPrimerConcepto: `Nómina · ${n.empleadoNombre || n.empleadoRfc}`,
+    claveProdServ: '',
     pagos: [],
   };
 }
@@ -367,6 +368,8 @@ export type RunCfdiBatchParams = {
   highAmountReviewThreshold: number;
   inputs: ParsedXmlInput[];
   classify: ClassifyBatchFn;
+  accounts?: readonly CatalogAccount[];
+  rules?: readonly AccountMappingRule[];
   onProgress?: (p: CfdiBatchProgress) => void;
   paymentImportStore?: PaymentImportStore;
 };
@@ -385,6 +388,8 @@ export async function runCfdiBatchImport(
     highAmountReviewThreshold,
     inputs,
     classify,
+    accounts = [],
+    rules = [],
     onProgress,
     paymentImportStore = createFirestorePaymentImportStore(),
   } = params;
@@ -466,163 +471,32 @@ export async function runCfdiBatchImport(
     accepted.map((d) => ({ payload: d.payload }))
   );
 
-  let classified = 0;
-  const patchUpdates: Array<{ id: string; payload: Record<string, unknown> }> = [];
+  const processed = await classifyBatchTransactions({
+    accepted,
+    documentIds: ids,
+    classify,
+    accounts,
+    rules,
+    highAmountReviewThreshold,
+    organizationId,
+    userId,
+    periodosCerrados,
+    paymentImportStore,
+    onProgress,
+  });
+  results.push(...processed.results);
+  paymentsLinked += processed.paymentsLinked;
+  paymentsPendingReview += processed.paymentsPendingReview;
 
-  for (let i = 0; i < accepted.length; i++) {
-    const draft = accepted[i];
-    const documentId = ids[i];
-    onProgress?.({
-      phase: 'processing_ai',
-      current: i + 1,
-      total: accepted.length,
-      fileName: draft.fileName,
-      message: draft.requiresGroqClassification
-        ? `Clasificando ${i + 1}/${accepted.length}…`
-        : draft.payload.is_nomina
-          ? `Registrando nómina ${i + 1}/${accepted.length}…`
-          : `Procesando pago ${i + 1}/${accepted.length}…`,
-    });
-
-    try {
-      if (draft.requiresGroqClassification) {
-        const decision = await classify(AGENT_TYPES.CLASIFICADOR, draft.classification);
-        if (decision) {
-          const requiresPolicyReview = draft.payload.monto > highAmountReviewThreshold;
-          const requiresHumanApproval =
-            decision.requires_human_approval || requiresPolicyReview;
-          patchUpdates.push({
-            id: documentId,
-            payload: {
-              status: requiresHumanApproval ? 'revisión' : 'conciliado',
-              account_name: decision.account_name,
-              agente_ia_decision: decision.decision,
-              confidence_score: decision.confidence_score,
-              account_source: 'ai',
-              policy_review_reason: requiresPolicyReview
-                ? `Monto mayor a ${highAmountReviewThreshold}`
-                : null,
-              actualizado_en: serverTimestamp(),
-            },
-          });
-          classified += 1;
-        }
-
-        results.push({
-          fileName: draft.fileName,
-          ok: true,
-          documentId,
-        });
-        await logAuditEntry('IMPORT_CFDI', 'transactions', {
-          id: documentId,
-          uuid: draft.payload.cfdi_uuid,
-          batch: true,
-          fileName: draft.fileName,
-          cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
-        });
-      } else if (draft.payload.is_nomina) {
-        patchUpdates.push({
-          id: documentId,
-          payload: {
-            status: 'conciliado',
-            account_name: draft.payload.account_name || DEFAULT_NOMINA_ACCOUNT_NAME,
-            account_source: draft.payload.account_source || NOMINA_ACCOUNT_SOURCE,
-            actualizado_en: serverTimestamp(),
-          },
-        });
-        results.push({
-          fileName: draft.fileName,
-          ok: true,
-          documentId,
-        });
-        await logAuditEntry('NOMINA_IMPORTED', 'transactions', {
-          id: documentId,
-          uuid: draft.payload.cfdi_uuid,
-          batch: true,
-          fileName: draft.fileName,
-          monto: draft.payload.monto,
-          nomina_isr_retained: draft.payload.nomina_isr_retained,
-          nomina_imss_retained: draft.payload.nomina_imss_retained,
-        });
-      } else if (draft.paymentPagos && draft.payload.cfdi_uuid) {
-        const outcome = await processTipoPPaymentImport({
-          organizationId,
-          userId,
-          paymentTxId: documentId,
-          cfdiUuid: draft.payload.cfdi_uuid,
-          pagos: draft.paymentPagos,
-          periodosCerrados,
-          store: paymentImportStore,
-        });
-        if (outcome.status === 'applied') {
-          paymentsLinked += outcome.applicationsCount;
-          results.push({
-            fileName: draft.fileName,
-            ok: true,
-            documentId,
-            paymentsLinked: outcome.applicationsCount,
-          });
-        } else if (outcome.status === 'already_processed') {
-          results.push({
-            fileName: draft.fileName,
-            ok: true,
-            documentId,
-            paymentsLinked: 0,
-          });
-        } else {
-          paymentsPendingReview += 1;
-          results.push({
-            fileName: draft.fileName,
-            ok: true,
-            documentId,
-            paymentPendingReview: true,
-          });
-        }
-        await logAuditEntry('IMPORT_CFDI', 'transactions', {
-          id: documentId,
-          uuid: draft.payload.cfdi_uuid,
-          batch: true,
-          fileName: draft.fileName,
-          cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
-        });
-      } else {
-        paymentsPendingReview += 1;
-        results.push({
-          fileName: draft.fileName,
-          ok: true,
-          documentId,
-          paymentPendingReview: true,
-        });
-        await logAuditEntry('IMPORT_CFDI', 'transactions', {
-          id: documentId,
-          uuid: draft.payload.cfdi_uuid,
-          batch: true,
-          fileName: draft.fileName,
-          cfdi_tipo: draft.payload.cfdi_tipo_comprobante,
-        });
-      }
-    } catch (e) {
-      results.push({
-        fileName: draft.fileName,
-        ok: false,
-        documentId,
-        error:
-          e instanceof Error
-            ? e.message
-            : 'Error al procesar CFDI (documento quedó pendiente).',
-      });
-    }
-  }
-
-  if (patchUpdates.length > 0) {
-    await commitTransactionUpdatesBatch(patchUpdates);
+  if (processed.patchUpdates.length > 0) {
+    await commitTransactionUpdatesBatch(processed.patchUpdates);
   }
 
   const failed = results.filter((r) => !r.ok).length;
   return {
     results,
     committed: accepted.length,
-    classified,
+    classified: processed.classified,
     skippedClosed: skipped.length,
     failed,
     paymentsLinked,

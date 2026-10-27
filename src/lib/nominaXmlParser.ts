@@ -166,5 +166,6 @@ export function nominaToCfdiPreviewShape(
     totalIvaTrasladado: 0,
     uuid: n.cfdiUuid,
     descripcionPrimerConcepto: `Nómina · ${n.empleadoNombre || n.empleadoRfc}`,
+    claveProdServ: '',
   };
 }

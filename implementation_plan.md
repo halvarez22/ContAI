@@ -1,293 +1,382 @@
-# Implementation Plan — E14.0 · Demo Seed (mes contable verificable)
+# Implementation Plan — E15 · Catálogo con código y naturaleza + mapeo
 
-**Estado:** APROBADO CONDICIONALMENTE por auditor (Qwen) — plan **enmendado** con 4 correcciones + respuestas §11.  
-**Pendiente:** Visto Bueno Final (APO) tras esta enmienda → luego código.  
-**Fecha:** 2026-09-11 (rev. 2 — post-dictamen Qwen)  
-**Excepción APO:** única ocasión autorizada para inyectar datos de demostración.  
-**Prerequisito:** E13.1 + E13.2 cerrados.
+**Estado:** PENDIENTE DE DICTAMEN (auditor forense Qwen).  
+**Código de aplicación:** prohibido hasta Visto Bueno de este plan y autorización explícita del usuario.  
+**Fecha:** 2026-10-27  
+**Sustituye como plan activo a:** E14.0 (cerrado; el texto anterior queda en el historial de git).  
+**Prerequisito de producto:** reglas contables v1 de la sección 0, respondidas por el contador el 2026-10-27.
+
+Este archivo es un solo entregable. E16, E17 y E18 no se implementan aquí.
 
 ---
 
-## 0. Enmiendas obligatorias (dictamen Qwen) — INCORPORADAS
+## 0. Reglas contables v1 — CONGELADAS
 
-| # | Hallazgo | Corrección en este plan |
-|---|----------|-------------------------|
-| 1 | Purge solo por `source` es frágil | Purge compuesto: `organization_id` + `source == 'demo_seed'` + `demo_period_key == 'YYYY-MM'`; cada carga genera `demo_batch_id` UUID; docs llevan ambos campos |
-| 2 | `source?: string` laxo | Unión tipada `TransactionIngestSource` (literal) |
-| 3 | TX #7 “sin cuenta” desperdicia killer feature IA | Sustituir por egreso **pre-sugerido por IA** (metadata estática, sin llamar Groq): `account_source: 'ai'`, `confidence_score`, `status: 'revisión'` |
-| 4 | Kill-switch opcional | **`VITE_ENABLE_DEMO_SEED=true` obligatorio**; sin flag → CTA y lógica inertes / no render |
+Estas tres reglas son contrato. E15 no las reabre. E16 y E17 las consumen; no las reinterpretan.
 
-**§9 respuestas del auditor (congeladas):**  
-5.1=B Panel · 5.2=A org activa · 5.3=A owner/admin · 5.4=A prefijar+CSV · 5.5=A periodo UI · 5.6=A + flag env **obligatorio**.
+### R1 — El asiento al importar el XML es siempre de devengo
+
+Al registrar el CFDI el asiento (cuando E16 lo genere) es de devengo, por el **subtotal** y el **IVA**, no por el total contra Bancos.
+
+- **Ingreso:** Cargo Clientes · Abono Ingresos (subtotal) · Abono IVA trasladado (si aplica).
+- **Egreso / gasto:** Cargo Gasto (subtotal) · Cargo IVA acreditable (si aplica) · Abono Proveedores.
+- **PUE no cambia la naturaleza.** El atajo PUE → Bancos, en lugar de Clientes o Proveedores, es excepción **configurable por organización**, apagada por defecto. Si se usa, la póliza deja traza de atajo.
+- Campo futuro (no se persiste en E15): `organizations.atajo_pue_bancos: boolean`, default `false`. Un control que no tenga efecto violaría U-First. Lo enciende E16, que es quien arma el asiento.
+
+### R2 — Conciliación y complemento de pago saldan la contracuenta
+
+La póliza de devengo existe al importar y clasificar, haya o no cobro o pago.
+
+- Conciliación bancaria y CFDI de pago (tipo P) son un segundo momento: asiento de liquidación sobre Clientes o Proveedores.
+- La elegibilidad de la póliza de devengo no depende de `bank_reconciled`.
+
+**E15 no cambia `isPolizaEligible`.** Hoy (`polizaExportService.ts`) exige `account_name` y (`bank_reconciled === true` o `bank_reconcile_status === 'full'`), y arma dos líneas por el **total** contra `Bancos`. Quitar ese candado ahora exportaría ese asiento de efectivo como si ya fuera la póliza de devengo. El candado cae en E16, junto con el generador nuevo.
+
+### R3 — Toda cuenta de catálogo tiene código y naturaleza
+
+| Campo | Obligatorio | Valores |
+|---|---|---|
+| `code` | Sí | Texto jerárquico numérico, p. ej. `401.01` |
+| `name` | Sí | Nombre visible |
+| `naturaleza` | Sí | `activo` \| `pasivo` \| `capital` \| `ingreso` \| `gasto` \| `iva` |
+| `tipo_iva` | Solo si `naturaleza === 'iva'` | `trasladado` \| `acreditable` |
+
+Precisión necesaria para que R3 sea implementable, derivada del propio criterio (el IVA tiene tratamiento especial y sigue siendo cuenta de balance):
+
+- `naturaleza === 'iva'` sin `tipo_iva` es inválida.
+- `tipo_iva` en una cuenta que no es `iva` es inválido.
+- Para E17 (fuera de este plan): `trasladado` se presenta en pasivo; `acreditable`, en activo.
+- v1 no tiene naturaleza `costo`. Un costo de ventas se registra como `gasto` hasta un plan posterior.
+
+Sin `naturaleza`, balanza y estado de resultados serían una heurística. E15 deja el dato; no calcula los estados.
 
 ---
 
 ## 1. Diagnóstico técnico actual
 
 ### Qué existe
-| Área | Estado | Ruta canónica |
-|------|--------|---------------|
-| Persistencia TX | `transactions` + `writeBatch` vía `firestoreService` | `src/services/firestoreService.ts` |
-| Tipo TX | `TransactionDoc` (+ nómina E13.1) | `src/types/transaction.ts` |
-| Org activa | Multi-tenant | `useActiveOrganization.ts` |
-| Conciliación CSV | `fecha,monto,descripción` | `bankReconciliationService.ts` |
-| Póliza elegible | `account_name` + bank full/reconciled | `polizaExportService.ts` |
-| KPIs / Tax | Cliente | `operationalDashboardService.ts`, `taxCalculatorService.ts` |
-| Metadata IA ya en schema | `account_name`, `account_source: 'ai'`, `confidence_score`, `agente_ia_decision`, `status: 'revisión'` | `transaction.ts`, `cfdiBatchImportService.ts` |
-| Índice purge demo | **No existe** `(organization_id, source, demo_period_key)` en `transactions` | `firestore.indexes.json` |
-| Seed de producto | No existe | — |
 
-### Problema
-Piloto con org vacía → módulos en 0; no puede corroborar cálculos ni el ciclo contable.
+| Área | Estado real | Ruta |
+|---|---|---|
+| Catálogo | `cuentas_contables: string[]` sin código ni naturaleza. Tope de rules en el doc de **usuario**: lista &lt; 200 | `src/types/organization.ts`, `organizationService.ts`, `firestore.rules` `isValidUser` |
+| Semilla en UI | Ocho textos fijos dentro de `App.tsx` (`DEFAULT_ACCOUNT_CATALOG`) | `src/App.tsx` ~151 |
+| Settings | Textarea “una cuenta por línea” → `updateOrganizationSettings` | `App.tsx` `saveSettingsProfile` |
+| Clasificador Groq | Prompt con cinco cuentas **quemadas**. `account_code` se parsea y **no se guarda** en la transacción | `groqAIService.ts` `systemInstructions.clasificador`, `types/agentDecision.ts`, `types/transaction.ts` |
+| Import 1 XML | Escribe la TX y luego Groq. Si Groq falla, cuenta provisional `'Ingresos por Ventas'` o `'Gastos Operativos'`, `account_source: 'manual_fallback'` | `src/hooks/useImportFlow.ts` |
+| Import batch | Misma clasificación, `account_source: 'ai'`, sin código | `src/services/cfdiBatchImportService.ts` |
+| Alta manual | `App.tsx` llama `executeAgent` directo (el componente habla con Groq) | `App.tsx` `triggerAgent` |
+| Nómina | Sin Groq. Nombre fijo `Gastos de Nómina`, `account_source: 'nomina_default'` | `src/config/nominaDefaults.ts` |
+| ClaveProdServ | No se extrae. `CfdiExtracted` guarda descripción, no clave | `src/lib/cfdiXml.ts` |
+| Póliza | Export TXT post-conciliación. No hay líneas de póliza persistidas | `polizaExportService.ts` |
+| Reglas de mapeo | No existen | — |
+| Excel | No asigna `account_name` | `excelImportService.ts` — fuera de este plan |
 
-### Qué NO resuelve
-Descarga SAT productiva, Contalink, catálogo UI, seed sin flag en prod.
+### Qué viola las reglas del repo
+
+- Cuentas y lista del prompt están hardcodeadas (`App.tsx`, prompt del clasificador). HRU pide `src/config/`.
+- `App.tsx` invoca Groq. La arquitectura lo prohíbe.
+- `account_code` ya está en `AgentDecision` y se descarta. El catálogo no puede alimentar E17.
+- No hay naturaleza, así que un estado financiero no tiene criterio de corte.
+
+### Qué este plan no arregla
+
+Póliza de devengo, quitar el candado bancario, balanza, estado de resultados, DIOT, contabilidad electrónica, atajo PUE operativo, reescritura de transacciones históricas, orquestador de modelos, panel admin de tasas.
 
 ---
 
 ## 2. Grafo de impacto
 
 ```
-[env VITE_ENABLE_DEMO_SEED=true] ──si false──► CTA oculto / service no-op
-        ↓ true
-[UI Panel: "Cargar mes demo"] (solo owner/admin)
-        ↓ confirmación
-[useDemoSeed] idle→loading→success|error
-        ↓
-[demoSeedService]
-   1. buildDemoSeedBundle(periodKey)           // determinista + demo_batch_id
-   2. purgeDemoSeed(orgId, periodKey)          // query compuesta estricta
-   3. commit batches vía firestoreService
-   4. buildDemoBankCsv(bundle) → download
-        ↓
-[Firestore] transactions { source, demo_period_key, demo_batch_id, ... }
-        ↓
-listeners → Panel / Transacciones / Fiscal / Póliza
+[Configuración · ChartOfAccountsSection]
+        │ guarda catálogo y reglas (owner | admin)
+        ▼
+[useAccountCatalog]  ── no SDK ──►  [organizationService]
+        │                                  │ merge org.catalogo_cuentas
+        │                                  │ proyección cuentas_contables = names
+        │                                  │ writeBatch de mapeo_cuentas
+        ▼                                  ▼
+[Firestore organizations/{id}]     [organizations/{id}/mapeo_cuentas/{ruleId}]
+        │
+        │  resolveEffectiveChart()  (puro, también si aún no se guardó)
+        ▼
+[decideAccount]  en accountMappingService
+        │ 1. match de reglas (AND, prioridad). Si pega → no hay Groq
+        │ 2. si no: classify inyectado → groqAIService.executeAgent
+        │    el payload a Groq lleva códigos del catálogo y no lleva RFC
+        │ 3. el código devuelto tiene que existir y estar activo
+        ▼
+llamadores:
+  useImportFlow (XML individual)
+  cfdiBatchImportService (batch; tipo P y nómina no pasan por Groq)
+  alta / edición manual, que hoy está en App.tsx y debe usar el mismo decideAccount
+        ▼
+[transactions.account_code + account_name + account_source]
+        │
+        ├── listeners y dropdowns leen el nombre (compat)
+        ├── póliza diario SIGUE igual (no lee account_code en E15)
+        └── E16 / E17 aún no existen
 ```
 
-**No tocar:** Groq runtime, Descarga SAT, Inventario, rules de create (salvo validación de campos nuevos si rules lo exigen — ver STOP).
+`resolveEffectiveChart` y `decideAccount` son la única puerta. Prohibido dejar un llamador que siga asignando el nombre a mano con la lista vieja.
 
 ---
 
-## 3. Diseño del dataset (determinista)
+## 3. Efectos secundarios (lista cerrada)
 
-**Periodo:** `periodKey` del UI (`YYYY-MM`).  
-**Campos de gobernanza en CADA TX demo:**
+| Pieza | Efecto | Acción en E15 |
+|---|---|---|
+| `Organization.cuentas_contables` | Sigue existiendo. Pasa a ser proyección de nombres, escrita en el mismo `setDoc` | No borrarla. Deja de ser editable |
+| Dropdowns y filtros que leen `account_name` | Siguen mostrando texto | La fuente de opciones pasa a `catalogo` activo, ordenado por `code` |
+| `useActiveOrganization` | Hoy parsea `string[]` | Parsea el catálogo estructurado y, si falta, deriva en memoria |
+| Tests de org (`OrgSwitcher`, `OrgPicker`) | Construyen `cuentas_contables: []` | Añadir `catalogo_cuentas: []` |
+| Prompt `clasificador` | Deja de traer cuentas fijas | El catálogo viaja en el user payload, ya sanitizado |
+| `groqAIService.test.ts` | Espera el JSON actual | Cubrir `account_code` aceptado solo si el resolver lo valida |
+| `parseCfdiXml` / fixtures | Campo nuevo | `claveProdServ` del primer `Concepto`. Los fixtures que no lo traigan quedan en `''` |
+| Nómina | Sigue sin Groq | Además del nombre, persiste el `code` de la semilla `601.01` si el nombre coincide |
+| Demo seed | Nombres `Ingresos por Ventas` y `Gastos Operativos` | No se renombran. Coinciden con la semilla |
+| `isPolizaEligible` y TXT | Ninguno | No se tocan |
+| `paymentApplicationService`, SAT, insights, conciliador, auditor | Ninguno | No se tocan |
+| `firestore.rules` `isValidUser` | El tope de `cuentas_contables` está en **users**, no en orgs | No mover ese tope. Validar el catálogo en `organizations` |
+| Transacciones ya guardadas | Tienen nombre y no código | No se reescriben. El código entra en clasificaciones nuevas |
+| Auditoría | Schema `usuario_id`, `accion`, `recurso`, `detalles` | Acciones nuevas abajo. Sin RFC en `detalles` |
+
+---
+
+## 4. Contrato
+
+### 4.1 Cuenta
+
+Archivo nuevo `src/types/chartOfAccounts.ts`.
+
 ```ts
-source: 'demo_seed'
-demo_period_key: 'YYYY-MM'   // = periodKey UI
-demo_batch_id: '<uuid-v4>'   // mismo UUID para todo el batch de esa carga
+naturaleza: 'activo' | 'pasivo' | 'capital' | 'ingreso' | 'gasto' | 'iva'
+tipo_iva?: 'trasladado' | 'acreditable' // obligatorio si y solo si naturaleza === 'iva'
+code: string   // /^[0-9]+(\.[0-9]+)*$/ , longitud 1..20, único en la org
+name: string   // trim, 1..80
+activa: boolean
 ```
 
-**Volumen (~18 TX):**
+Funciones puras en `accountMappingService.ts`: `assertCatalog(accounts)`, `assertAccount(account)`. Rechazan duplicado de `code`, `iva` sin `tipo_iva`, y `tipo_iva` fuera de `iva`.
 
-| # | Tipo | Rol | Cuenta / IA | Conciliado |
-|---|------|-----|-------------|------------|
-| 1–3 | ingreso | Ventas IVA 16% | Ingresos por Ventas | 2 sí / 1 no |
-| 4–6 | egreso | Gastos IVA acred. 16% | Gastos Operativos | 2 sí / 1 no |
-| **7** | egreso | **Showcase IA** | `account_name: 'Gastos Operativos'`, `account_source: 'ai'`, `confidence_score: 0.92`, `status: 'revisión'`, `agente_ia_decision: 'approve_with_account'` | no |
-| 8 | egreso | Cola revisión humana | cuenta + status revisión (sin IA o baja confianza) | no |
-| 9–10 | egreso | Nómina 4 líneas | Gastos de Nómina + metadatos E13 | sí |
-| 11 | egreso | Nómina sin IMSS (3 líneas) | idem | sí |
-| 12–14 | mix | partial / none bank | con cuenta | partial/none |
-| 15–16 | egreso | IVA 0% / exento | catálogo | sí |
-| 17–18 | ingreso | Diversidad proveedor | Ingresos | sí |
+### 4.2 Dónde se guarda
 
-> **Cambio vs rev.1:** se elimina el “gasto sin cuenta” como caso principal; el wow es **sugerencia IA lista para aprobar** (TX #7). Opcional: 1 TX adicional sin `account_name` solo si hace falta poblar KPI “Sin clasificar” — máximo 1, no el foco.
+- Fuente de verdad: `organizations/{id}.catalogo_cuentas` (array de mapas, máximo 200).
+- Proyección, mismo write: `cuentas_contables = catalogo_cuentas.filter(a => a.activa).map(a => a.name)`.
+- Pendientes legado (nombres que no se pudieron mapear, sin naturaleza inventada): `organizations/{id}.catalogo_pendientes: string[]`.
+- Reglas: subcolección `organizations/{id}/mapeo_cuentas/{ruleId}`.
 
-**Anclas numéricas (verificación piloto):**
+No hay subcolección de cuentas: el catálogo viaja con la org y el tope ya usado en el producto es 200.
 
-| Caso | Monto / Neto | Bruto | ISR | IMSS | Esperado |
-|------|--------------|-------|-----|------|----------|
-| Nómina A | 8,500 | 10,000 | 1,200 | 300 | Póliza 4 líneas; Σ=10,000 |
-| Nómina B | 9,700 | (neto+ISR) | 1,200 | 0 | Póliza 3 líneas |
-| Venta 16% | 11,600 | 10,000+1,600 | — | — | IVA trasladado 1,600 |
-| Compra 16% acred. | 5,800 | 5,000+800 | — | — | IVA acreditable 800 |
-| IA #7 | monto redondo (ej. 2,320) | — | — | — | UI muestra confianza 92% + cuenta sugerida |
+### 4.3 Semilla oficial v1 (`src/config/chartOfAccounts.ts`)
 
-**CSV gemelo:** generado desde el bundle (fechas/montos de TX conciliables + 1 fila split 1↔N).
+Dictamen del auditor (2026-10-27): tabla apta, alineada al Anexo 24 de la RMF 2026. Los nombres de ContAI se conservan porque el demo y la nómina ya los persisten. `118.01` y `208.01` existen para el cobro o pago (E16); el devengo de la importación usa `119.01` y `209.01`. No hay cuenta «Otros».
 
----
+| code | Nombre en ContAI | Nombre oficial Anexo 24 | naturaleza | tipo_iva |
+|---|---|---|---|---|
+| 102.01 | Bancos | Bancos nacionales | activo | — |
+| 105.01 | Clientes | Clientes nacionales | activo | — |
+| 119.01 | IVA acreditable | IVA pendiente de pago | iva | acreditable |
+| 118.01 | IVA acreditable pagado | IVA acreditable pagado | iva | acreditable |
+| 201.01 | Proveedores | Proveedores nacionales | pasivo | — |
+| 209.01 | IVA trasladado | IVA trasladado no cobrado | iva | trasladado |
+| 208.01 | IVA trasladado cobrado | IVA trasladado cobrado | iva | trasladado |
+| 216.01 | ISR por Pagar | ISR retenido por sueldos y salarios | pasivo | — |
+| 216.11 | IMSS por Pagar | Retenciones de IMSS a los trabajadores | pasivo | — |
+| 401.01 | Ingresos por Ventas | Ventas y/o servicios gravados a la tasa general | ingreso | — |
+| 115.02 | Insumos y Mercancías | Materia prima y materiales | activo | — |
+| 601.84 | Gastos Operativos | Otros gastos generales | gasto | — |
+| 601.49 | Viáticos y Viajes | Viáticos y gastos de viaje | gasto | — |
+| 601.61 | Marketing y Publicidad | Propaganda y publicidad | gasto | — |
+| 601.34 | Servicios Profesionales | Honorarios a PF nacionales | gasto | — |
+| 601.01 | Gastos de Nómina | Sueldos y salarios | gasto | — |
 
-## 4. Purge — contrato de seguridad (Hallazgo 1)
+`nominaDefaults.ts` importa `601.01`, `216.01` y `216.11` desde esta semilla. No se duplican los nombres. El provisional de egreso es `601.84` (Gastos Operativos), no la cuenta de nómina.
 
-```
-query transactions where
-  organization_id == :activeOrgId
-  AND source == 'demo_seed'
-  AND demo_period_key == :periodKey
-→ delete en batches ≤400
-```
+### 4.4 Resolución del catálogo efectivo
 
-**Garantías:**
-- Nunca borrar por `source` solo.
-- Nunca borrar TX sin `demo_period_key` coincidente.
-- TX reales (sin `source: 'demo_seed'`) **intocables**.
-- Tests: fixture con TX real misma org/periodo **no** se elimina.
-- `demo_batch_id` se escribe en todas las TX del seed; útil para auditoría/debug; el purge operativo usa la tríada org+source+period (idempotencia por periodo).
+`resolveEffectiveChart(org)`:
 
-**Índice Firestore (obligatorio en este entregable):** agregar a `firestore.indexes.json`:
+1. Si `catalogo_cuentas` tiene elementos válidos → ese array.
+2. Si no, y `cuentas_contables` tiene textos → `migrateLegacyNames`.
+3. Si no hay nada → semilla completa.
 
-```json
-{
-  "collectionGroup": "transactions",
-  "queryScope": "COLLECTION",
-  "fields": [
-    { "fieldPath": "organization_id", "order": "ASCENDING" },
-    { "fieldPath": "source", "order": "ASCENDING" },
-    { "fieldPath": "demo_period_key", "order": "ASCENDING" }
-  ]
+`migrateLegacyNames(names)`:
+
+- Match por nombre normalizado (trim, minúsculas, espacios colapsados) **solo** contra `name` de la semilla.
+- `'Nómina y Honorarios'` no es `'Gastos de Nómina'`. `'Impuestos'` no es IVA. Esos quedan en `pendientes`.
+- Un pendiente no es destino de regla ni opción de Groq hasta que el usuario le asigne `code` y `naturaleza` y lo guarde.
+- Org nueva (`createOrganizationForUser`): se escribe la semilla y `cuentas_contables` derivado. `catalogo_pendientes: []`.
+- Org vieja: no hay script de backfill. El cálculo en memoria y el guardado explícito usan la misma función. Nada se persiste solo por abrir la pantalla.
+
+### 4.5 Regla de mapeo
+
+```ts
+type AccountMappingRule = {
+  id: string
+  organization_id: string
+  priority: number          // menor gana; empate → id asc
+  enabled: boolean
+  account_code: string      // cuenta activa del catálogo efectivo
+  match: {
+    tipo?: 'ingreso' | 'egreso'
+    cfdi_tipo?: 'I' | 'E' | 'N' | 'P' | 'T'
+    clave_prod_serv?: string  // 8 dígitos, exacta
+    metodo_pago_sat?: 'PUE' | 'PPD'
+    uso_cfdi?: string
+    rfc_contraparte?: string  // exacto, 12 o 13; solo para match local
+  }
 }
 ```
 
-Desplegar índice antes o junto al merge a `main` (documentar en DoD / manual: `firebase deploy --only firestore:indexes` si CI no lo hace).
+- Al menos una clave dentro de `match`.
+- Todas las claves presentes deben cumplirse (AND).
+- Primera regla habilitada en orden de prioridad gana.
+- Sin reglas sembradas. El usuario las crea.
 
-**Fallback si el índice aún no está habilitado:** error claro al usuario (“índice demo en provisión”); **prohibido** escanear toda la org en cliente para borrar.
+Esto no es el fallback por keywords prohibido en la política de IA. Es configuración del contador, evaluada **antes** de Groq. Si ninguna regla pega, se llama a Groq. Si Groq falla, se mantiene el comportamiento actual de no bloquear el XML: cuenta provisional de la semilla (`401.01` ingreso, `601.84` egreso), `confidence_score: 0`, `account_source: 'manual_fallback'`, `status: 'revisión'`. No se elige cuenta por palabras del concepto.
 
----
+### 4.6 `decideAccount`
 
-## 5. Tipificación (Hallazgo 2)
+Vive en `accountMappingService.ts`. No importa Firebase ni `groqAIService`. Recibe `classify` por parámetro.
 
-En `src/types/transaction.ts` (o `src/types/demoSeed.ts` reexportado):
+Entrada de match (local, puede incluir RFC y clave):
+
+`tipo`, `cfdi_tipo`, `clave_prod_serv`, `metodo_pago_sat`, `uso_cfdi`, `rfc_contraparte`, `monto`, `concepto`, `proveedor`, `fecha`, `moneda`.
+
+Salida:
 
 ```ts
-export type TransactionIngestSource =
-  | 'demo_seed'
-  | 'sat_download'
-  | 'manual'
-  | 'csv_import'
-  | 'cfdi_import'
-  | 'excel_import';
-
-// en TransactionDoc:
-source?: TransactionIngestSource;
-demo_period_key?: string; // 'YYYY-MM'
-demo_batch_id?: string;
+{
+  account_code: string
+  account_name: string       // nombre del catálogo, no el texto libre del modelo
+  account_source: 'rule' | 'ai' | 'manual_fallback' | 'nomina_default'
+  confidence_score: number
+  requires_human_approval: boolean
+  rule_id?: string
+}
 ```
 
-Constante canónica: `DEMO_SEED_SOURCE = 'demo_seed' as const` en `src/config/demoSeed.ts`.
+- Regla ganadora → no se llama `classify`. `account_source: 'rule'`. `requires_human_approval: false` salvo el umbral de monto que ya aplica el llamador (`HIGH_AMOUNT_REVIEW_THRESHOLD`, hoy 50000 en `App.tsx`; el umbral se lee, no se mueve).
+- Groq: el payload que sale hacia `classify` incluye `catalog: { code, name, naturaleza }[]` con todas las cuentas activas. **No incluye** `rfc_contraparte`, domicilio, email ni teléfono. El prompt ordena: `account_code` tiene que ser uno de esa lista.
+- Código ausente, inactivo o inventado → no se guarda el nombre libre. Se trata como fallo de Groq (provisional + revisión).
+- Nómina no entra a `decideAccount`. Su camino actual se conserva y se le añade `account_code` de `601.01` cuando el nombre es el de la semilla.
+
+### 4.7 Transacción
+
+Campos nuevos opcionales en `TransactionDoc` (no renombrar los existentes):
+
+- `account_code?: string`
+- `clave_prod_serv?: string` (primer concepto; permite re-mapear sin el XML)
+
+`isValidTransaction` sigue con `hasAll` de los campos actuales. `account_code` ausente sigue siendo válido. Si se valida en rules, solo cuando la clave viene: string de 1 a 20.
+
+### 4.8 Auditoría
+
+| Evento | `accion` | `recurso` | `detalles` |
+|---|---|---|---|
+| Guardar catálogo | `CATALOGO_CUENTAS_UPDATED` | `organizations` | `organization_id`, `cuentas`, `pendientes` (conteos) |
+| Guardar regla | `MAPEO_CUENTA_SAVED` | `mapeo_cuentas` | `organization_id`, `rule_id`, `account_code` |
+| Borrar regla | `MAPEO_CUENTA_DELETED` | `mapeo_cuentas` | `organization_id`, `rule_id` |
+| Match de regla al importar | `ACCOUNT_MAPPED_BY_RULE` | `transactions` | `id`, `account_code`, `rule_id` |
+| Groq | `AI_CLASSIFICATION_GROQ` | id de transacción o `ai_service` (el que ya use el llamador) | decisión, `account_code`. Sin RFC. Opcionales `provider`, `modelUsed`, `tokensUsed` |
+
+Varias reglas en un solo guardado → `writeBatch`.
+
+### 4.9 Permisos
+
+Igual que el settings actual: escribe catálogo y reglas quien `canManageOrg` (owner, admin). Lee quien `canReadOrg`. El contador clasifica con el catálogo; no lo edita.
+
+### 4.10 UI
+
+`src/components/settings/ChartOfAccountsSection.tsx` reemplaza el textarea. `App.tsx` solo lo monta y deja de ser dueño de la lista.
+
+- Alta / edición de cuenta: código, nombre, naturaleza, tipo de IVA si naturaleza es `iva`, activa.
+- Lista de pendientes con acción “asignar” (abre el alta ya con el nombre) o “descartar”.
+- Reglas: prioridad, cuenta destino, filtros de la sección 4.5, habilitar, borrar.
+- Errores de validación en la pantalla, con el campo que falló. Salir con Cancelar sin guardar.
+- El componente no importa Firebase ni Groq. El hook `useAccountCatalog` llama a `organizationService`.
+
+Dropdowns de cuenta en alta manual siguen en `App.tsx` pero las opciones salen del catálogo activo (código + nombre). El valor guardado sigue siendo `account_name` **y** `account_code`.
 
 ---
 
-## 6. Showcase IA sin costo de API (Hallazgo 3 + respuesta §11.2)
+## 5. Archivos a crear
 
-- **No** invocar `groqAIService` en el seed.
-- Inyectar metadata **estática** alineada al schema real ya usado en import CFDI:
-  - `account_name: 'Gastos Operativos'`
-  - `account_source: 'ai'`
-  - `confidence_score: 0.92`
-  - `status: 'revisión'` (o el valor que la UI ya trata como “requiere aprobación”)
-  - `agente_ia_decision` / reason corta fija (“Sugerencia demo: gasto operativo recurrente”)
-- El piloto ve confianza + cuenta sugerida → puede Aprobar; eso demuestra el diferencial vs Contalink **sin** tokens Groq ni no-determinismo.
+| Ruta | Responsabilidad única |
+|---|---|
+| `src/types/chartOfAccounts.ts` | Tipos, uniones y constantes de naturaleza / tipo IVA |
+| `src/config/chartOfAccounts.ts` | Semilla y solo la semilla |
+| `src/services/accountMappingService.ts` | Validar, migrar nombres, resolver catálogo, matchear reglas, `decideAccount` |
+| `src/services/accountMappingService.test.ts` | Pruebas de la sección 7 |
+| `src/hooks/useAccountCatalog.ts` | Carga y guardado vía `organizationService` |
+| `src/components/settings/ChartOfAccountsSection.tsx` | UI de catálogo, pendientes y reglas |
+| `src/components/settings/ChartOfAccountsSection.test.tsx` | Render de validación y de pendiente sin naturaleza |
 
----
-
-## 7. Kill-switch (Hallazgo 4)
-
-| Capa | Comportamiento si `VITE_ENABLE_DEMO_SEED` ≠ `'true'` |
-|------|------------------------------------------------------|
-| UI Panel | No renderiza el botón |
-| `useDemoSeed` | `enabled: false`; `runSeed` no-op / error controlado |
-| `demoSeedService.commitDemoSeed` | Guard clause: throw/`ok:false` “Demo seed deshabilitado” |
-| Producción Vercel | Flag **ausente** por defecto → inerte; solo se activa en proyecto piloto / preview con env explícito |
-
-Documentar en `.env.example`: `VITE_ENABLE_DEMO_SEED=false`.
-
----
-
-## 8. Archivos a crear
-
-| Ruta | Responsabilidad |
-|------|-----------------|
-| `src/config/demoSeed.ts` | Constantes, anclas, `DEMO_SEED_SOURCE`, copy UI |
-| `src/types/demoSeed.ts` | Bundle, Result, estados |
-| `src/services/demoSeedService.ts` | build / purge (query tríada) / commit / CSV |
-| `src/services/demoSeedService.test.ts` | ≥8 tests (ver §10) |
-| `src/hooks/useDemoSeed.ts` | Orquestación UI + gate flag + roles |
-| `docs/DEMO_SEED_VERIFICACION.md` | Hoja de verificación numérica |
-
----
-
-## 9. Archivos a modificar
+## 6. Archivos a modificar
 
 | Ruta | Cambio |
-|------|--------|
-| `src/types/transaction.ts` | `TransactionIngestSource` + `source` / `demo_period_key` / `demo_batch_id` |
-| `src/services/firestoreService.ts` | `queryDemoSeedTransactions(orgId, periodKey)` + `deleteTransactionDocs(ids)` (batches); sin SDK fuera de este service |
-| `firestore.indexes.json` | Índice compuesto §4 |
-| `src/components/sections/OverviewSection.tsx` (o Panel operativo) | CTA + banner si hay demo en periodo |
-| `src/App.tsx` | Wire hook, periodo, org, rol, flag |
-| `.env.example` | `VITE_ENABLE_DEMO_SEED=false` |
-| `docs/MANUAL_USUARIO.md` | Cómo activar flag (admin), cargar demo, verificar |
-| `implementation_plan.md` | Este documento |
+|---|---|
+| `src/types/organization.ts` | `catalogo_cuentas`, `catalogo_pendientes`. `cuentas_contables` se documenta como proyección |
+| `src/types/transaction.ts` | `account_code?`, `clave_prod_serv?` |
+| `src/services/organizationService.ts` | Parseo, alta de org con semilla, update que escribe catálogo + proyección, CRUD de reglas en batch. Sigue siendo el único writer de org |
+| `src/hooks/useActiveOrganization.ts` | Hidratar catálogo con `resolveEffectiveChart` |
+| `src/services/groqAIService.ts` | Instrucción del clasificador sin cuentas fijas; el catálogo llega en el contexto sanitizado |
+| `src/services/groqAIService.test.ts` | JSON con `account_code`; el sanitizado no deja pasar un RFC si alguien lo mete en el contexto de clasificación |
+| `src/hooks/useImportFlow.ts` | `decideAccount` antes de Groq; persiste `account_code` y `clave_prod_serv` |
+| `src/services/cfdiBatchImportService.ts` | El mismo `decideAccount` en el ramo que hoy llama a `classify`. Tipo P y nómina intactos en su ramo |
+| `src/services/cfdiBatchImportService.test.ts` | Caso regla que evita el classify inyectado; caso código Groq inválido |
+| `src/lib/cfdiXml.ts` | `claveProdServ` del primer `Concepto` |
+| `src/config/nominaDefaults.ts` | Códigos importados de la semilla. Los nombres públicos no cambian |
+| `src/App.tsx` | Quitar `DEFAULT_ACCOUNT_CATALOG` y el textarea. Montar la sección. Alta/edición manual usa `decideAccount`. No se añade lógica de negocio nueva al archivo |
+| `src/components/org/OrgSwitcher.test.tsx` | Fixture con `catalogo_cuentas: []` |
+| `src/components/org/OrgPickerScreen.test.tsx` | Igual |
+| `firestore.rules` | En `organizations/{orgId}`: `catalogo_cuentas` lista &lt; 200, mapas con `code`, `name`, `naturaleza` válida; `catalogo_pendientes` lista de strings &lt; 200. Subcolección `mapeo_cuentas`: read `canReadOrg`, write `canManageOrg` |
 
----
+Si `organizationService.ts` fuera a pasar de 600 líneas, se detiene el turno y se enmienda este plan. No se improvisa otro writer.
 
-## 10. Estrategia de pruebas (≥8)
+## 7. Pruebas
 
-1. Bundle: conteos y anclas numéricas.  
-2. Toda TX lleva `source`, `demo_period_key`, `demo_batch_id`.  
-3. TX #7: `account_source==='ai'` y `confidence_score===0.92`.  
-4. `isPolizaEligible` count esperado > 0; póliza balancea.  
-5. Nómina A → 4 líneas; Nómina B → 3 líneas.  
-6. **Purge safety:** set mixto (demo + real) → solo se seleccionan docs con tríada; real intacto.  
-7. Guard `VITE_ENABLE_DEMO_SEED` off → commit rechazado.  
-8. CSV parseable por `parseBankCsv`.  
-9. (Opcional) Tax Preview anclas IVA ±0.01.
+`npm test` de los archivos nuevos y de los test ya citados. `npm run lint`. Si se toca `firestore.rules` de pagos no aplica; este cambio de rules se cubre con el validador puro (la regla de Firestore espeja `assertCatalog`) y, si el entorno de emulador ya está en el repo para org, un caso de permiso. No se exige e2e nuevo.
 
-Regresión: suite global verde; `tsc --noEmit`.
+Casos mínimos de `accountMappingService.test.ts`:
 
----
+1. Cuenta `iva` sin `tipo_iva` rechazada. `tipo_iva` en cuenta `gasto` rechazado. Código duplicado rechazado.
+2. `migrateLegacyNames(['Gastos Operativos', 'Impuestos', 'Nómina y Honorarios'])` mapea solo la primera; las otras dos quedan pendientes, sin naturaleza.
+3. Dos reglas: gana la de menor `priority`. Empate de prioridad: gana el `id` menor. Regla `enabled: false` no gana.
+4. Match AND: falla si `tipo` coincide y `clave_prod_serv` no.
+5. Regla ganadora: el `classify` inyectado no se llama. `account_source === 'rule'`.
+6. Sin regla: `classify` se llama **sin** `rfc_contraparte` en el objeto. Código del catálogo → `account_source === 'ai'` y el nombre sale del catálogo aunque el modelo mande otro texto.
+7. Código inventado por el modelo → provisional `601.84` o `401.01` según `tipo`, revisión, `manual_fallback`.
+8. `classify` que lanza → el mismo provisional. El XML no se pierde.
+9. `resolveEffectiveChart` con org vacía devuelve la semilla, incluidos Bancos `102.01`, Clientes, Proveedores, IVA de devengo `119.01` y `209.01`, ingresos y nómina `601.01`.
+10. Todo código de la semilla cumple `/^[0-9]+(\.[0-9]+)*$/`. El IVA acreditable de devengo (`name` «IVA acreditable») es `119.01`, no `118.01`. El IVA trasladado de devengo (`name` «IVA trasladado») es `209.01`, no `208.01`.
 
-## 11. Respuestas a solicitud de información (auditor)
+Parser: un XML de fixture con `ClaveProdServ="01010101"` produce ese valor; sin atributo, `''`.
 
-### 11.1 Índices Firestore
-**Respuesta:** Hoy **no** existe un índice compuesto `(organization_id, source, demo_period_key)` en `transactions`. Los listeners cargan por `organization_id` solo; el único índice de `transactions` relevante es `(organization_id, cfdi_uuid)`.
+UI: la sección muestra un pendiente y no ofrece ese nombre como destino de una regla.
 
-**Acción en plan:** E14.0 **incluye** agregar ese índice en `firestore.indexes.json` y listarlo en DoD. Sin índice, el purge compuesto fallará en runtime con link de consola Firebase — no se usará full-scan cliente.
+## 8. Definición de hecho
 
-### 11.2 Integración con IA
-**Respuesta:** **Basta (y se exige) inyectar metadata estática** (`account_source: 'ai'`, `confidence_score`, etc.) **sin** invocar Groq. Motivos: determinismo, cero costo API, evidencias reproducibles, alineado a Memoria de contabilidad autónoma **demostrable** en UI sin acoplar el seed a latencia/red.
+- Una org nueva queda con la semilla (código + naturaleza) y la proyección de nombres.
+- Una org con lista vieja de textos obtiene cuentas solo donde el nombre calza; el resto se ve como pendiente y no lo elige Groq.
+- Importar un CFDI cuyo match pega en una regla guarda `account_code`, `account_name` del catálogo y `account_source: 'rule'`, sin llamada a Groq, con audit `ACCOUNT_MAPPED_BY_RULE`.
+- Importar uno sin regla guarda un código que existe en el catálogo, o el provisional de semilla en revisión.
+- Nómina sigue sin Groq y guarda `601.01` junto al nombre actual.
+- `isPolizaEligible` y el TXT de póliza se comportan igual que antes de E15.
+- `npm run lint` y las pruebas de la sección 7 en verde.
 
----
+## 9. Fuera de alcance (para el dictamen)
 
-## 12. Criterios de aceptación (DoD)
+| Tema | Cuándo |
+|---|---|
+| Generar líneas de devengo al importar | E16 |
+| Dejar de exigir conciliación en `isPolizaEligible` | E16, el mismo cambio que el generador |
+| Persistir y usar `atajo_pue_bancos` | E16 |
+| Balanza y estado de resultados | E17, después de E15 y E16 |
+| Flujo guiado / aprobar en lote | E18 |
+| Reclasificar transacciones históricas | No en estos cuatro entregables, salvo un plan propio |
+| Centros de costo, DIOT, envío SAT | Fuera |
 
-- [ ] Flag `VITE_ENABLE_DEMO_SEED=true` requerido; sin él no hay CTA ni escritura.
-- [ ] CTA en Panel General; solo owner/admin.
-- [ ] ≥15 TX en org activa con `source/demo_period_key/demo_batch_id`.
-- [ ] Purge por tríada; test de no-borrado de TX reales.
-- [ ] Índice compuesto documentado y en `firestore.indexes.json`.
-- [ ] TX showcase IA con confianza visible (sin llamada Groq).
-- [ ] Panel KPIs ≠ 0; Tax Preview acorde a hoja; póliza balanceada; nómina 4 y 3 líneas.
-- [ ] CSV gemelo descargable / `parseBankCsv` OK.
-- [ ] Manual + `DEMO_SEED_VERIFICACION.md`.
-- [ ] ≥8 tests nuevos; suite global OK; `tsc` limpio.
-- [ ] Sin commit hasta dictamen final.
+## 10. Cierre del dictamen
 
----
-
-## 13. Orden de ejecución (tras Visto Bueno Final)
-
-1. Types + config + índice.  
-2. `firestoreService` query/delete + `demoSeedService` + tests.  
-3. Hook + UI Panel + banner + `.env.example`.  
-4. Docs verificación + manual.  
-5. Evidencia: vitest, tsc, diff --stat, snippet purge tríada + guard flag.  
-6. Commit tentativo: `feat(E14.0): deterministic demo month seed with safe purge and AI showcase`
-
----
-
-## 14. Fuera de alcance
-
-- E14.1 SAT productivo  
-- E14.2 Empty states educativos ampliados  
-- E13.3 Catálogo pasivos UI  
-- Llamadas Groq dentro del seed  
-
----
-
-**Confirmación del autor al auditor:**  
-1) Preguntas §11 respondidas.  
-2) Plan actualizado con las 4 correcciones (purge tríada + `demo_batch_id`, unión tipada, showcase IA estático, kill-switch obligatorio + índice).  
-3) **Cero código** hasta **Visto Bueno Final (APO)**.
+El auditor autorizó la semilla de la sección 4.3 y la ejecución de las secciones 5 y 6 el 2026-10-27. E16 (devengo, atajo PUE, cambio de `isPolizaEligible`) y E17 (balanza) no forman parte de esta escritura. No hay pregunta abierta.

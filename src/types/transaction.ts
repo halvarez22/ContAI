@@ -36,6 +36,7 @@ export interface TransactionFiscalFields {
   metodo_pago_sat?: string;
   cp_expedicion?: string;
   cfdi_uuid?: string;
+  clave_prod_serv?: string;
   importado_cfdi?: boolean;
 }
 
@@ -52,6 +53,7 @@ export interface TransactionDoc extends TransactionFiscalFields, TransactionSatP
   fecha: string;
   status?: TransactionStatus;
   account_name?: string;
+  account_code?: string;
   account_source?: string;
   tags?: string[];
   agente_ia_decision?: string;

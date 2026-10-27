@@ -50,6 +50,11 @@ service cloud.firestore {
         && orgMemberRole(orgId) in ['owner', 'admin'];
     }
 
+    function catalogFieldsOk(data) {
+      return (!('catalogo_cuentas' in data) || (data.catalogo_cuentas is list && data.catalogo_cuentas.size() < 200))
+        && (!('catalogo_pendientes' in data) || (data.catalogo_pendientes is list && data.catalogo_pendientes.size() < 200));
+    }
+
     /** E8.2: cambios de rol sin auto-escalamiento / sin promover a owner. */
     function memberRoleChangeAllowed(orgId) {
       return request.resource.data.role == resource.data.role
@@ -109,9 +114,24 @@ service cloud.firestore {
     match /organizations/{orgId} {
       allow read: if canReadOrg(orgId);
       allow create: if isAuthenticated()
-        && request.resource.data.creado_por == request.auth.uid;
-      allow update: if canManageOrg(orgId);
+        && request.resource.data.creado_por == request.auth.uid
+        && catalogFieldsOk(request.resource.data);
+      allow update: if canManageOrg(orgId)
+        && catalogFieldsOk(request.resource.data);
       allow delete: if canManageOrg(orgId) && orgMemberRole(orgId) == 'owner';
+    }
+
+    match /organizations/{orgId}/mapeo_cuentas/{ruleId} {
+      allow read: if canReadOrg(orgId);
+      allow create, update: if canManageOrg(orgId)
+        && request.resource.data.organization_id == orgId
+        && request.resource.data.account_code is string
+        && request.resource.data.account_code.size() > 0
+        && request.resource.data.account_code.size() < 21
+        && request.resource.data.priority is number
+        && request.resource.data.enabled is bool
+        && request.resource.data.match is map;
+      allow delete: if canManageOrg(orgId);
     }
 
     match /organization_members/{memberId} {

@@ -23,6 +23,13 @@ describe('parseAgentJson', () => {
     expect(d.decision).toBe('clasificar_gasto_operativo');
     expect(d.confidence_score).toBe(0.91);
     expect(d.account_name).toBe('Gastos Operativos');
+    expect(parseAgentJson(JSON.stringify({
+      decision: 'ok',
+      confidence_score: 0.4,
+      reason: 'r',
+      requires_human_approval: false,
+      account_code: '601.84',
+    })).account_code).toBe('601.84');
   });
 
   it('acepta JSON dentro de fence markdown', () => {

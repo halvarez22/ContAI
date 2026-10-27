@@ -46,6 +46,12 @@ import { AppShell } from './components/layout/AppShell';
 import { ContAILogo } from './components/brand/ContAILogo';
 import { getNavTitle, getNavItems } from './components/layout/navItems';
 import { executeAgent, AGENT_TYPES } from './services/groqAIService';
+import { decideAccount, manualAccountFields } from './services/accountMappingService';
+import { useAccountCatalog } from './hooks/useAccountCatalog';
+import {
+  AccountCodeOptions,
+  ChartOfAccountsSection,
+} from './components/settings/ChartOfAccountsSection';
 import type { AgentDecision, AgentType } from './types/agentDecision';
 import { logAuditEntry } from './services/auditService';
 import {
@@ -106,7 +112,6 @@ import { useDemoSeed } from './hooks/useDemoSeed';
 import { DEMO_SEED_SOURCE } from './config/demoSeed';
 import { TRANSACTIONS_TRUNCATED_HINT } from './lib/firestoreWindows';
 import { POLIZA_EXPORT_DISABLED_HINT } from './types/polizaExport';
-import type { CfdiClassificationPayload } from './types/cfdiBatch';
 import type { BankLedgerItem } from './types/bankReconciliation';
 import { SectionSuspenseFallback } from './components/SectionSuspenseFallback';
 
@@ -148,17 +153,6 @@ const ImportModals = lazy(() =>
 
 // --- Main App ---
 
-const DEFAULT_ACCOUNT_CATALOG = [
-  'Insumos y Mercancías',
-  'Gastos Operativos',
-  'Viáticos y Viajes',
-  'Nómina y Honorarios',
-  'Marketing y Publicidad',
-  'Servicios Profesionales',
-  'Impuestos',
-  'Otros',
-];
-
 export default function App() {
   const HIGH_AMOUNT_REVIEW_THRESHOLD = 50000;
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -188,15 +182,12 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [accountCatalog, setAccountCatalog] = useState<string[]>(DEFAULT_ACCOUNT_CATALOG);
-  const [settingsCatalogDraft, setSettingsCatalogDraft] = useState(() => DEFAULT_ACCOUNT_CATALOG.join('\n'));
   const [empresaNombre, setEmpresaNombre] = useState('');
   const [empresaRfc, setEmpresaRfc] = useState('');
   const [draftEmpresaNombre, setDraftEmpresaNombre] = useState('');
   const [draftEmpresaRfc, setDraftEmpresaRfc] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const prevActiveTabRef = useRef<string | null>(null);
-  const settingsCatalogDirtyRef = useRef(false);
   const nowInit = new Date();
   const [periodYear, setPeriodYear] = useState(nowInit.getFullYear());
   const [periodMonth, setPeriodMonth] = useState(nowInit.getMonth());
@@ -253,6 +244,11 @@ export default function App() {
     return row?.membership.role ?? null;
   }, [orgSummaries, activeOrganizationId]);
 
+  const catalogApi = useAccountCatalog(
+    activeOrg,
+    activeMembershipRole ? canManageOrg(activeMembershipRole) : false
+  );
+
   const prevOrgIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activeOrganizationId) return;
@@ -297,11 +293,6 @@ export default function App() {
     if (!activeOrg) return;
     setEmpresaNombre(activeOrg.nombre);
     setEmpresaRfc(activeOrg.rfc);
-    setAccountCatalog(
-      activeOrg.cuentas_contables.length > 0
-        ? activeOrg.cuentas_contables
-        : DEFAULT_ACCOUNT_CATALOG
-    );
     setPeriodosCerrados(activeOrg.periodos_cerrados);
   }, [activeOrg]);
 
@@ -329,29 +320,14 @@ export default function App() {
   // (sin listener duplicado aquí)
   useEffect(() => {
     if (activeTab === 'settings' && prevActiveTabRef.current !== 'settings') {
-      settingsCatalogDirtyRef.current = false;
-      setSettingsCatalogDraft(accountCatalog.join('\n'));
       setDraftEmpresaNombre(empresaNombre);
       setDraftEmpresaRfc(empresaRfc);
     }
     prevActiveTabRef.current = activeTab;
-  }, [activeTab, accountCatalog, empresaNombre, empresaRfc]);
-
-  useEffect(() => {
-    if (activeTab !== 'settings' || settingsCatalogDirtyRef.current) return;
-    setSettingsCatalogDraft(accountCatalog.join('\n'));
-  }, [accountCatalog, activeTab]);
+  }, [activeTab, empresaNombre, empresaRfc]);
 
   const saveSettingsProfile = async () => {
     if (!user) return;
-    const lines = settingsCatalogDraft
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (lines.length === 0) {
-      alert('Agrega al menos una cuenta (una por línea).');
-      return;
-    }
     const nombre = draftEmpresaNombre.trim();
     const rfc = draftEmpresaRfc.trim().toUpperCase();
     setIsSavingSettings(true);
@@ -361,17 +337,14 @@ export default function App() {
         return;
       }
       await updateOrganizationSettings(activeOrganizationId, {
-        cuentas_contables: lines,
         nombre,
         rfc,
       });
       await logAuditEntry('UPDATE_SETTINGS', 'organizations', {
-        cuentas: lines.length,
         empresa: Boolean(nombre),
         rfc: Boolean(rfc),
         organization_id: activeOrganizationId,
       });
-      settingsCatalogDirtyRef.current = false;
     } catch (e) {
       console.error('No se pudo guardar la configuración:', e);
       alert('No se pudo guardar la configuración. Verifica permisos.');
@@ -394,14 +367,9 @@ export default function App() {
     await signOut(auth);
   };
 
-  type AgentClassifyPayload = CfdiClassificationPayload & {
-    account_name?: string;
-    tags?: string[];
-  };
-
   const triggerAgent = async (
     type: AgentType,
-    data: AgentClassifyPayload
+    data: object
   ): Promise<AgentDecision | undefined> => {
     setIsProcessing(true);
     try {
@@ -444,7 +412,48 @@ export default function App() {
     periodosCerrados,
     classify: triggerAgent,
     highAmountReviewThreshold: HIGH_AMOUNT_REVIEW_THRESHOLD,
+    accounts: catalogApi.accounts,
+    rules: catalogApi.rules,
   });
+
+  const resolveFormAccount = async (input: {
+    tipo: 'ingreso' | 'egreso';
+    monto: number;
+    concepto: string;
+    proveedor: string;
+    fecha: string;
+    moneda: string;
+    manualCode: string;
+    metodo_pago_sat?: string;
+  }) => {
+    const manual = manualAccountFields(catalogApi.accounts, input.manualCode);
+    if (manual) {
+      return {
+        account_code: manual.account_code,
+        account_name: manual.account_name,
+        account_source: 'manual' as const,
+        confidence_score: 1,
+        requires_human_approval: input.monto > HIGH_AMOUNT_REVIEW_THRESHOLD,
+        decision: 'manual',
+        reason: 'Cuenta elegida en la captura',
+        rule_id: undefined as string | undefined,
+      };
+    }
+    return decideAccount(
+      {
+        tipo: input.tipo,
+        monto: input.monto,
+        concepto: input.concepto,
+        proveedor: input.proveedor,
+        fecha: input.fecha,
+        moneda: input.moneda,
+        metodo_pago_sat: input.metodo_pago_sat,
+      },
+      catalogApi.accounts,
+      catalogApi.rules,
+      (payload) => triggerAgent(AGENT_TYPES.CLASIFICADOR, payload)
+    );
+  };
 
   const saveProduct = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -659,7 +668,6 @@ export default function App() {
       proveedor: String(formData.get('proveedor') || ''),
       fecha: new Date(String(formData.get('fecha'))).toISOString(),
       status: 'pendiente',
-      account_name: String(formData.get('account_name') || ''),
       tags,
       ...fiscalExtra,
     };
@@ -677,20 +685,35 @@ export default function App() {
     try {
       const docRef = await createTransaction(transactionData);
 
-      const decision = await triggerAgent(AGENT_TYPES.CLASIFICADOR, transactionData);
-      if (decision) {
-        const requiresPolicyReview = transactionData.monto > HIGH_AMOUNT_REVIEW_THRESHOLD;
-        const requiresHumanApproval = decision.requires_human_approval || requiresPolicyReview;
-        const manualAccountName = transactionData.account_name?.trim();
-        await setTransaction(docRef.id, {
-          ...transactionData,
-          status: requiresHumanApproval ? 'revisión' : 'conciliado',
-          agente_ia_decision: decision.decision,
-          confidence_score: decision.confidence_score,
-          account_name: manualAccountName || decision.account_name,
-          account_source: manualAccountName ? 'manual' : 'ai',
-          policy_review_reason: requiresPolicyReview ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}` : null,
-          creado_en: serverTimestamp(),
+      const decision = await resolveFormAccount({
+        tipo: tipoTx,
+        monto: montoNum,
+        concepto: transactionData.concepto,
+        proveedor: transactionData.proveedor,
+        fecha: transactionData.fecha,
+        moneda: transactionData.moneda,
+        manualCode: String(formData.get('account_code') || ''),
+        metodo_pago_sat: String(formData.get('metodo_pago_sat') || '') || undefined,
+      });
+      const requiresPolicyReview = transactionData.monto > HIGH_AMOUNT_REVIEW_THRESHOLD;
+      await setTransaction(docRef.id, {
+        ...transactionData,
+        status: decision.requires_human_approval || requiresPolicyReview ? 'revisión' : 'conciliado',
+        agente_ia_decision: decision.decision,
+        confidence_score: decision.confidence_score,
+        account_name: decision.account_name,
+        account_code: decision.account_code,
+        account_source: decision.account_source,
+        policy_review_reason: requiresPolicyReview
+          ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}`
+          : null,
+        creado_en: serverTimestamp(),
+      });
+      if (decision.account_source === 'rule' && decision.rule_id) {
+        await logAuditEntry('ACCOUNT_MAPPED_BY_RULE', 'transactions', {
+          id: docRef.id,
+          account_code: decision.account_code,
+          rule_id: decision.rule_id,
         });
       }
 
@@ -962,7 +985,6 @@ export default function App() {
       concepto: String(formData.get('concepto') || selectedTransaction.concepto || ''),
       proveedor: String(formData.get('proveedor') || selectedTransaction.proveedor || ''),
       fecha: new Date(String(formData.get('fecha'))).toISOString(),
-      account_name: String(formData.get('account_name') || ''),
       tags,
       ...fiscalEd,
       actualizado_en: serverTimestamp(),
@@ -981,20 +1003,34 @@ export default function App() {
     }
 
     try {
-      const decision = await triggerAgent(AGENT_TYPES.CLASIFICADOR, updatedData);
+      const decision = await resolveFormAccount({
+        tipo: tipoEd,
+        monto: montoEd,
+        concepto: updatedData.concepto,
+        proveedor: String(updatedData.proveedor || ''),
+        fecha: updatedData.fecha,
+        moneda: String(updatedData.moneda || 'MXN'),
+        manualCode: String(formData.get('account_code') || ''),
+        metodo_pago_sat: String(formData.get('metodo_pago_sat') || '') || undefined,
+      });
       const requiresPolicyReview = updatedData.monto > HIGH_AMOUNT_REVIEW_THRESHOLD;
-      const manualAccountName = updatedData.account_name?.trim();
-      const finalData = decision
-        ? {
-            ...updatedData,
-            status: (decision.requires_human_approval || requiresPolicyReview) ? 'revisión' : 'conciliado',
-            agente_ia_decision: decision.decision,
-            confidence_score: decision.confidence_score,
-            account_name: manualAccountName || decision.account_name,
-            account_source: manualAccountName ? 'manual' : 'ai',
-            policy_review_reason: requiresPolicyReview ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}` : null,
-          }
-        : updatedData;
+      const finalData = {
+        ...updatedData,
+        status: (decision.requires_human_approval || requiresPolicyReview) ? 'revisión' : 'conciliado',
+        agente_ia_decision: decision.decision,
+        confidence_score: decision.confidence_score,
+        account_name: decision.account_name,
+        account_code: decision.account_code,
+        account_source: decision.account_source,
+        policy_review_reason: requiresPolicyReview ? `Monto mayor a ${HIGH_AMOUNT_REVIEW_THRESHOLD}` : null,
+      };
+      if (decision.account_source === 'rule' && decision.rule_id) {
+        await logAuditEntry('ACCOUNT_MAPPED_BY_RULE', 'transactions', {
+          id: selectedTransaction.id,
+          account_code: decision.account_code,
+          rule_id: decision.rule_id,
+        });
+      }
 
       await setTransaction(selectedTransaction.id, finalData);
       setSelectedTransaction({ ...finalData, id: selectedTransaction.id });
@@ -1968,22 +2004,19 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Catálogo de cuentas contables</label>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Una cuenta por línea. Estas opciones aparecen al capturar o editar transacciones. Se guarda en tu perfil de Firebase.
-                      </p>
-                      <textarea
-                        value={settingsCatalogDraft}
-                        onChange={(e) => {
-                          settingsCatalogDirtyRef.current = true;
-                          setSettingsCatalogDraft(e.target.value);
-                        }}
-                        rows={12}
-                        className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none resize-y min-h-[200px]"
-                        spellCheck={false}
-                      />
-                    </div>
+                    <ChartOfAccountsSection
+                      accounts={catalogApi.accounts}
+                      pendientes={catalogApi.pendientes}
+                      rules={catalogApi.rules}
+                      canManage={
+                        activeMembershipRole ? canManageOrg(activeMembershipRole) : false
+                      }
+                      saving={catalogApi.saving}
+                      error={catalogApi.error}
+                      onSaveAccounts={catalogApi.saveAccounts}
+                      onSaveRule={catalogApi.saveRule}
+                      onDeleteRule={catalogApi.removeRule}
+                    />
 
                     <Button className="w-full" onClick={saveSettingsProfile} disabled={isSavingSettings}>
                       {isSavingSettings ? 'Guardando…' : 'Guardar configuración'}
@@ -2240,14 +2273,12 @@ export default function App() {
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cuenta contable (opcional)</label>
                   <select
-                    name="account_name"
+                    name="account_code"
                     defaultValue=""
                     className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                   >
                     <option value="">Clasificación automática por IA</option>
-                    {accountCatalog.map((account) => (
-                      <option key={account} value={account}>{account}</option>
-                    ))}
+                    <AccountCodeOptions accounts={catalogApi.accounts} />
                   </select>
                 </div>
 
@@ -2870,19 +2901,18 @@ export default function App() {
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cuenta contable</label>
                   <select
-                    name="account_name"
-                    defaultValue={selectedTransaction.account_name || ''}
+                    name="account_code"
+                    defaultValue={
+                      selectedTransaction.account_code ||
+                      catalogApi.accounts.find(
+                        (account) => account.name === selectedTransaction.account_name
+                      )?.code ||
+                      ''
+                    }
                     className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                   >
                     <option value="">Clasificación automática por IA</option>
-                    {(() => {
-                      const cur = String(selectedTransaction.account_name || '').trim();
-                      const opts = [...accountCatalog];
-                      if (cur && !opts.includes(cur)) opts.unshift(cur);
-                      return opts.map((account) => (
-                        <option key={account} value={account}>{account}</option>
-                      ));
-                    })()}
+                    <AccountCodeOptions accounts={catalogApi.accounts} />
                   </select>
                 </div>
 
