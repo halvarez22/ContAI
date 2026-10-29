@@ -169,6 +169,14 @@ export type FiscalSectionProps = {
   periodYear?: number;
   periodMonth?: number;
   reportsTruncated?: boolean;
+  missingJournals?: {
+    generating: boolean;
+    message: string | null;
+    disabled: boolean;
+    disabledHint: string;
+    truncated: boolean;
+    onGenerate: () => void;
+  };
 };
 
 /** Mapa tipado de render (documentación; App compone hijos directamente) */

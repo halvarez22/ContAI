@@ -7,6 +7,15 @@ import {
   type TrialBalanceReport,
 } from '../../types/financialReports';
 
+export type MissingJournalAction = {
+  generating: boolean;
+  message: string | null;
+  disabled: boolean;
+  disabledHint: string;
+  truncated: boolean;
+  onGenerate: () => void;
+};
+
 function signedBalance(amount: number): string {
   const text = formatCurrency(amount);
   return amount < 0 ? `${text} acreedor` : text;
@@ -17,11 +26,13 @@ export function TrialBalanceSection({
   onExport,
   exportDisabled = false,
   exportDisabledHint = '',
+  missingJournals,
 }: {
   report: TrialBalanceReport;
   onExport?: () => void;
   exportDisabled?: boolean;
   exportDisabledHint?: string;
+  missingJournals?: MissingJournalAction;
 }) {
   return (
     <div className="space-y-4">
@@ -86,6 +97,36 @@ export function TrialBalanceSection({
         Cargos del mes {formatCurrency(report.total_cargos)} · Abonos del mes{' '}
         {formatCurrency(report.total_abonos)}
       </p>
+
+      {missingJournals ? (
+        <div className="space-y-1">
+          {missingJournals.truncated ? (
+            <p className="text-xs text-ink-muted">{TRIAL_BALANCE_TRUNCATED_HINT}</p>
+          ) : null}
+          <span
+            title={
+              missingJournals.disabled
+                ? missingJournals.disabledHint
+                : 'Genera los asientos del periodo que todavía no cuadran'
+            }
+          >
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={missingJournals.disabled || missingJournals.generating}
+              onClick={missingJournals.onGenerate}
+            >
+              {missingJournals.generating ? 'Generando…' : 'Generar asientos faltantes'}
+            </Button>
+          </span>
+          {missingJournals.disabled && missingJournals.disabledHint ? (
+            <p className="text-xs text-ink-muted">{missingJournals.disabledHint}</p>
+          ) : null}
+          {missingJournals.message ? (
+            <p className="text-xs text-ink whitespace-pre-line">{missingJournals.message}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {onExport ? (
         <div className="space-y-1">

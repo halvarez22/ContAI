@@ -35,6 +35,7 @@ export function FiscalSection({
   periodYear,
   periodMonth,
   reportsTruncated = false,
+  missingJournals,
 }: FiscalSectionProps) {
   const canApplyPayments = Boolean(organizationId && userId);
   const showReports = periodYear != null && periodMonth != null;
@@ -137,6 +138,7 @@ export function FiscalSection({
             }
             exportDisabled={trialExport.disabled}
             exportDisabledHint={trialExport.hint}
+            missingJournals={missingJournals}
           />
           <IncomeStatementSection
             report={financialReports.incomeStatement}

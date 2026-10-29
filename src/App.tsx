@@ -83,6 +83,7 @@ import {
   readInviteTokenFromLocation,
 } from './services/organizationInviteService';
 import { canManageOrg, canWriteOrg } from './types/organization';
+import { useMissingJournals } from './hooks/useMissingJournals';
 import { canReclassify } from './services/batchApprovalService';
 import {
   filterTransactionsByMonth,
@@ -1303,6 +1304,21 @@ export default function App() {
     [periodosCerrados, periodYear, periodMonth]
   );
 
+  const missingJournals = useMissingJournals({
+    userId: user?.uid,
+    organizationId: activeOrganizationId ?? undefined,
+    canWrite: activeMembershipRole ? canWriteOrg(activeMembershipRole) : false,
+    periodClosed: periodoActualCerrado,
+    truncated: transactionsTruncated,
+    year: periodYear,
+    monthIndex: periodMonth,
+    transactions,
+    periodosCerrados,
+    accounts: catalogApi.accounts,
+    rules: catalogApi.rules,
+    atajoPueBancos: catalogApi.atajoPueBancos,
+  });
+
   const stockByProduct = useMemo(() => {
     const m: Record<string, number> = {};
     for (const mov of inventoryMovements) {
@@ -1609,6 +1625,16 @@ export default function App() {
                   periodYear={periodYear}
                   periodMonth={periodMonth}
                   reportsTruncated={transactionsTruncated}
+                  missingJournals={{
+                    generating: missingJournals.generating,
+                    message: missingJournals.message,
+                    disabled: missingJournals.disabled,
+                    disabledHint: missingJournals.disabledHint,
+                    truncated: missingJournals.truncated,
+                    onGenerate: () => {
+                      void missingJournals.run();
+                    },
+                  }}
                 />
               )}
             </AppTabRouter>
