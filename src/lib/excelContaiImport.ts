@@ -3,6 +3,8 @@
  * a borradores listos para Firestore (transacciones / productos).
  */
 
+import type { JournalEntry } from '../types/journalEntry';
+
 export type TxTipo = 'ingreso' | 'egreso';
 
 export interface TransactionDraft {
@@ -12,11 +14,18 @@ export interface TransactionDraft {
   concepto: string;
   proveedor: string;
   fecha: string;
-  status: 'conciliado';
+  status: 'pendiente' | 'conciliado' | 'revisión';
+  /** Fila de la hoja, base 1. */
+  rowIndex: number;
   tags: string[];
   iva_tasa?: number;
   fiscal_subtotal?: number;
   fiscal_iva?: number;
+  account_name?: string;
+  account_code?: string;
+  account_source?: string;
+  policy_review_reason?: string | null;
+  asiento_devengo?: JournalEntry;
 }
 
 export interface ProductDraft {
@@ -160,6 +169,7 @@ export function mapCarlosIngresos(rows: unknown[][], sourceLabel: string): { txs
       proveedor: cliente,
       fecha,
       status: 'conciliado',
+      rowIndex: r + 1,
       tags: ['import-excel', 'carlos-ing'],
       ...(iva_tasa !== undefined ? { iva_tasa } : {}),
       ...(subtotal !== null && subtotal > 0 ? { fiscal_subtotal: subtotal, fiscal_iva: iva } : {}),
@@ -219,6 +229,7 @@ export function mapCarlosEgresos(rows: unknown[][], sourceLabel: string): { txs:
       proveedor,
       fecha,
       status: 'conciliado',
+      rowIndex: r + 1,
       tags: ['import-excel', 'carlos-egr'],
       ...(gastoSub !== null && gastoSub > 0 ? { fiscal_subtotal: gastoSub, fiscal_iva: iva } : {}),
     });
@@ -301,6 +312,7 @@ export function mapUtilidadVentas(rows: unknown[][], sourceLabel: string): { txs
       proveedor: cliente || 'Público general',
       fecha,
       status: 'conciliado',
+      rowIndex: r + 1,
       tags: ['import-excel', 'utilidad-ventas'],
       ...(sub !== null && sub > 0 ? { fiscal_subtotal: sub } : {}),
     });

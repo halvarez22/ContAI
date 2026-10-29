@@ -278,19 +278,18 @@ export function useImportFlow({
           results.push(parseContaiExcelBuffer(buf, f.name));
         }
         const merged = mergeExcelResults(results);
-        const skippedClosed: string[] = [];
-        const txs = merged.transactions.filter((t) => {
-          if (isTransactionDateInClosedPeriod(t.fecha, periodosCerrados)) {
-            skippedClosed.push(t.concepto.slice(0, 40));
-            return false;
-          }
-          return true;
-        });
-        const { txCount, productCount } = await commitExcelImport(
+        const { txCount, productCount, notices } = await commitExcelImport(
           userId,
-          txs,
+          merged.transactions,
           merged.products,
-          organizationId
+          organizationId,
+          {
+            periodosCerrados,
+            accounts,
+            rules,
+            atajoPueBancos,
+            classify: (payload) => classify(AGENT_TYPES.CLASIFICADOR, payload),
+          }
         );
         setExcelImportMessage(
           [
@@ -298,7 +297,7 @@ export function useImportFlow({
             merged.warnings.length
               ? `Avisos (${merged.warnings.length}): ${merged.warnings.slice(0, 8).join(' · ')}`
               : '',
-            skippedClosed.length ? `Omitidas por periodo cerrado: ${skippedClosed.length}.` : '',
+            notices.length ? notices.slice(0, 8).join('\n') : '',
           ]
             .filter(Boolean)
             .join('\n')
@@ -310,7 +309,7 @@ export function useImportFlow({
         setExcelImporting(false);
       }
     },
-    [userId, organizationId, periodosCerrados]
+    [userId, organizationId, periodosCerrados, accounts, rules, atajoPueBancos, classify]
   );
 
   const importCfdiAsTransaction = useCallback(async () => {

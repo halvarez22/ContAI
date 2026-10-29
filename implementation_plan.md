@@ -453,6 +453,17 @@ Condiciones vinculantes:
 2. Si la liquidación cuadra, el estado queda en `conciliado`. Si falla, queda en `revisión` con un motivo: «Moneda distinta de MXN en complemento de pago» o «No se pudo determinar si es cobro o pago», o la cuenta inactiva.
 3. La prueba del RFC cubre emisor → `cobro`, receptor → `pago`, y sin coincidencia → vacío, que provoca el fallo controlado.
 
+## 17. E20 — Importación Excel con devengo (dictamen 2026-10-28, ejecución autorizada)
+
+La fila de Excel no construye su propio asiento. Se mapea a `AccrualDraft` y el devengo lo arma el mismo generador que el CFDI. `useImportFlow.ts` solo entrega el archivo. E21 a E26 no se implementan aquí.
+
+Condiciones vinculantes:
+
+1. `excelImportService.ts` no arma líneas. Mapea la fila y llama a `postClassifiedAccrual`, que usa `buildAccrualJournalEntry` y `journalEntryBalances`.
+2. Todo aviso de revisión o de omisión nombra la fila en base 1. Si faltan subtotal e IVA, el motivo es «Fila 15: Faltan subtotal e IVA para generar el devengo».
+3. La fila queda en `ExcelRowDraft`: `concepto`, `monto`, `fiscal_subtotal`, `fiscal_iva` y `rowIndex`. Sin `any`.
+4. El periodo cerrado se revisa antes de construir el asiento. Esa fila no se procesa y el motivo es «Fila X: Periodo cerrado». El resto del lote sigue.
+
 ## 18. E21 — Asientos faltantes del periodo abierto (dictamen 2026-10-28, ejecución autorizada)
 
 El botón de la balanza genera, solo en el periodo abierto, los asientos que faltan. El comercial y la nómina pasan por `postClassifiedAccrual`. Un CFDI tipo P histórico no se inventa: queda en revisión. No se promueve el estatus a conciliado. No se borran CFDIs ni `audit_logs`. E22 a E26 no se implementan aquí.

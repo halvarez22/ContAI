@@ -107,15 +107,25 @@ export async function setRecurring(
   }
 }
 
-/** Commit Excel drafts. organizationId obligatorio. */
+export function allocateTransactionIds(count: number): string[] {
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) ids.push(doc(collection(db, 'transactions')).id);
+  return ids;
+}
+
+/** Commit Excel drafts. organizationId obligatorio. `ids` conserva el id del asiento. */
 export async function commitExcelBatches(
   userId: string,
   txs: TransactionDraft[],
   products: ProductDraft[],
-  organizationId: string
-): Promise<{ txCount: number; productCount: number }> {
+  organizationId: string,
+  ids: readonly string[]
+): Promise<{ txCount: number; productCount: number; ids: string[] }> {
   if (!organizationId) {
     throw new Error('organizationId es obligatorio para importar Excel.');
+  }
+  if (ids.length !== txs.length) {
+    throw new Error('Cada transacción de Excel necesita su identificador.');
   }
   const byCodigo = new Map<string, ProductDraft>();
   for (const p of products) byCodigo.set(p.codigo, p);
@@ -144,8 +154,9 @@ export async function commitExcelBatches(
   for (let i = 0; i < txs.length; i += BATCH_CHUNK) {
     const batch = writeBatch(db);
     const chunk = txs.slice(i, i + BATCH_CHUNK);
-    for (const t of chunk) {
-      const ref = doc(collection(db, 'transactions'));
+    for (let j = 0; j < chunk.length; j++) {
+      const t = chunk[j];
+      const ref = doc(db, 'transactions', ids[i + j]);
       batch.set(ref, {
         organization_id: organizationId,
         usuario_id: userId,
@@ -157,7 +168,11 @@ export async function commitExcelBatches(
         fecha: t.fecha,
         status: t.status,
         tags: t.tags,
-        account_source: 'import',
+        account_source: t.account_source ?? 'import',
+        ...(t.account_name ? { account_name: t.account_name } : {}),
+        ...(t.account_code ? { account_code: t.account_code } : {}),
+        ...(t.policy_review_reason ? { policy_review_reason: t.policy_review_reason } : {}),
+        ...(t.asiento_devengo ? { asiento_devengo: t.asiento_devengo } : {}),
         ...(t.iva_tasa !== undefined ? { iva_tasa: t.iva_tasa } : {}),
         ...(t.fiscal_subtotal !== undefined ? { fiscal_subtotal: t.fiscal_subtotal } : {}),
         ...(t.fiscal_iva !== undefined ? { fiscal_iva: t.fiscal_iva } : {}),
@@ -168,7 +183,7 @@ export async function commitExcelBatches(
     txCount += chunk.length;
   }
 
-  return { txCount, productCount };
+  return { txCount, productCount, ids: [...ids] };
 }
 
 export async function commitCfdiTransactionBatch(
