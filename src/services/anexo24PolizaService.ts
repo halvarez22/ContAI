@@ -10,7 +10,6 @@ import {
   ANEXO24_NO_POLIZAS_REASON,
   ANEXO24_NOT_CONCILIADO,
   ANEXO24_RFC_INVALID_REASON,
-  ANEXO24_RFC_PATTERN,
   ANEXO24_TIPO_SOLICITUD,
   ANEXO24_UUID_PATTERN,
 } from '../config/anexo24';
@@ -31,7 +30,6 @@ import type {
   Anexo24CompNal,
   Anexo24Excluded,
   Anexo24Movement,
-  Anexo24NaturalezaSat,
   Anexo24Notice,
   Anexo24Poliza,
   Anexo24PolizaInput,
@@ -39,19 +37,9 @@ import type {
   Anexo24Transaccion,
   TipoPolizaSat,
 } from '../types/anexo24Polizas';
+import { anexo24OrganizationRfc, naturalezaSat } from './anexo24Account';
 
-export function naturalezaSat(account: CatalogAccount): Anexo24NaturalezaSat | null {
-  if (account.naturaleza === 'iva') {
-    if (account.tipo_iva === 'acreditable') return 'D';
-    if (account.tipo_iva === 'trasladado') return 'A';
-    return null;
-  }
-  if (account.naturaleza === 'activo' || account.naturaleza === 'gasto') return 'D';
-  if (account.naturaleza === 'pasivo' || account.naturaleza === 'capital' || account.naturaleza === 'ingreso') {
-    return 'A';
-  }
-  return null;
-}
+export { naturalezaSat };
 
 function blockedResult(
   key: string,
@@ -112,8 +100,7 @@ function hostIndex(entry: JournalEntry): number {
 }
 
 function validRfc(value: string | null | undefined): string | null {
-  const rfc = String(value ?? '').trim().toUpperCase();
-  return ANEXO24_RFC_PATTERN.test(rfc) ? rfc : null;
+  return anexo24OrganizationRfc(value);
 }
 
 function validUuid(value: string | null | undefined): string | null {

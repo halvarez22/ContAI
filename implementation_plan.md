@@ -554,3 +554,19 @@ Condiciones vinculantes:
 4. Una prueba congela los movimientos de entrada.
 5. El RFC de la organización debe cumplir el formato de 12 o 13 caracteres. «ABC123» bloquea.
 6. Una aplicación sin UUID relacionado ni UUID de la factura destino bloquea y nombra el movimiento y la aplicación.
+
+## 25. Anexo 24 — XML del catálogo (dictamen 2026-10-31, ejecución autorizada)
+
+Descarga del XML de catálogo versión 1.3. No se envía al SAT y no lleva sello. No entran la balanza ni la DIOT. El catálogo sigue plano: nivel 1 y sin cuenta padre.
+
+`NumCta` es el código de la cuenta en ContAI. `CodAgrup` es otro atributo. Su valor sale de `accountCodeToCodAgrup`. En la semilla ese valor es el mismo texto del código, porque el XSD 1.3 enumera `102.01` y no `102010`. Un resultado que no tenga la forma del catálogo del SAT detiene el archivo. `102010` no es un código agrupador válido.
+
+Entran solo las cuentas activas que mapean. Una inactiva no entra y se avisa en la pantalla. RFC inválido, código repetido, nombre vacío o de más de 400 caracteres, más de 200 cuentas, cero cuentas activas e IVA sin tipo detienen el archivo.
+
+Condiciones vinculantes:
+
+1. `accountCodeToCodAgrup('102.01')` devuelve `102.01`, el valor publicado en `c_CodAgrup`. El XML escribe `NumCta` y `CodAgrup` como atributos distintos.
+2. `102010` no pasa la validación del agrupador y el archivo se detiene.
+3. El catálogo recibido se congela en una prueba y no cambia.
+4. Si el mapeo no devuelve un agrupador válido, el motivo nombra la cuenta.
+5. La cuenta inactiva se avisa junto al botón de descarga. Una prueba de componente lo comprueba.
