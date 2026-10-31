@@ -570,3 +570,16 @@ Condiciones vinculantes:
 3. El catálogo recibido se congela en una prueba y no cambia.
 4. Si el mapeo no devuelve un agrupador válido, el motivo nombra la cuenta.
 5. La cuenta inactiva se avisa junto al botón de descarga. Una prueba de componente lo comprueba.
+
+## 26. Anexo 24 — XML de la balanza (dictamen 2026-10-31, ejecución autorizada)
+
+Descarga del XML de balanza versión 1.3. El envío es normal (`N`). No hay complementaria, sello ni envío al SAT. No se modifica `buildFinancialReports`.
+
+La función recibe la balanza ya calculada. `CodAgrup` se valida y no se escribe: el nodo solo lleva `NumCta`, `SaldoIni`, `Debe`, `Haber` y `SaldoFin`. Una cuenta con los cuatro saldos en cero no entra y no bloquea.
+
+Condiciones vinculantes:
+
+1. Una cuenta con saldo y código `601.99` detiene el archivo con «La cuenta 601.99 no tiene código agrupador válido del SAT.»
+2. El monto `1000` se escribe `1000.00`.
+3. El reporte de entrada se congela en una prueba y no cambia.
+4. Cargos 100 y abonos 90 se comparan con `roundMoney` y detienen el archivo con «La balanza no cuadra. Diferencia: 10.00.»

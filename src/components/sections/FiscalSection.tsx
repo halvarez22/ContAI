@@ -10,6 +10,7 @@ import { IncomeStatementSection } from './IncomeStatementSection';
 import { BalanceSheetSection } from './BalanceSheetSection';
 import { Anexo24PolizaCard } from '../fiscal/Anexo24PolizaCard';
 import { Anexo24CatalogoCard } from '../fiscal/Anexo24CatalogoCard';
+import { Anexo24BalanzaCard } from '../fiscal/Anexo24BalanzaCard';
 import { useFinancialReports } from '../../hooks/useFinancialReports';
 import { downloadTextFileBrowser } from '../../hooks/usePolizaExport';
 import {
@@ -191,6 +192,14 @@ export function FiscalSection({
           />
           <Anexo24CatalogoCard
             chart={anexo24.chart}
+            organizationId={organizationId}
+            organizationRfc={anexo24.organizationRfc}
+            year={periodYear}
+            monthIndex={periodMonth}
+            canWrite={anexo24.canWrite}
+          />
+          <Anexo24BalanzaCard
+            trialBalance={financialReports.trialBalance}
             organizationId={organizationId}
             organizationRfc={anexo24.organizationRfc}
             year={periodYear}

@@ -17,6 +17,17 @@ export const ANEXO24_NO_ACTIVE_ACCOUNTS = 'No hay cuentas activas para el catál
 export const ANEXO24_CATALOGO_BLOCKED_HINT = 'Hay cuentas por corregir.';
 export const ANEXO24_CATALOGO_TOO_MANY = 'El catálogo admite hasta 200 cuentas.';
 
+export const ANEXO24_BALANZA_NAMESPACE =
+  'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3/BalanzaComprobacion';
+export const ANEXO24_BALANZA_SCHEMA = `${ANEXO24_BALANZA_NAMESPACE}/BalanzaComprobacion_1_3.xsd`;
+export const ANEXO24_BALANZA_TIPO_ENVIO = 'N';
+export const ANEXO24_BALANZA_ANIO_MIN = 2015;
+export const ANEXO24_BALANZA_ANIO_MAX = 2099;
+export const ANEXO24_PERIODO_INVALIDO = 'El periodo no es válido.';
+export const ANEXO24_BALANZA_SIN_CUENTAS = 'No hay cuentas con saldo para este periodo.';
+export const ANEXO24_BALANZA_SIN_CATALOGO = 'Hay movimientos sin cuenta de catálogo.';
+export const ANEXO24_BALANZA_BLOCKED_HINT = 'Hay cuentas por corregir.';
+
 /** Persona moral (12) o física (13). */
 export const ANEXO24_RFC_PATTERN = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/i;
 
