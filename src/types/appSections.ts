@@ -11,6 +11,7 @@ import type { PendingActionsReport } from './pendingActions';
 import type { PaymentLedgerItem } from '../hooks/usePaymentApplications';
 import type { FiscalRiskIndex } from './fiscalRisk';
 import type { AccountMappingRule, CatalogAccount } from './chartOfAccounts';
+import type { Anexo24Movement } from './anexo24Polizas';
 
 /** Tabs extraídas a Section Views en E7.3 */
 export const MIGRATED_NAV_TAB_IDS = [
@@ -182,6 +183,12 @@ export type FiscalSectionProps = {
     disabledHint: string;
     truncated: boolean;
     onGenerate: () => void;
+  };
+  anexo24?: {
+    movements: readonly Anexo24Movement[];
+    chart: readonly CatalogAccount[];
+    organizationRfc: string;
+    canWrite: boolean;
   };
 };
 

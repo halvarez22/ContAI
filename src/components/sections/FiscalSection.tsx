@@ -8,6 +8,7 @@ import { FiscalRiskListPanel } from '../FiscalRiskListPanel';
 import { TrialBalanceSection } from './TrialBalanceSection';
 import { IncomeStatementSection } from './IncomeStatementSection';
 import { BalanceSheetSection } from './BalanceSheetSection';
+import { Anexo24PolizaCard } from '../fiscal/Anexo24PolizaCard';
 import { useFinancialReports } from '../../hooks/useFinancialReports';
 import { downloadTextFileBrowser } from '../../hooks/usePolizaExport';
 import {
@@ -36,6 +37,7 @@ export function FiscalSection({
   periodMonth,
   reportsTruncated = false,
   missingJournals,
+  anexo24,
 }: FiscalSectionProps) {
   const canApplyPayments = Boolean(organizationId && userId);
   const showReports = periodYear != null && periodMonth != null;
@@ -173,6 +175,18 @@ export function FiscalSection({
             ) : null}
           </div>
         </Card>
+      ) : null}
+
+      {anexo24 && showReports && periodYear != null && periodMonth != null ? (
+        <Anexo24PolizaCard
+          movements={anexo24.movements}
+          chart={anexo24.chart}
+          organizationId={organizationId}
+          organizationRfc={anexo24.organizationRfc}
+          year={periodYear}
+          monthIndex={periodMonth}
+          canWrite={anexo24.canWrite}
+        />
       ) : null}
 
       <TaxPreviewCard preview={taxPreview} variant="detailed" />

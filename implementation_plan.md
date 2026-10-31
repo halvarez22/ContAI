@@ -539,3 +539,18 @@ Condiciones vinculantes:
 2. El objeto recibido se congela en una prueba y no cambia.
 3. La confianza original se queda fuera del parche.
 4. La auditoría lleva `usuario_id` del actor.
+
+## 24. Anexo 24 — XML de pólizas (dictamen 2026-10-31, ejecución autorizada)
+
+Descarga del XML de pólizas versión 1.3. No se envía al SAT. No entra el catálogo, la balanza, la DIOT ni los bancos. No se modifica el generador de asientos, la conciliación ni el TXT de flujo.
+
+La fuente es el devengo conciliado del mes. Si no hay devengo y sí hay liquidación, se exporta esa. Si ambos asientos son válidos, el archivo se detiene. Un pago a varias facturas no parte la partida: cada aplicación cuelga como comprobante, por el importe aplicado. El código agrupador solo existe si la cuenta está en la semilla. El tipo de póliza depende de si hay Bancos. Si una partida no cabe en el esquema, no hay archivo.
+
+Condiciones vinculantes:
+
+1. Devengo y liquidación válidos a la vez bloquean con «El movimiento tiene devengo y liquidación a la vez.»
+2. La suma de aplicaciones se compara con `roundMoney`. Si no iguala la partida, el motivo nombra el movimiento y la diferencia.
+3. La naturaleza deudora o acreedora recibe la cuenta completa. IVA acreditable es deudora; IVA trasladado es acreedora.
+4. Una prueba congela los movimientos de entrada.
+5. El RFC de la organización debe cumplir el formato de 12 o 13 caracteres. «ABC123» bloquea.
+6. Una aplicación sin UUID relacionado ni UUID de la factura destino bloquea y nombra el movimiento y la aplicación.

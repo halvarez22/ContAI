@@ -6,13 +6,17 @@
 import {
   collection,
   doc,
-  writeBatch,
+  getDocs,
+  query,
   serverTimestamp,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { logAuditEntry } from './auditService';
 import { hasPaymentApplicationsForSource } from './firestoreService';
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
+import type { Anexo24Application } from '../types/anexo24Polizas';
 import {
   AUDIT_PAYMENT_APPLICATION_CONFIRMED,
   assertApplicationWithinSaldo,
@@ -254,6 +258,40 @@ export async function writePaymentApplicationsBatchToFirestore(
 
   await batch.commit();
   return { applicationIds };
+}
+
+function readStoredApplication(id: string, data: unknown): Anexo24Application | null {
+  if (!data || typeof data !== 'object') return null;
+  const row = data as {
+    source_id?: unknown;
+    target_transaction_id?: unknown;
+    amount?: unknown;
+    cfdi_uuid_relacionado?: unknown;
+  };
+  if (typeof row.source_id !== 'string' || typeof row.target_transaction_id !== 'string') return null;
+  if (typeof row.amount !== 'number' || !Number.isFinite(row.amount)) return null;
+  return {
+    id,
+    source_id: row.source_id,
+    target_transaction_id: row.target_transaction_id,
+    amount: row.amount,
+    cfdi_uuid_relacionado:
+      typeof row.cfdi_uuid_relacionado === 'string' ? row.cfdi_uuid_relacionado : null,
+  };
+}
+
+export async function listPaymentApplicationsForOrganization(
+  organizationId: string
+): Promise<Anexo24Application[]> {
+  const snap = await getDocs(
+    query(collection(db, PAYMENT_APPLICATIONS), where('organization_id', '==', organizationId))
+  );
+  const rows: Anexo24Application[] = [];
+  for (const item of snap.docs) {
+    const application = readStoredApplication(item.id, item.data());
+    if (application) rows.push(application);
+  }
+  return rows;
 }
 
 export const defaultPaymentApplicationPersistence: PaymentApplicationPersistence =

@@ -1673,6 +1673,12 @@ export default function App() {
                       void missingJournals.run();
                     },
                   }}
+                  anexo24={{
+                    movements: transactions,
+                    chart: catalogApi.accounts,
+                    organizationRfc: empresaRfc,
+                    canWrite: activeMembershipRole ? canWriteOrg(activeMembershipRole) : false,
+                  }}
                 />
               )}
             </AppTabRouter>
