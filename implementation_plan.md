@@ -474,3 +474,14 @@ Condiciones vinculantes:
 2. Si no hay cuenta y `decideAccount` devuelve `manual_fallback` o `requires_human_approval`, no se arma un asiento provisional. El motivo es «Falta clasificación de cuenta válida».
 3. La reconstrucción recibe `HistoricalReconstructionDraft`. Sin `any` y sin `Record<string, unknown>` en esa firma.
 4. Un tipo P de prueba devuelve exactamente «No se puede reconstruir la liquidación: el complemento de pago no está guardado» y no llama a un generador de asientos.
+
+## 19. E22 — Actualización de catálogo existente (dictamen 2026-10-31, ejecución autorizada)
+
+Las organizaciones que ya guardaron su catálogo reciben solo las cuentas de la semilla cuyo código todavía no existe. No se reescribe el nombre, la naturaleza ni ningún otro dato de una cuenta presente. La comparación usa `catalogo_cuentas` guardado. La persistencia sigue en `updateOrganizationChart`. E23 a E26 no se implementan aquí.
+
+Condiciones vinculantes:
+
+1. El log `CATALOGO_CUENTAS_UPDATED` lleva `cuentas` con la longitud del catálogo ya fusionado y `pendientes` con la longitud de pendientes. No se registra el conteo previo a la fusión.
+2. `addMissingSeedAccounts` ejecuta `assertCatalog` sobre el catálogo fusionado antes de `updateOrganizationChart`. Si la validación falla, no se escribe nada.
+3. Un catálogo vacío agrega la semilla completa: `addedCount` es su longitud, `accounts` y `addedAccounts` coinciden con la semilla.
+4. `mergeMissingSeedAccounts` no modifica el arreglo ni las cuentas que recibió.

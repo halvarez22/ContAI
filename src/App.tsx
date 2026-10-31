@@ -2151,8 +2151,11 @@ export default function App() {
                         activeMembershipRole ? canManageOrg(activeMembershipRole) : false
                       }
                       saving={catalogApi.saving}
+                      syncing={catalogApi.syncing}
+                      syncMessage={catalogApi.syncMessage}
                       error={catalogApi.error}
                       onSaveAccounts={catalogApi.saveAccounts}
+                      onSyncMissingSeed={catalogApi.syncMissingSeed}
                       onSaveRule={catalogApi.saveRule}
                       onDeleteRule={catalogApi.removeRule}
                     />

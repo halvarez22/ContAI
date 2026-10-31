@@ -22,13 +22,14 @@ import { getChartOfAccountsSeed } from '../config/chartOfAccounts';
 import { logAuditEntry } from './auditService';
 import {
   migrateLegacyNames,
+  mergeMissingSeedAccounts,
   parseCatalogList,
   projectAccountNames,
   toFirestoreAccount,
   assertCatalog,
   mappingRuleIssue,
 } from './accountMappingService';
-import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccounts';
+import type { AccountMappingRule, CatalogAccount, CatalogSyncResult } from '../types/chartOfAccounts';
 import {
   BACKFILL_CHUNK_SIZE,
   LEGACY_ORG_MAIN,
@@ -289,6 +290,22 @@ export async function updateOrganizationChart(
     cuentas: accounts.length,
     pendientes: pendientes.length,
   });
+}
+
+/** Agrega las cuentas de la semilla que faltan. No reescribe las que ya tienen código. */
+export async function addMissingSeedAccounts(
+  organizationId: string,
+  current: readonly CatalogAccount[],
+  pendientes: readonly string[]
+): Promise<CatalogSyncResult> {
+  const result = mergeMissingSeedAccounts(current);
+  if (result.addedCount === 0) return result;
+  const check = assertCatalog(result.accounts);
+  if (!check.ok) {
+    throw new Error(check.message);
+  }
+  await updateOrganizationChart(organizationId, result.accounts, pendientes);
+  return result;
 }
 
 export async function toggleOrganizationPeriodClosed(

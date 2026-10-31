@@ -56,4 +56,45 @@ describe('ChartOfAccountsSection', () => {
     expect(screen.getByRole('alert').textContent).toContain('8 dígitos');
     expect(onSaveRule).not.toHaveBeenCalled();
   });
+
+  it('no muestra ni ejecuta la actualización oficial si no puede administrar', () => {
+    const onSyncMissingSeed = vi.fn(async () => undefined);
+    render(
+      <ChartOfAccountsSection
+        accounts={getChartOfAccountsSeed()}
+        pendientes={[]}
+        rules={[]}
+        canManage={false}
+        saving={false}
+        error={null}
+        onSaveAccounts={vi.fn(async () => undefined)}
+        onSyncMissingSeed={onSyncMissingSeed}
+        onSaveRule={vi.fn(async () => undefined)}
+        onDeleteRule={vi.fn(async () => undefined)}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Agregar cuentas oficiales faltantes' })).toBeNull();
+    expect(onSyncMissingSeed).not.toHaveBeenCalled();
+  });
+
+  it('muestra la carga y el resultado de las cuentas oficiales', () => {
+    render(
+      <ChartOfAccountsSection
+        accounts={getChartOfAccountsSeed()}
+        pendientes={[]}
+        rules={[]}
+        canManage
+        saving={false}
+        syncing
+        syncMessage="Se agregaron 3 cuentas del catálogo oficial."
+        error={null}
+        onSaveAccounts={vi.fn(async () => undefined)}
+        onSyncMissingSeed={vi.fn(async () => undefined)}
+        onSaveRule={vi.fn(async () => undefined)}
+        onDeleteRule={vi.fn(async () => undefined)}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Agregando…' })).toBeDisabled();
+    expect(screen.getByText('Se agregaron 3 cuentas del catálogo oficial.')).toBeTruthy();
+  });
 });

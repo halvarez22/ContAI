@@ -29,6 +29,13 @@ export type CatalogAccount = {
   sat_name?: string;
 };
 
+/** Cuentas de la semilla que faltaban en el catálogo guardado. */
+export type CatalogSyncResult = {
+  addedCount: number;
+  addedAccounts: CatalogAccount[];
+  accounts: CatalogAccount[];
+};
+
 export type AccountMappingMatch = {
   tipo?: 'ingreso' | 'egreso';
   cfdi_tipo?: 'I' | 'E' | 'N' | 'P' | 'T';

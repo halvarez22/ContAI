@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { resolveEffectiveChart } from '../services/accountMappingService';
 import {
+  addMissingSeedAccounts,
   deleteMappingRule,
   listMappingRules,
   saveMappingRule,
@@ -16,6 +17,8 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
   const [rules, setRules] = useState<AccountMappingRule[]>([]);
   const [atajoPueBancos, setAtajoPueBancos] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,6 +30,7 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
       return;
     }
     setAtajoPueBancos(org.atajo_pue_bancos === true);
+    setSyncMessage(null);
     const resolved = resolveEffectiveChart(org);
     setAccounts(resolved.accounts);
     setPendientes(resolved.pendientes);
@@ -60,6 +64,32 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
     },
     [org, canManage]
   );
+
+  const syncMissingSeed = useCallback(async () => {
+    if (!org || !canManage) return;
+    setSyncing(true);
+    setSaving(true);
+    setError(null);
+    setSyncMessage(null);
+    try {
+      const result = await addMissingSeedAccounts(org.id, org.catalogo_cuentas, pendientes);
+      if (result.addedCount === 0) {
+        setSyncMessage('El catálogo ya tiene las cuentas oficiales.');
+        return;
+      }
+      setAccounts(result.accounts);
+      setSyncMessage(
+        result.addedCount === 1
+          ? 'Se agregó 1 cuenta del catálogo oficial.'
+          : `Se agregaron ${result.addedCount} cuentas del catálogo oficial.`
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'No se pudo actualizar el catálogo.');
+    } finally {
+      setSyncing(false);
+      setSaving(false);
+    }
+  }, [org, canManage, pendientes]);
 
   const saveRule = useCallback(
     async (rule: AccountMappingRule) => {
@@ -124,8 +154,11 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
     atajoPueBancos,
     saveAtajoPueBancos,
     saving,
+    syncing,
+    syncMessage,
     error,
     saveAccounts,
+    syncMissingSeed,
     saveRule,
     removeRule,
   };

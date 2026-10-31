@@ -11,6 +11,7 @@ import {
   assertCatalog,
   decideAccount,
   mappingRuleIssue,
+  mergeMissingSeedAccounts,
   migrateLegacyNames,
   resolveEffectiveChart,
 } from './accountMappingService';
@@ -229,5 +230,59 @@ describe('semilla Anexo 24', () => {
       (c) => c.name === 'IVA trasladado' && c.tipo_iva === 'trasladado'
     );
     expect(ivaTrasladadoDevengo?.code).toBe('209.01');
+  });
+});
+
+describe('mergeMissingSeedAccounts', () => {
+  it('un catálogo vacío recibe la semilla completa', () => {
+    const seed = getChartOfAccountsSeed();
+    const result = mergeMissingSeedAccounts([]);
+    expect(result.addedCount).toBe(seed.length);
+    expect(result.accounts).toEqual(seed);
+    expect(result.addedAccounts).toEqual(seed);
+  });
+
+  it('no modifica el arreglo ni las cuentas que recibió', () => {
+    const current = getChartOfAccountsSeed().slice(0, 2).map((account) => ({ ...account }));
+    const before = current.map((account) => ({ ...account }));
+    const result = mergeMissingSeedAccounts(current);
+    result.accounts[0].name = 'Nombre mutado';
+    expect(current).toEqual(before);
+    expect(current).toHaveLength(2);
+  });
+
+  it('no reescribe una cuenta que ya existe aunque el nombre sea distinto', () => {
+    const current = getChartOfAccountsSeed().map((account) =>
+      account.code === '105.01' ? { ...account, name: 'Clientes del despacho' } : account
+    );
+    const before = current.map((account) => ({ ...account }));
+    const result = mergeMissingSeedAccounts(current);
+    expect(result.addedCount).toBe(0);
+    expect(result.accounts.find((account) => account.code === '105.01')?.name).toBe(
+      'Clientes del despacho'
+    );
+    expect(current).toEqual(before);
+  });
+
+  it('agrega solo 301.01 y 601.49 y conserva el nombre de 105.01', () => {
+    const current = getChartOfAccountsSeed()
+      .filter((account) => account.code !== '301.01' && account.code !== '601.49')
+      .map((account) =>
+        account.code === '105.01' ? { ...account, name: 'Clientes del despacho' } : { ...account }
+      );
+    const result = mergeMissingSeedAccounts(current);
+    expect(result.addedCount).toBe(2);
+    expect(result.addedAccounts.map((account) => account.code).sort()).toEqual(['301.01', '601.49']);
+    expect(result.addedAccounts.find((account) => account.code === '301.01')).toMatchObject({
+      name: 'Capital Social',
+      naturaleza: 'capital',
+      activa: true,
+    });
+    expect(result.addedAccounts.find((account) => account.code === '601.49')?.name).toBe(
+      'Viáticos y Viajes'
+    );
+    expect(result.accounts.find((account) => account.code === '105.01')?.name).toBe(
+      'Clientes del despacho'
+    );
   });
 });

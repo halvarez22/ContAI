@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { mappingRuleIssue } from '../../services/accountMappingService';
+import { Button } from '../ui/Button';
 import type {
   AccountMappingMatch,
   AccountMappingRule,
@@ -31,8 +32,11 @@ type Props = {
   rules: AccountMappingRule[];
   canManage: boolean;
   saving: boolean;
+  syncing?: boolean;
+  syncMessage?: string | null;
   error: string | null;
   onSaveAccounts: (accounts: CatalogAccount[], pendientes: string[]) => Promise<void>;
+  onSyncMissingSeed?: () => Promise<void>;
   onSaveRule: (rule: AccountMappingRule) => Promise<void>;
   onDeleteRule: (ruleId: string) => Promise<void>;
 };
@@ -57,8 +61,11 @@ export function ChartOfAccountsSection({
   rules,
   canManage,
   saving,
+  syncing = false,
+  syncMessage = null,
   error,
   onSaveAccounts,
+  onSyncMissingSeed,
   onSaveRule,
   onDeleteRule,
 }: Props) {
@@ -118,6 +125,22 @@ export function ChartOfAccountsSection({
           Cada cuenta tiene código y naturaleza. Los nombres pendientes no se usan hasta asignarles ambos.
         </p>
       </div>
+
+      {canManage && onSyncMissingSeed ? (
+        <div className="space-y-1">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={saving || syncing}
+            onClick={() => {
+              void onSyncMissingSeed();
+            }}
+          >
+            {syncing ? 'Agregando…' : 'Agregar cuentas oficiales faltantes'}
+          </Button>
+          {syncMessage ? <p className="text-xs text-ink-muted">{syncMessage}</p> : null}
+        </div>
+      ) : null}
 
       {(error || localError) && (
         <p className="text-sm text-danger" role="alert">

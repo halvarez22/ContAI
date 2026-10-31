@@ -20,6 +20,7 @@ import {
   type AccountSignals,
   type CatalogAccount,
   type CatalogIssue,
+  type CatalogSyncResult,
   type CatalogOk,
   type IvaTipo,
 } from '../types/chartOfAccounts';
@@ -163,6 +164,22 @@ export function resolveEffectiveChart(org: {
 
 export function projectAccountNames(accounts: readonly CatalogAccount[]): string[] {
   return accounts.filter((a) => a.activa).map((a) => a.name);
+}
+
+/** Copia las cuentas de la semilla cuyo código no está en el catálogo. No muta la entrada. */
+export function mergeMissingSeedAccounts(
+  currentCatalog: readonly CatalogAccount[],
+  seedCatalog: readonly CatalogAccount[] = getChartOfAccountsSeed()
+): CatalogSyncResult {
+  const present = new Set(currentCatalog.map((account) => account.code.trim()));
+  const addedAccounts = seedCatalog
+    .filter((seed) => !present.has(seed.code.trim()))
+    .map((seed) => ({ ...seed }));
+  return {
+    addedCount: addedAccounts.length,
+    addedAccounts,
+    accounts: [...currentCatalog.map((account) => ({ ...account })), ...addedAccounts],
+  };
 }
 
 function seedByCode(code: string): CatalogAccount | undefined {
