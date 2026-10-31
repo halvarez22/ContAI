@@ -43,6 +43,9 @@ export type ReviewSource = {
   is_nomina?: boolean;
   cfdi_tipo_comprobante?: string;
   policy_review_reason?: string | null;
+  confidence_score?: number | null;
+  asiento_devengo?: unknown;
+  asiento_liquidacion?: unknown;
 };
 
 function inSelectedMonth(fecha: string, year: number, monthIndex: number): boolean {

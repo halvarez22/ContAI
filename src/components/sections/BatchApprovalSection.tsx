@@ -3,7 +3,9 @@ import type { CatalogAccount } from '../../types/chartOfAccounts';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { formatCurrency } from '../../lib/utils';
+import { useAutoApproval } from '../../hooks/useAutoApproval';
 import { useBatchApproval, type ReviewSource } from '../../hooks/useBatchApproval';
+import { AutoApprovalBar } from './AutoApprovalBar';
 
 const SELECT_HINT = 'Selecciona al menos una transacción';
 const ROLE_HINT = 'Tu rol no puede aprobar movimientos.';
@@ -18,6 +20,7 @@ export function BatchApprovalSection({
   canWrite,
   atajoPueBancos,
   actorLabel,
+  approvalThreshold,
 }: {
   transactions: readonly ReviewSource[];
   chart: readonly CatalogAccount[];
@@ -28,7 +31,17 @@ export function BatchApprovalSection({
   canWrite: boolean;
   atajoPueBancos: boolean;
   actorLabel: string;
+  approvalThreshold: number;
 }) {
+  const autoApproval = useAutoApproval({
+    transactions,
+    year,
+    monthIndex,
+    threshold: approvalThreshold,
+    periodosCerrados,
+    canWrite,
+    organizationId,
+  });
   const { queue, busy, run, reassign } = useBatchApproval({
     transactions,
     chart,
@@ -48,7 +61,14 @@ export function BatchApprovalSection({
 
   const accounts = chart.filter((account) => account.activa);
   const selectedIds = selected.filter((id) => queue.some((row) => row.id === id));
-  const blocked = !canWrite || busy;
+  const blocked = !canWrite || busy || autoApproval.busy;
+  const approvedCount = autoApproval.selection.result.approvedCount;
+  const autoDisabled = !canWrite || autoApproval.busy || approvedCount === 0;
+  const autoHint = !canWrite
+    ? ROLE_HINT
+    : approvedCount === 0
+      ? 'No hay movimientos de este mes que cumplan el umbral.'
+      : '';
   const actionTitle = !canWrite ? ROLE_HINT : selectedIds.length === 0 ? SELECT_HINT : undefined;
 
   function toggle(id: string) {
@@ -78,6 +98,23 @@ export function BatchApprovalSection({
           Movimientos que siguen en revisión. Corrige la cuenta y después aprueba o rechaza la selección.
         </p>
       </div>
+
+      <AutoApprovalBar
+        approvedCount={approvedCount}
+        threshold={approvalThreshold}
+        disabled={autoDisabled}
+        disabledHint={autoHint}
+        busy={autoApproval.busy}
+        onApprove={() => {
+          void autoApproval.run().then((saved) => {
+            if (saved.ok && saved.result.approvedCount > 0) {
+              setNotice(`Se aprobaron ${saved.result.approvedCount} movimientos por confianza.`);
+              return;
+            }
+            if (!saved.ok) setNotice(saved.message);
+          });
+        }}
+      />
 
       {queue.length === 0 ? (
         <p className="text-sm text-ink">No hay transacciones que requieran tu revisión. ¡Todo en orden!</p>
@@ -203,9 +240,9 @@ export function BatchApprovalSection({
           {selectedIds.length === 0 ? (
             <p className="text-xs text-ink-muted">{canWrite ? SELECT_HINT : ROLE_HINT}</p>
           ) : null}
-          {notice ? <p className="text-xs text-ink-muted">{notice}</p> : null}
         </>
       )}
+      {notice ? <p className="text-xs text-ink-muted">{notice}</p> : null}
     </Card>
   );
 }

@@ -55,6 +55,7 @@ import {
   AccountCodeOptions,
   ChartOfAccountsSection,
 } from './components/settings/ChartOfAccountsSection';
+import { ApprovalThresholdSection } from './components/settings/ApprovalThresholdSection';
 import { AtajoPueSection } from './components/settings/AtajoPueSection';
 import type { AgentDecision, AgentType } from './types/agentDecision';
 import { logAuditEntry } from './services/auditService';
@@ -1574,6 +1575,7 @@ export default function App() {
                   }
                   atajoPueBancos={catalogApi.atajoPueBancos}
                   actorLabel={user?.email || user?.uid || ''}
+                  approvalThreshold={catalogApi.approvalThreshold}
                 />
                 <TransactionsSection
                   transactionsCount={transactions.length}
@@ -2192,6 +2194,15 @@ export default function App() {
                       onSyncMissingSeed={catalogApi.syncMissingSeed}
                       onSaveRule={catalogApi.saveRule}
                       onDeleteRule={catalogApi.removeRule}
+                    />
+
+                    <ApprovalThresholdSection
+                      threshold={catalogApi.approvalThreshold}
+                      canManage={
+                        activeMembershipRole ? canManageOrg(activeMembershipRole) : false
+                      }
+                      saving={catalogApi.saving}
+                      onSave={catalogApi.saveApprovalThreshold}
                     />
 
                     <AtajoPueSection

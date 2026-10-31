@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { getChartOfAccountsSeed } from '../config/chartOfAccounts';
+import { assertApprovalThreshold, resolveApprovalThreshold } from './autoApprovalService';
 import { logAuditEntry } from './auditService';
 import {
   migrateLegacyNames,
@@ -76,6 +77,7 @@ export function organizationFromData(
     periodos_cerrados: periodos,
     creado_por: String(data.creado_por ?? ''),
     atajo_pue_bancos: data.atajo_pue_bancos === true,
+    approval_confidence_threshold: resolveApprovalThreshold(data.approval_confidence_threshold),
   };
 }
 
@@ -248,6 +250,21 @@ export async function updateOrganizationSettings(
     {
       nombre: data.nombre.trim(),
       rfc: data.rfc.trim().toUpperCase(),
+      actualizado_en: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+export async function updateApprovalConfidenceThreshold(
+  organizationId: string,
+  value: number
+): Promise<void> {
+  assertApprovalThreshold(value);
+  await setDoc(
+    doc(db, 'organizations', organizationId),
+    {
+      approval_confidence_threshold: value,
       actualizado_en: serverTimestamp(),
     },
     { merge: true }

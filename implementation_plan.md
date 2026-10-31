@@ -500,3 +500,17 @@ Condiciones vinculantes:
 2. El arreglo recibido es `readonly` y no se modifica. Una prueba compara el contenido antes y después.
 3. Si `policy_review_reason` tiene texto, ese es el motivo. Si es nulo o vacío, el motivo es «En revisión».
 4. Los tres botones solo navegan. «Revisar» no aprueba ni genera asientos.
+
+## 21. E24 — Aprobación en lote por umbral de confianza (dictamen 2026-10-31, ejecución autorizada)
+
+El umbral vive en la organización. Si no está guardado, es 0.90. Solo el dueño o un administrador lo cambian. El contador puede ejecutar la aprobación. El visor no.
+
+Una transacción en revisión se aprueba solo si el periodo está abierto, el devengo o la liquidación cuadra y la confianza es un número finito mayor o igual al umbral. Nómina y tipo P entran por el mismo camino. El parche no cambia la cuenta ni el asiento. La marca es `aprobado_por: 'auto_confidence'`. Si no hay elegibles, no se escribe ni se audita.
+
+La selección es pura. El guardado reutiliza `commitTransactionUpdatesBatch`. La auditoría lleva organización, periodo, umbral y conteo. No lleva identificadores de transacciones.
+
+Condiciones vinculantes:
+
+1. La confianza se acepta solo con `typeof score === 'number' && Number.isFinite(score) && score >= threshold`. Un `confidence_score` nulo no aprueba.
+2. El parche lleva `status`, `aprobado_por` y las marcas de fecha. No lleva `account_code` ni `asiento_devengo`. La auditoría no incluye un arreglo de identificadores.
+3. El umbral `0` aprueba todo lo que tenga asiento válido y confianza numérica mayor o igual a cero. El umbral `1` aprueba solo si la confianza es exactamente `1`.

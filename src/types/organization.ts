@@ -21,6 +21,8 @@ export type Organization = {
   creado_por: string;
   /** PUE contra Bancos en el devengo. Ausente o false = Clientes/Proveedores. */
   atajo_pue_bancos?: boolean;
+  /** E24 — 0 a 1. Ausente = 0.90 al leer la organización. */
+  approval_confidence_threshold?: number;
 };
 
 export type OrganizationMember = {

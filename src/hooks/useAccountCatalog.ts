@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
+import { DEFAULT_APPROVAL_CONFIDENCE_THRESHOLD } from '../config/autoApproval';
 import { resolveEffectiveChart } from '../services/accountMappingService';
 import {
   addMissingSeedAccounts,
   deleteMappingRule,
   listMappingRules,
   saveMappingRule,
+  updateApprovalConfidenceThreshold,
   updateAtajoPueBancos,
   updateOrganizationChart,
 } from '../services/organizationService';
@@ -16,6 +18,7 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
   const [pendientes, setPendientes] = useState<string[]>([]);
   const [rules, setRules] = useState<AccountMappingRule[]>([]);
   const [atajoPueBancos, setAtajoPueBancos] = useState(false);
+  const [approvalThreshold, setApprovalThreshold] = useState(DEFAULT_APPROVAL_CONFIDENCE_THRESHOLD);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -27,9 +30,11 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
       setPendientes([]);
       setRules([]);
       setAtajoPueBancos(false);
+      setApprovalThreshold(DEFAULT_APPROVAL_CONFIDENCE_THRESHOLD);
       return;
     }
     setAtajoPueBancos(org.atajo_pue_bancos === true);
+    setApprovalThreshold(org.approval_confidence_threshold ?? DEFAULT_APPROVAL_CONFIDENCE_THRESHOLD);
     setSyncMessage(null);
     const resolved = resolveEffectiveChart(org);
     setAccounts(resolved.accounts);
@@ -130,6 +135,23 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
     [org, canManage]
   );
 
+  const saveApprovalThreshold = useCallback(
+    async (value: number) => {
+      if (!org || !canManage) return;
+      setSaving(true);
+      setError(null);
+      try {
+        await updateApprovalConfidenceThreshold(org.id, value);
+        setApprovalThreshold(value);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'No se pudo guardar el umbral.');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [org, canManage]
+  );
+
   const saveAtajoPueBancos = useCallback(
     async (enabled: boolean) => {
       if (!org || !canManage) return;
@@ -152,6 +174,8 @@ export function useAccountCatalog(org: Organization | null, canManage: boolean) 
     pendientes,
     rules,
     atajoPueBancos,
+    approvalThreshold,
+    saveApprovalThreshold,
     saveAtajoPueBancos,
     saving,
     syncing,
