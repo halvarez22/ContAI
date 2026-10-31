@@ -55,6 +55,7 @@ import {
   AccountCodeOptions,
   ChartOfAccountsSection,
 } from './components/settings/ChartOfAccountsSection';
+import { JournalLinesPanel } from './components/transactions/JournalLinesPanel';
 import { ApprovalThresholdSection } from './components/settings/ApprovalThresholdSection';
 import { AtajoPueSection } from './components/settings/AtajoPueSection';
 import type { AgentDecision, AgentType } from './types/agentDecision';
@@ -2737,6 +2738,29 @@ export default function App() {
                     <p className="text-sm font-medium text-gray-900 dark:text-white">{selectedTransaction.account_name || 'Sin clasificar'}</p>
                   </div>
                 </div>
+
+                <JournalLinesPanel
+                  transactionId={selectedTransaction.id}
+                  status={typeof selectedTransaction.status === 'string' ? selectedTransaction.status : null}
+                  fecha={selectedTransaction.fecha}
+                  isNomina={selectedTransaction.is_nomina === true}
+                  cfdiTipo={
+                    typeof selectedTransaction.cfdi_tipo_comprobante === 'string'
+                      ? selectedTransaction.cfdi_tipo_comprobante
+                      : null
+                  }
+                  asientoDevengo={selectedTransaction.asiento_devengo}
+                  asientoLiquidacion={selectedTransaction.asiento_liquidacion}
+                  chart={catalogApi.accounts}
+                  periodosCerrados={periodosCerrados}
+                  canWrite={activeMembershipRole ? canWriteOrg(activeMembershipRole) : false}
+                  organizationId={activeOrganizationId ?? undefined}
+                  onUpdated={(entry) => {
+                    setSelectedTransaction((current) =>
+                      current ? { ...current, asiento_devengo: entry } : current
+                    );
+                  }}
+                />
 
                 {(selectedTransaction.iva_tasa || selectedTransaction.fiscal_subtotal != null) && (
                   <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-2">

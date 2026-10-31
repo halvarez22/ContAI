@@ -514,3 +514,15 @@ Condiciones vinculantes:
 1. La confianza se acepta solo con `typeof score === 'number' && Number.isFinite(score) && score >= threshold`. Un `confidence_score` nulo no aprueba.
 2. El parche lleva `status`, `aprobado_por` y las marcas de fecha. No lleva `account_code` ni `asiento_devengo`. La auditoría no incluye un arreglo de identificadores.
 3. El umbral `0` aprueba todo lo que tenga asiento válido y confianza numérica mayor o igual a cero. El umbral `1` aprueba solo si la confianza es exactamente `1`.
+
+## 22. E25 — Ver y corregir la cuenta de una línea (dictamen 2026-10-31, ejecución autorizada)
+
+El detalle muestra las líneas del asiento guardado. Solo se cambia el código de una línea, por una cuenta activa. El importe, el cargo o abono y el concepto se quedan. Nómina y tipo P siguen bloqueados con los mensajes ya existentes. Un movimiento que no está en revisión, o un visor, ve las líneas sin selector.
+
+La validación vive en `lineReassignmentService.ts`. `journalEntryService.ts` no se toca. Si el asiento resultante no cuadra, no se guarda. La auditoría es `CUENTA_LINEA_REASIGNADA` y no lleva RFC ni importes.
+
+Condiciones vinculantes:
+
+1. El asiento recibido no se modifica. Una prueba lo congela y compara el contenido y la referencia de `lines`.
+2. El índice es válido solo si `lineIndex >= 0 && lineIndex < entry.lines.length`. Si no, el motivo es «Índice de línea inválido». La prueba cubre un índice negativo y uno fuera de rango.
+3. Cambiar una cuenta de gasto activa por una de ingreso activa se acepta, el asiento sigue cuadrando y el nombre de la línea pasa a ser el de la cuenta nueva.
