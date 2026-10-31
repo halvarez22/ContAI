@@ -97,6 +97,7 @@ import { generateExecutiveBriefing, askMonthQuestion } from './services/insights
 import { buildTaxPreview } from './services/taxCalculatorService';
 import { buildExecutiveSnapshot } from './services/executiveDashboardService';
 import { buildOperationalSnapshot } from './services/operationalDashboardService';
+import { aggregatePendingActions } from './services/pendingActionsService';
 import { loadFiscalRiskIndex } from './services/fiscalRiskService';
 import { FISCAL_RISK_COPY, normalizeRfc } from './types/fiscalRisk';
 import type { FiscalRiskIndex } from './types/fiscalRisk';
@@ -1299,6 +1300,32 @@ export default function App() {
     [transactionsInPeriod, taxPreview.periodoLabel, highRiskHints, fiscalRiskIndex]
   );
 
+  const pendingActions = useMemo(
+    () =>
+      aggregatePendingActions(
+        transactions.map((tx) => ({
+          id: tx.id,
+          fecha: tx.fecha,
+          concepto: tx.concepto,
+          monto: Number(tx.monto) || 0,
+          status: typeof tx.status === 'string' ? tx.status : null,
+          account_code: typeof tx.account_code === 'string' ? tx.account_code : null,
+          bank_reconciled: tx.bank_reconciled === true,
+          bank_reconcile_status:
+            tx.bank_reconcile_status === 'full' ||
+            tx.bank_reconcile_status === 'partial' ||
+            tx.bank_reconcile_status === 'none'
+              ? tx.bank_reconcile_status
+              : null,
+          policy_review_reason:
+            typeof tx.policy_review_reason === 'string' ? tx.policy_review_reason : null,
+        })),
+        periodYear,
+        periodMonth
+      ),
+    [transactions, periodYear, periodMonth]
+  );
+
   const periodoActualCerrado = useMemo(
     () => isPeriodClosed(periodosCerrados, periodYear, periodMonth),
     [periodosCerrados, periodYear, periodMonth]
@@ -1512,6 +1539,13 @@ export default function App() {
                   onOpenManualTx={() => setIsManualTxModalOpen(true)}
                   onOpenCfdiImport={() => importFlow.openCfdiImport()}
                   onOpenExcelImport={() => importFlow.openExcelImport()}
+                  pendingActions={pendingActions}
+                  onOpenPendingTransaction={(id) => {
+                    const match = transactions.find((tx) => tx.id === id);
+                    if (match) setSelectedTransaction(match);
+                  }}
+                  onReviewPending={() => setActiveTab('transactions')}
+                  onReconcilePending={() => setActiveTab('reconciliation')}
                   demoSeed={{
                     canShowButton: demoSeed.canShowButton,
                     buttonLabel: demoSeed.buttonLabel,

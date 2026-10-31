@@ -7,6 +7,7 @@ import type { TaxPreview } from './taxPreview';
 import type { DashboardMode } from './dashboardMode';
 import type { ExecutiveSnapshot } from './executiveDashboard';
 import type { OperationalSnapshot } from './operationalDashboard';
+import type { PendingActionsReport } from './pendingActions';
 import type { PaymentLedgerItem } from '../hooks/usePaymentApplications';
 import type { FiscalRiskIndex } from './fiscalRisk';
 import type { AccountMappingRule, CatalogAccount } from './chartOfAccounts';
@@ -81,6 +82,11 @@ export type OverviewSectionProps = {
   onOpenManualTx: () => void;
   onOpenCfdiImport: () => void;
   onOpenExcelImport: () => void;
+  /** E23 — tablero de pendientes del mes. Solo navegación. */
+  pendingActions: PendingActionsReport;
+  onOpenPendingTransaction: (id: string) => void;
+  onReviewPending: () => void;
+  onReconcilePending: () => void;
   /** E14.0 Demo Seed */
   demoSeed?: {
     canShowButton: boolean;

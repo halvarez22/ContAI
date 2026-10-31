@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { OperationalDashboardView } from '../OperationalDashboardView';
+import { PendingActionsSection } from './PendingActionsSection';
 import { PeriodSelectorCard } from './PeriodSelectorCard';
 import { SectionSuspenseFallback } from '../SectionSuspenseFallback';
 import type { OverviewSectionProps } from '../../types/appSections';
@@ -26,6 +27,10 @@ export function OverviewSection({
   onOpenManualTx,
   onOpenCfdiImport,
   onOpenExcelImport,
+  pendingActions,
+  onOpenPendingTransaction,
+  onReviewPending,
+  onReconcilePending,
   demoSeed,
 }: OverviewSectionProps) {
   return (
@@ -58,6 +63,12 @@ export function OverviewSection({
           demoSeed={demoSeed}
         />
       )}
+      <PendingActionsSection
+        report={pendingActions}
+        onOpenTransaction={onOpenPendingTransaction}
+        onReview={onReviewPending}
+        onReconcile={onReconcilePending}
+      />
     </>
   );
 }

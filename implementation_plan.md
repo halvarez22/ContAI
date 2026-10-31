@@ -485,3 +485,18 @@ Condiciones vinculantes:
 2. `addMissingSeedAccounts` ejecuta `assertCatalog` sobre el catálogo fusionado antes de `updateOrganizationChart`. Si la validación falla, no se escribe nada.
 3. Un catálogo vacío agrega la semilla completa: `addedCount` es su longitud, `accounts` y `addedAccounts` coinciden con la semilla.
 4. `mergeMissingSeedAccounts` no modifica el arreglo ni las cuentas que recibió.
+
+## 20. E23 — Tablero unificado de pendientes (dictamen 2026-10-31, ejecución autorizada)
+
+Centro de lectura del mes seleccionado. Agrupa los movimientos que piden acción y abre la pantalla que ya los resuelve. No aprueba, no genera asientos y no cambia la conciliación. La vista operativa sigue en su lugar.
+
+Cada movimiento entra en una sola lista. La cadena es revisión, luego falta de cuenta, luego conciliación. Un rechazado no entra. La cuenta falta si `account_code` queda vacío. La conciliación está hecha si `bank_reconciled` es verdadero o `bank_reconcile_status` es `full`, la misma señal de la póliza de efectivo. El mes se filtra dentro de la función con el calendario local. El motivo guardado se muestra cuando existe; si no, «En revisión».
+
+Los botones «Revisar», «Abrir movimiento» y «Conciliar» solo cambian de pestaña o abren el detalle. No llaman a `postClassifiedAccrual` ni a `planBatchApproval`.
+
+Condiciones vinculantes:
+
+1. La prioridad vive en una cadena `if / else if` dentro de `aggregatePendingActions`. Una transacción en revisión, sin cuenta y sin banco aparece solo en `in_review`, con los otros dos contadores en cero.
+2. El arreglo recibido es `readonly` y no se modifica. Una prueba compara el contenido antes y después.
+3. Si `policy_review_reason` tiene texto, ese es el motivo. Si es nulo o vacío, el motivo es «En revisión».
+4. Los tres botones solo navegan. «Revisar» no aprueba ni genera asientos.
