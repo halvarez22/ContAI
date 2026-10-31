@@ -10,6 +10,7 @@ import {
   doc,
   getDocs,
   query,
+  deleteField,
   serverTimestamp,
   setDoc,
   where,
@@ -339,4 +340,4 @@ export async function deleteTransactionDocsByIds(ids: readonly string[]): Promis
   return deleted;
 }
 
-export { serverTimestamp, BATCH_CHUNK };
+export { deleteField, serverTimestamp, BATCH_CHUNK };

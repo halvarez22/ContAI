@@ -56,6 +56,7 @@ import {
   ChartOfAccountsSection,
 } from './components/settings/ChartOfAccountsSection';
 import { JournalLinesPanel } from './components/transactions/JournalLinesPanel';
+import { ReconciledReassignmentPanel } from './components/transactions/ReconciledReassignmentPanel';
 import { ApprovalThresholdSection } from './components/settings/ApprovalThresholdSection';
 import { AtajoPueSection } from './components/settings/AtajoPueSection';
 import type { AgentDecision, AgentType } from './types/agentDecision';
@@ -2758,6 +2759,68 @@ export default function App() {
                   onUpdated={(entry) => {
                     setSelectedTransaction((current) =>
                       current ? { ...current, asiento_devengo: entry } : current
+                    );
+                  }}
+                />
+
+                <ReconciledReassignmentPanel
+                  transactionId={selectedTransaction.id}
+                  fecha={selectedTransaction.fecha}
+                  status={typeof selectedTransaction.status === 'string' ? selectedTransaction.status : null}
+                  tipo={String(selectedTransaction.tipo)}
+                  monto={Number(selectedTransaction.monto) || 0}
+                  fiscalSubtotal={
+                    typeof selectedTransaction.fiscal_subtotal === 'number'
+                      ? selectedTransaction.fiscal_subtotal
+                      : null
+                  }
+                  fiscalIva={
+                    typeof selectedTransaction.fiscal_iva === 'number' ? selectedTransaction.fiscal_iva : null
+                  }
+                  accountCode={
+                    typeof selectedTransaction.account_code === 'string'
+                      ? selectedTransaction.account_code
+                      : null
+                  }
+                  metodoPagoSat={
+                    typeof selectedTransaction.metodo_pago_sat === 'string'
+                      ? selectedTransaction.metodo_pago_sat
+                      : null
+                  }
+                  concepto={selectedTransaction.concepto}
+                  proveedor={selectedTransaction.proveedor ?? null}
+                  isNomina={selectedTransaction.is_nomina === true}
+                  cfdiTipo={
+                    typeof selectedTransaction.cfdi_tipo_comprobante === 'string'
+                      ? selectedTransaction.cfdi_tipo_comprobante
+                      : null
+                  }
+                  confidenceScore={
+                    typeof selectedTransaction.confidence_score === 'number'
+                      ? selectedTransaction.confidence_score
+                      : null
+                  }
+                  canManage={activeMembershipRole ? canManageOrg(activeMembershipRole) : false}
+                  atajoPueBancos={catalogApi.atajoPueBancos}
+                  periodosCerrados={periodosCerrados}
+                  chart={catalogApi.accounts}
+                  organizationId={activeOrganizationId ?? undefined}
+                  actorUserId={user?.uid}
+                  onUpdated={(patch) => {
+                    setSelectedTransaction((current) =>
+                      current
+                        ? {
+                            ...current,
+                            status: patch.status,
+                            account_code: patch.account_code,
+                            account_name: patch.account_name,
+                            account_source: patch.account_source,
+                            asiento_devengo: patch.asiento_devengo,
+                            policy_review_reason: patch.policy_review_reason,
+                            aprobado_por: null,
+                            aprobado_en: null,
+                          }
+                        : current
                     );
                   }}
                 />

@@ -526,3 +526,16 @@ Condiciones vinculantes:
 1. El asiento recibido no se modifica. Una prueba lo congela y compara el contenido y la referencia de `lines`.
 2. El índice es válido solo si `lineIndex >= 0 && lineIndex < entry.lines.length`. Si no, el motivo es «Índice de línea inválido». La prueba cubre un índice negativo y uno fuera de rango.
 3. Cambiar una cuenta de gasto activa por una de ingreso activa se acepta, el asiento sigue cuadrando y el nombre de la línea pasa a ser el de la cuenta nueva.
+
+## 23. E26 — Reclasificación de un conciliado (dictamen 2026-10-31, ejecución autorizada)
+
+Solo el dueño o un administrador puede reabrir un movimiento conciliado. El estado vuelve a revisión y el devengo se arma de nuevo con la cuenta nueva. Si el generador no cuadra, no se guarda nada. Nómina y tipo P siguen bloqueados. El contador no ve la acción.
+
+La confirmación es la casilla «Entiendo que esto modificará un movimiento ya conciliado». La auditoría es `RECLASIFICACION_CONCILIADO_EJECUTADA` e incluye al usuario que la ejecutó. E18 y E25 no se abren para este caso.
+
+Condiciones vinculantes:
+
+1. El parche borra `aprobado_por` y `aprobado_en` con `deleteField()`. No incluye `confidence_score`.
+2. El objeto recibido se congela en una prueba y no cambia.
+3. La confianza original se queda fuera del parche.
+4. La auditoría lleva `usuario_id` del actor.
