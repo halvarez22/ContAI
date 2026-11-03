@@ -7,6 +7,12 @@
 import { validateXML } from 'xmllint-wasm/index-browser.mjs';
 import liteXsd from '../assets/cfdi/cfdi40-comprobante-lite.xsd?raw';
 
+export const CFDI_33_REJECT_REASON =
+  'Este comprobante es versión 3.3. ContAI en esta prueba lee la versión 4.0. No hace falta editar el archivo.';
+
+export const CFDI_XSD_REJECT_REASON =
+  'No se pudo leer este XML como una factura 4.0. No hace falta editarlo; usa el archivo tal como lo descargaste del portal.';
+
 export type CfdiXsdMode = 'sat' | 'lite' | 'skipped';
 
 export interface CfdiXsdValidationResult {
@@ -19,6 +25,31 @@ export interface CfdiXsdValidationResult {
 
 function normalizeErrors(errors: ReadonlyArray<{ message: string }>): string[] {
   return errors.map((e) => e.message).filter(Boolean);
+}
+
+function isCfdi33(xml: string): boolean {
+  if (/Version\s*=\s*["']3\.3["']/.test(xml)) return true;
+  return /http:\/\/www\.sat\.gob\.mx\/cfd\/3["'\s>]/.test(xml);
+}
+
+function rejected(
+  mode: CfdiXsdMode,
+  reason: string,
+  engineError?: string
+): CfdiXsdValidationResult {
+  return engineError
+    ? { valid: false, errors: [reason], mode, engineError }
+    : { valid: false, errors: [reason], mode };
+}
+
+/** Frase para el cuadro. El nombre del archivo se agrega solo en la carga de uno. */
+export function formatCfdiXsdRejection(
+  result: CfdiXsdValidationResult,
+  fileName?: string
+): string {
+  const reason = result.errors[0] ?? CFDI_XSD_REJECT_REASON;
+  const name = fileName?.trim();
+  return name ? `${name}: ${reason}` : reason;
 }
 
 /** Detecta respuesta HTML (p. ej. rewrite SPA de Vercel a index.html). */
@@ -46,7 +77,10 @@ function shouldFallbackToLite(message: string): boolean {
 export async function validateCfdiXmlAgainstXsd(xmlString: string): Promise<CfdiXsdValidationResult> {
   const trimmed = xmlString.trim();
   if (!trimmed.startsWith('<?xml') && !trimmed.includes('<')) {
-    return { valid: false, errors: ['Contenido no parece XML.'], mode: 'skipped' };
+    return rejected('skipped', CFDI_XSD_REJECT_REASON);
+  }
+  if (isCfdi33(trimmed)) {
+    return rejected('skipped', CFDI_33_REJECT_REASON);
   }
 
   // 1) Intentar XSD oficial del SAT en public (usuario coloca cfdv40.xsd + dependencias)
@@ -69,21 +103,12 @@ export async function validateCfdiXmlAgainstXsd(xmlString: string): Promise<Cfdi
           if (shouldFallbackToLite(joined)) {
             /* continuar a lite */
           } else {
-            return {
-              valid: false,
-              errors: errs.length ? errs : [r.rawOutput || 'Error de validación XSD'],
-              mode: 'sat',
-            };
+            return rejected('sat', CFDI_XSD_REJECT_REASON, joined || r.rawOutput);
           }
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           if (!shouldFallbackToLite(msg)) {
-            return {
-              valid: false,
-              errors: [msg],
-              mode: 'sat',
-              engineError: msg,
-            };
+            return rejected('sat', CFDI_XSD_REJECT_REASON, msg);
           }
         }
       }
@@ -104,20 +129,10 @@ export async function validateCfdiXmlAgainstXsd(xmlString: string): Promise<Cfdi
     if (r.valid) {
       return { valid: true, errors: [], mode: 'lite' };
     }
-    return {
-      valid: false,
-      errors: normalizeErrors(r.errors).length
-        ? normalizeErrors(r.errors)
-        : [r.rawOutput || 'No cumple esquema lite'],
-      mode: 'lite',
-    };
+    const liteErrors = normalizeErrors(r.errors);
+    return rejected('lite', CFDI_XSD_REJECT_REASON, liteErrors.join(' ') || r.rawOutput);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return {
-      valid: false,
-      errors: [`No se pudo ejecutar validación XSD: ${msg}`],
-      mode: 'skipped',
-      engineError: msg,
-    };
+    return rejected('skipped', CFDI_XSD_REJECT_REASON, msg);
   }
 }

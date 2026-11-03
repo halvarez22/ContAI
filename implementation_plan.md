@@ -583,3 +583,31 @@ Condiciones vinculantes:
 2. El monto `1000` se escribe `1000.00`.
 3. El reporte de entrada se congela en una prueba y no cambia.
 4. Cargos 100 y abonos 90 se comparan con `roundMoney` y detienen el archivo con «La balanza no cuadra. Diferencia: 10.00.»
+
+## 27. Manual de usuario para la prueba de Sebas (autorizado 2026-11-02)
+
+Reescritura de la guía, sin cambios de pantallas ni de cálculo. El texto usa los nombres de botones y tarjetas que ya están en la app, en lenguaje de despacho.
+
+Archivos:
+
+- `docs/MANUAL_USUARIO.md`
+- `MANUAL_USUARIO.md` (el mismo texto, para que no queden dos guías)
+
+No se regenera el PDF en ese paso. No entran reglas de Cursor, secretos ni XML de prueba.
+
+## 28. PDF de la guía con el logo (autorizado 2026-11-02)
+
+`scripts/build-manual-pdf.mjs` arma `MANUAL_USUARIO.pdf` desde `MANUAL_USUARIO.md`. La portada lleva el logo de `public/brand/contai-logo.png` sobre una franja `#1e3a5f`. Títulos, tablas y pie usan esa tinta. El texto de la guía no cambia.
+
+## 29. Corrección 1 — importar XML de Sebas (autorizado 2026-11-03)
+
+La app publicada no tiene el XSD oficial: `/cfdi/xsd/cfdv40.xsd` responde con la página de inicio. La validación cae al esquema reducido y ese esquema rechaza `CondicionesDePago`. El cuadro muestra el texto del validador, en inglés, y no abre la vista previa. Un CFDI 3.3 también se detiene ahí.
+
+Archivos:
+
+- `src/assets/cfdi/cfdi40-comprobante-lite.xsd` — permite atributos extra del comprobante.
+- `src/lib/cfdiXsdValidate.ts` — frase en español; el texto del motor no sale al cuadro.
+- `src/hooks/useImportFlow.ts` y `src/services/cfdiBatchImportService.ts` — usan esa frase. El lote ya muestra el nombre del archivo aparte.
+- `src/lib/cfdiXsdValidate.test.ts` — 4.0 con condiciones de pago pasa; 3.3 muestra la frase.
+
+No cambian conciliación, impuestos, póliza ni Anexo 24.

@@ -30,6 +30,7 @@
       <xs:attribute name="NoCertificado" type="xs:string" use="optional"/>
       <xs:attribute name="Certificado" type="xs:string" use="optional"/>
       <xs:attribute name="Sello" type="xs:string" use="optional"/>
+      <xs:anyAttribute namespace="##any" processContents="lax"/>
     </xs:complexType>
   </xs:element>
 </xs:schema>

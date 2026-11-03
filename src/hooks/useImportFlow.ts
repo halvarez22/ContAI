@@ -127,13 +127,13 @@ export function useImportFlow({
       cfdiXmlTextRef.current = text;
       setCfdiXsdValidating(true);
       try {
-        const { validateCfdiXmlAgainstXsd } = await import('../lib/cfdiXsdValidate');
+        const { validateCfdiXmlAgainstXsd, formatCfdiXsdRejection } = await import(
+          '../lib/cfdiXsdValidate'
+        );
         const xsd = await validateCfdiXmlAgainstXsd(text);
         setCfdiXsdMode(xsd.mode);
         if (!xsd.valid) {
-          setCfdiImportError(
-            [...xsd.errors, `(esquema: ${xsd.mode})`].filter(Boolean).join(' · ')
-          );
+          setCfdiImportError(formatCfdiXsdRejection(xsd, file.name));
           setCfdiPhase('error');
           return;
         }

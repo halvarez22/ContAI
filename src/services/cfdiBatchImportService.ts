@@ -280,7 +280,9 @@ export async function parseCfdiXmlBatch(
   drafts: Array<{ fileName: string; data: CfdiExtractedExtended }>;
   errors: CfdiBatchFileResult[];
 }> {
-  const { validateCfdiXmlAgainstXsd } = await import('../lib/cfdiXsdValidate');
+  const { validateCfdiXmlAgainstXsd, formatCfdiXsdRejection } = await import(
+    '../lib/cfdiXsdValidate'
+  );
   const drafts: Array<{ fileName: string; data: CfdiExtractedExtended }> = [];
   const errors: CfdiBatchFileResult[] = [];
 
@@ -291,7 +293,7 @@ export async function parseCfdiXmlBatch(
         errors.push({
           fileName: item.fileName,
           ok: false,
-          error: [...xsd.errors, `(esquema: ${xsd.mode})`].filter(Boolean).join(' · '),
+          error: formatCfdiXsdRejection(xsd),
         });
         continue;
       }
