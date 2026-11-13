@@ -4,6 +4,7 @@
  */
 
 import type { IvaTasaCode } from '../lib/fiscal';
+import type { CfdiFiscalFace } from './cfdiFiscalFace';
 import type { JournalEntry } from './journalEntry';
 import type { TransactionSatPaymentFields } from './transactionSat';
 
@@ -39,6 +40,8 @@ export interface TransactionFiscalFields {
   cfdi_uuid?: string;
   clave_prod_serv?: string;
   importado_cfdi?: boolean;
+  /** Lectura del comprobante para la lista. No sustituye iva_tasa. */
+  cfdi_fiscal_face?: CfdiFiscalFace;
 }
 
 /** Documento de transacción tal como se persiste / lee (id opcional en escrituras). */

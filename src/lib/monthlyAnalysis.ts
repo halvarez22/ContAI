@@ -3,6 +3,7 @@
 import type { JournalEntry } from '../types/journalEntry';
 import { computeMonthlyIva } from './ivaMonth';
 import { computeIsrProvisionalSummary } from './isrProvisional';
+import { formatDate } from './utils';
 
 export type RiskSeverity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -65,15 +66,84 @@ export interface RiskRow {
   severity: RiskSeverity;
 }
 
-export function filterTransactionsByMonth(
-  transactions: AnalysisTransaction[],
+export function filterTransactionsByMonth<T extends AnalysisTransaction>(
+  transactions: readonly T[],
   year: number,
   monthIndex: number
-): AnalysisTransaction[] {
+): T[] {
   return transactions.filter((tx) => {
     const d = new Date(tx.fecha);
     return d.getFullYear() === year && d.getMonth() === monthIndex;
   });
+}
+
+/** Mes sin filas nombra el periodo y el siguiente paso. Con filas, el vacío es de los filtros. */
+export function transactionListEmptyMessage(input: {
+  monthCount: number;
+  periodLabel: string;
+}): string {
+  if (input.monthCount === 0) {
+    return `${input.periodLabel} no tiene movimientos. Importa los CFDI de ese mes o elige otro periodo.`;
+  }
+  return 'No hay transacciones que coincidan con los filtros.';
+}
+
+export type TransactionExportRow = AnalysisTransaction & {
+  fiscal_subtotal?: number | string | null;
+  fiscal_iva?: number | string | null;
+};
+
+function escapeCsvCell(cell: string | number | null | undefined): string {
+  return `"${String(cell ?? '').replace(/"/g, '""')}"`;
+}
+
+/** CSV del listado visible. No incluye filas que el caller no pasó. */
+export function buildTransactionExportCsv(
+  rows: readonly TransactionExportRow[],
+  meta: { empresa: string; rfc: string; exportedAt: string }
+): string {
+  const headers = [
+    'Fecha',
+    'Proveedor',
+    'Concepto',
+    'Tipo',
+    'Monto',
+    'Moneda',
+    'Estado',
+    'Cuenta',
+    'Confianza',
+    'Etiquetas',
+    'IVA tasa',
+    'Subtotal fiscal',
+    'IVA fiscal',
+  ];
+  const metaRows: Array<ReadonlyArray<string>> = [
+    ['Empresa', meta.empresa],
+    ['RFC', meta.rfc],
+    ['Exportado', formatDate(meta.exportedAt)],
+  ];
+  const dataRows = rows.map((tx) => [
+    formatDate(tx.fecha),
+    tx.proveedor || 'S/P',
+    tx.concepto ?? '',
+    tx.tipo,
+    tx.monto,
+    tx.moneda ?? '',
+    tx.status ?? '',
+    tx.account_name || 'Sin clasificar',
+    tx.confidence_score ? `${(tx.confidence_score * 100).toFixed(1)}%` : 'N/A',
+    tx.tags ? tx.tags.join('; ') : '',
+    tx.iva_tasa ?? '',
+    tx.fiscal_subtotal ?? '',
+    tx.fiscal_iva ?? '',
+  ]);
+  const lines = [
+    ...metaRows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')),
+    '',
+    headers.map((cell) => escapeCsvCell(cell)).join(','),
+    ...dataRows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')),
+  ];
+  return lines.join('\n');
 }
 
 function percentile(sortedAsc: number[], p: number): number {

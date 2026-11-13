@@ -10,6 +10,8 @@ import {
   mapTipoComprobanteToTxTipo,
   inferIvaTasaFromAmounts,
 } from '../lib/cfdiXml';
+import { appendNominaIsr, readCfdiFiscalFace } from '../lib/cfdiFiscalFace';
+import type { CfdiFiscalFace } from '../types/cfdiFiscalFace';
 import {
   parseCfdiWithSatExtensions,
   type CfdiExtractedExtended,
@@ -28,8 +30,13 @@ import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
   commitCfdiTransactionBatch,
   commitTransactionUpdatesBatch,
+  findTransactionsByCfdiUuids,
   BATCH_CHUNK,
 } from './firestoreService';
+import {
+  duplicateCfdiMessage,
+  isActiveDuplicate,
+} from '../lib/cfdiDuplicates';
 import {
   buildGlobalSatFields,
   deriveInvoicePaymentState,
@@ -84,7 +91,8 @@ export function buildCfdiTransactionDraftExtended(
   userId: string,
   organizationId: string,
   fileName: string,
-  d: CfdiExtractedExtended
+  d: CfdiExtractedExtended,
+  face?: CfdiFiscalFace | null
 ): { ok: true; draft: CfdiTransactionDraft } | { ok: false; error: string } {
   let fechaIso: string;
   try {
@@ -159,6 +167,7 @@ export function buildCfdiTransactionDraftExtended(
       saldo_pendiente: invoicePayment.saldo_pendiente,
       payment_status: invoicePayment.payment_status,
       applied_payment_amount: invoicePayment.applied_payment_amount,
+      ...(face ? { cfdi_fiscal_face: face } : {}),
     },
     classification: {
       tipo,
@@ -182,7 +191,8 @@ export function buildNominaTransactionDraft(
   userId: string,
   organizationId: string,
   fileName: string,
-  n: NominaExtracted
+  n: NominaExtracted,
+  face?: CfdiFiscalFace | null
 ): { ok: true; draft: CfdiTransactionDraft } | { ok: false; error: string } {
   let fechaIso: string;
   try {
@@ -230,6 +240,7 @@ export function buildNominaTransactionDraft(
       saldo_pendiente: 0,
       payment_status: 'full',
       applied_payment_amount: 0,
+      ...(face ? { cfdi_fiscal_face: face } : {}),
     },
     classification: {
       tipo: 'egreso',
@@ -268,25 +279,83 @@ export function partitionDraftsByClosedPeriod(
   return { accepted, skipped };
 }
 
+/** Omite folios vigentes. Una segunda copia del mismo folio en el lote tampoco entra. */
+export function partitionDraftsByActiveDuplicate(
+  drafts: readonly CfdiTransactionDraft[],
+  existingByUuid: ReadonlyMap<string, { status?: string | null }>
+): {
+  accepted: CfdiTransactionDraft[];
+  skipped: CfdiBatchFileResult[];
+} {
+  const accepted: CfdiTransactionDraft[] = [];
+  const skipped: CfdiBatchFileResult[] = [];
+  const seen = new Set<string>();
+  for (const draft of drafts) {
+    const uuid = (draft.payload.cfdi_uuid ?? '').trim().toLowerCase();
+    if (!uuid) {
+      accepted.push(draft);
+      continue;
+    }
+    const existing = existingByUuid.get(uuid);
+    const blocked =
+      (existing !== undefined && isActiveDuplicate(existing)) || seen.has(uuid);
+    if (blocked) {
+      skipped.push({
+        fileName: draft.fileName,
+        ok: false,
+        error: duplicateCfdiMessage(draft.fileName),
+      });
+      continue;
+    }
+    seen.add(uuid);
+    accepted.push(draft);
+  }
+  return { accepted, skipped };
+}
+
 export type ParsedXmlInput = { fileName: string; xmlText: string };
+
+/** Aviso por archivo. `fileName` es el XML en turno; `message` es el texto de ese paso. */
+export type CfdiParseProgressUpdate = {
+  current: number;
+  total: number;
+  fileName?: string;
+  message?: string;
+};
 
 /**
  * Parsea/valida una lista de XML ya leídos (sin FileReader).
  * Continúa ante errores por archivo.
  */
 export async function parseCfdiXmlBatch(
-  inputs: ParsedXmlInput[]
+  inputs: ParsedXmlInput[],
+  onProgress?: (update: CfdiParseProgressUpdate) => void
 ): Promise<{
-  drafts: Array<{ fileName: string; data: CfdiExtractedExtended }>;
+  drafts: Array<{
+    fileName: string;
+    data: CfdiExtractedExtended;
+    face: CfdiFiscalFace | null;
+  }>;
   errors: CfdiBatchFileResult[];
 }> {
   const { validateCfdiXmlAgainstXsd, formatCfdiXsdRejection } = await import(
     '../lib/cfdiXsdValidate'
   );
-  const drafts: Array<{ fileName: string; data: CfdiExtractedExtended }> = [];
+  const drafts: Array<{
+    fileName: string;
+    data: CfdiExtractedExtended;
+    face: CfdiFiscalFace | null;
+  }> = [];
   const errors: CfdiBatchFileResult[] = [];
 
-  for (const item of inputs) {
+  for (let i = 0; i < inputs.length; i++) {
+    const item = inputs[i];
+    onProgress?.({
+      current: i + 1,
+      total: inputs.length,
+      fileName: item.fileName,
+      message: `Leyendo ${i + 1}/${inputs.length}`,
+    });
     try {
       const xsd = await validateCfdiXmlAgainstXsd(item.xmlText);
       if (!xsd.valid) {
@@ -308,12 +377,14 @@ export async function parseCfdiXmlBatch(
           });
           continue;
         }
+        const baseFace = readCfdiFiscalFace(item.xmlText);
         drafts.push({
           fileName: item.fileName,
           data: {
             ...nominaToExtendedStub(nomina.data),
             __nomina: nomina.data,
           } as CfdiExtractedExtended & { __nomina: NominaExtracted },
+          face: baseFace ? appendNominaIsr(baseFace, nomina.data.isrRetenido) : null,
         });
         continue;
       }
@@ -327,7 +398,11 @@ export async function parseCfdiXmlBatch(
         });
         continue;
       }
-      drafts.push({ fileName: item.fileName, data: r.data });
+      drafts.push({
+        fileName: item.fileName,
+        data: r.data,
+        face: readCfdiFiscalFace(item.xmlText),
+      });
     } catch (e) {
       errors.push({
         fileName: item.fileName,
@@ -417,7 +492,18 @@ export async function runCfdiBatchImport(
     message: 'Validando XML…',
   });
 
-  const { drafts: parsed, errors: parseErrors } = await parseCfdiXmlBatch(inputs);
+  const { drafts: parsed, errors: parseErrors } = await parseCfdiXmlBatch(
+    inputs,
+    (update) => {
+      onProgress?.({
+        phase: 'uploading',
+        current: update.current,
+        total: update.total,
+        fileName: update.fileName,
+        message: update.message,
+      });
+    }
+  );
   results.push(...parseErrors);
 
   onProgress?.({
@@ -437,13 +523,15 @@ export async function runCfdiBatchImport(
           userId,
           organizationId,
           p.fileName,
-          withNomina.__nomina
+          withNomina.__nomina,
+          p.face
         )
       : buildCfdiTransactionDraftExtended(
           userId,
           organizationId,
           p.fileName,
-          p.data
+          p.data,
+          p.face
         );
     if (b.ok === false) {
       results.push({ fileName: p.fileName, ok: false, error: b.error });
@@ -455,7 +543,17 @@ export async function runCfdiBatchImport(
   const { accepted, skipped } = partitionDraftsByClosedPeriod(built, periodosCerrados);
   results.push(...skipped);
 
-  if (accepted.length === 0) {
+  const existingByUuid = await findTransactionsByCfdiUuids(
+    organizationId,
+    accepted
+      .map((draft) => draft.payload.cfdi_uuid)
+      .filter((uuid): uuid is string => typeof uuid === 'string' && uuid.trim().length > 0)
+  );
+  const { accepted: toCommit, skipped: duplicateSkipped } =
+    partitionDraftsByActiveDuplicate(accepted, existingByUuid);
+  results.push(...duplicateSkipped);
+
+  if (toCommit.length === 0) {
     const failed = results.filter((r) => !r.ok).length;
     return {
       results,
@@ -471,16 +569,16 @@ export async function runCfdiBatchImport(
   onProgress?.({
     phase: 'processing_ai',
     current: 0,
-    total: accepted.length,
-    message: 'Guardando en Firestore…',
+    total: toCommit.length,
+    message: 'Guardando el lote…',
   });
 
   const { ids } = await commitCfdiTransactionBatch(
-    accepted.map((d) => ({ payload: d.payload }))
+    toCommit.map((d) => ({ payload: d.payload }))
   );
 
   const processed = await classifyBatchTransactions({
-    accepted,
+    accepted: toCommit,
     documentIds: ids,
     classify,
     accounts,
@@ -505,7 +603,7 @@ export async function runCfdiBatchImport(
   const failed = results.filter((r) => !r.ok).length;
   return {
     results,
-    committed: accepted.length,
+    committed: toCommit.length,
     classified: processed.classified,
     skippedClosed: skipped.length,
     failed,

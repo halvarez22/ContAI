@@ -58,6 +58,27 @@ describe('TransactionsSection', () => {
     ).toBeTruthy();
   }, 15000);
 
+  it('el mes vacío dice qué falta y apaga el CSV', () => {
+    render(
+      <TransactionsSection
+        {...baseProps}
+        transactionsCount={0}
+        filteredTransactions={[]}
+        emptyMessage="Agosto 2026 no tiene movimientos. Importa los CFDI de ese mes o elige otro periodo."
+      />
+    );
+    expect(
+      screen.getByText(
+        'Agosto 2026 no tiene movimientos. Importa los CFDI de ese mes o elige otro periodo.'
+      )
+    ).toBeTruthy();
+    const csv = screen.getByRole('button', { name: /Exportar CSV/i });
+    expect(csv).toBeDisabled();
+    expect(csv.parentElement?.getAttribute('title')).toBe(
+      'No hay movimientos en el listado para exportar.'
+    );
+  });
+
   it('deshabilita export póliza si polizaExportDisabled', () => {
     render(
       <TransactionsSection
@@ -88,6 +109,32 @@ describe('TransactionsSection', () => {
       />
     );
     expect(screen.getByText('Riesgo 69-B')).toBeTruthy();
+  });
+
+  it('muestra la ficha bajo el concepto y no la inventa si el renglón no la trae', () => {
+    render(<TransactionsSection {...baseProps} />);
+    expect(screen.queryByText(/Folio fiscal:/)).toBeNull();
+
+    render(
+      <TransactionsSection
+        {...baseProps}
+        filteredTransactions={[
+          {
+            ...tx,
+            cfdi_fiscal_face: {
+              clase: 'nota_credito',
+              serie: 'NC',
+              folio: '4',
+              folioFiscal: '22222222-2222-2222-2222-222222222222',
+              descuento: 10,
+              impuestos: [],
+            },
+          },
+        ]}
+      />
+    );
+    expect(screen.getByText(/Tipo: Nota de crédito/)).toBeTruthy();
+    expect(screen.getByText(/Folio fiscal: 22222222-2222-2222-2222-222222222222/)).toBeTruthy();
   });
 
   it('smoke axe', async () => {

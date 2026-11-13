@@ -9,6 +9,11 @@ import type {
   CfdiBatchProgress,
   CfdiImportPhase,
 } from '../types/cfdiBatch';
+import {
+  FOLDER_PICKER_UNAVAILABLE_MESSAGE,
+  WAIT_FOR_CURRENT_LOAD_MESSAGE,
+  canPickCfdiFolder,
+} from '../lib/cfdiFileSelection';
 
 export type ImportModalsProps = {
   isCfdiImportOpen: boolean;
@@ -29,6 +34,11 @@ export type ImportModalsProps = {
   onExcelFiles: (files: FileList | null) => void;
   onImportCfdi: () => void;
 };
+
+export function cfdiBatchPercent(current: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round((current / total) * 100);
+}
 
 function phaseLabel(phase: CfdiImportPhase): string {
   switch (phase) {
@@ -66,6 +76,7 @@ export function ImportModals({
   onImportCfdi,
 }: ImportModalsProps) {
   const cfdiFileInputRef = useRef<HTMLInputElement>(null);
+  const cfdiFolderInputRef = useRef<HTMLInputElement>(null);
   const excelFileInputRef = useRef<HTMLInputElement>(null);
   const [cfdiFileNames, setCfdiFileNames] = useState<string[]>([]);
   const [excelFileNames, setExcelFileNames] = useState<string[]>([]);
@@ -79,7 +90,18 @@ export function ImportModals({
   }, [isExcelImportOpen]);
 
   const busy = cfdiImporting || cfdiXsdValidating;
+  const folderPickerEnabled = canPickCfdiFolder();
+  const waitHint = busy ? WAIT_FOR_CURRENT_LOAD_MESSAGE : undefined;
+  const folderHint = busy
+    ? WAIT_FOR_CURRENT_LOAD_MESSAGE
+    : folderPickerEnabled
+      ? undefined
+      : FOLDER_PICKER_UNAVAILABLE_MESSAGE;
   const batchMode = cfdiBatchResults.length > 0 || (cfdiBatchProgress != null && !cfdiPreview);
+  const batchPercent =
+    cfdiBatchProgress && cfdiBatchProgress.total > 0
+      ? cfdiBatchPercent(cfdiBatchProgress.current, cfdiBatchProgress.total)
+      : null;
   const failedResults = cfdiBatchResults.filter((r) => !r.ok);
   const okResults = cfdiBatchResults.filter((r) => r.ok);
 
@@ -113,7 +135,7 @@ export function ImportModals({
               </div>
               <div className="p-4 space-y-4">
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  1) Pulsa <strong>Cargar archivo(s) XML</strong> y elige uno o varios CFDI.
+                  1) Pulsa <strong>Cargar archivo(s) XML</strong> o <strong>Cargar carpeta</strong>.
                   2) Revisa la vista previa. 3) Pulsa <strong>Registrar transacción</strong> (un
                   archivo) o espera el lote (varios).
                 </p>
@@ -136,15 +158,50 @@ export function ImportModals({
                   }}
                 />
 
-                <Button
-                  type="button"
-                  className="w-full justify-center"
-                  disabled={busy}
-                  onClick={() => cfdiFileInputRef.current?.click()}
-                >
-                  <Upload className="w-4 h-4" />
-                  Cargar archivo(s) XML
-                </Button>
+                <span className="block" title={waitHint}>
+                  <Button
+                    type="button"
+                    className="w-full justify-center"
+                    disabled={busy}
+                    onClick={() => cfdiFileInputRef.current?.click()}
+                  >
+                    <Upload className="w-4 h-4" />
+                    Cargar archivo(s) XML
+                  </Button>
+                </span>
+
+                <input
+                  ref={(node) => {
+                    cfdiFolderInputRef.current = node;
+                    node?.setAttribute('webkitdirectory', '');
+                  }}
+                  type="file"
+                  multiple
+                  disabled={busy || !folderPickerEnabled}
+                  className="sr-only"
+                  aria-hidden
+                  tabIndex={-1}
+                  onChange={(e) => {
+                    const list = e.target.files;
+                    const names = list ? Array.from(list).map((f) => f.name) : [];
+                    setCfdiFileNames(names);
+                    onCfdiFiles(list);
+                    e.target.value = '';
+                  }}
+                />
+
+                <span className="block" title={folderHint}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full justify-center"
+                    disabled={busy || !folderPickerEnabled}
+                    onClick={() => cfdiFolderInputRef.current?.click()}
+                  >
+                    <Upload className="w-4 h-4" />
+                    Cargar carpeta
+                  </Button>
+                </span>
 
                 {cfdiFileNames.length > 0 && (
                   <p className="text-xs text-gray-600 dark:text-gray-300">
@@ -165,6 +222,24 @@ export function ImportModals({
                           ? ` · ${cfdiBatchProgress.fileName}`
                           : ''}
                       </p>
+                    )}
+                    {batchPercent != null && (
+                      <div className="space-y-1">
+                        <div
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={batchPercent}
+                          aria-label={cfdiBatchProgress?.fileName ?? 'Avance de la carga'}
+                          className="h-1.5 w-full overflow-hidden rounded-full bg-surface-muted"
+                        >
+                          <div
+                            className="h-full rounded-full bg-brand"
+                            style={{ width: `${batchPercent}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-ink-muted">{batchPercent}%</p>
+                      </div>
                     )}
                     {cfdiXsdValidating && !cfdiBatchProgress && (
                       <p className="text-xs text-gray-500">Validando XML contra XSD…</p>

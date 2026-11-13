@@ -611,3 +611,117 @@ Archivos:
 - `src/lib/cfdiXsdValidate.test.ts` — 4.0 con condiciones de pago pasa; 3.3 muestra la frase.
 
 No cambian conciliación, impuestos, póliza ni Anexo 24.
+
+## 30. Sprint 1 — la lista y el CSV respetan el mes (autorizado 2026-11-06)
+
+La lista de Transacciones y su CSV recorren todo el libro. El mes elegido ya filtra el panel con `filterTransactionsByMonth` y no filtra esa lista.
+
+Alcance:
+
+- `filteredTransactions` parte de ese mes y después aplica tipo, estado, proveedor, etiqueta y fechas.
+- El CSV exporta esa lista. Si el mes no tiene filas, no descarga el resto del libro.
+- El botón se apaga cuando el listado visible está vacío y dice por qué.
+- Mes vacío: «{mes} no tiene movimientos. Importa los CFDI de ese mes o elige otro periodo.»
+- Mes con movimientos y filtros sin coincidencia: se conserva «No hay transacciones que coincidan con los filtros.»
+
+Archivos:
+
+- `src/lib/monthlyAnalysis.ts` — el filtro conserva el tipo de cada fila. Ahí viven el texto del vacío y el armado del CSV, para probarlos sin montar la pantalla.
+- `src/lib/monthlyAnalysis.test.ts` — dos meses no se mezclan en la lista ni en el CSV; el vacío nombra el mes y el siguiente paso.
+- `src/App.tsx` — la lista y `exportToCSV` usan el mes.
+- `src/types/appSections.ts` y `src/components/sections/TransactionsSection.tsx` — el cuadro recibe el texto del vacío. La prueba del cuadro lo muestra.
+
+No se crean pantallas ni servicios. No cambian póliza, conciliación, Fiscal, panel, Anexo 24, Groq ni org. Sprint 2 y Sprint 3 no entran.
+
+## 31. Sprint 2 — no volver a cargar un folio vigente (autorizado 2026-11-06)
+
+Un CFDI con el mismo folio puede guardarse otra vez. La consulta por folio ya existe (`organization_id` + `cfdi_uuid`, de diez en diez) y no trae el estado. El único caller de esa consulta es el almacén de pagos.
+
+Regla: un movimiento rechazado no bloquea la recarga. Pendiente, revisión y conciliado sí. La línea de $17,400 en Pendiente no se borra y no hay botón de eliminar.
+
+Alcance:
+
+- `isActiveDuplicate` en `src/lib/cfdiDuplicates.ts`, con el comentario de la regla. Falso solo si el estado es `rechazado`.
+- `findTransactionsByCfdiUuids` agrega `status` al resultado. La consulta y el índice no cambian.
+- `cfdiPaymentImportStore.ts` no lee `status`. Se deja igual. No tiene prueba propia; `npm run lint` y la prueba de pagos siguen en verde.
+- El lote consulta una vez, antes de `commitCfdiTransactionBatch`, y omite el archivo con una frase que lleva su nombre. Otro folio del mismo lote sí entra. Una segunda copia del mismo folio en ese lote no entra.
+- El archivo suelto consulta antes de `createTransaction`. Nómina suelta y complemento P suelto no pasan por esa función y quedan fuera.
+- `useImportFlow.ts` ya está en 599 líneas. La decisión vive en el lib; el hook solo llama y guarda el nombre del archivo.
+
+Archivos:
+
+- `src/lib/cfdiDuplicates.ts` y `src/lib/cfdiDuplicates.test.ts`
+- `src/services/firestoreService.ts`
+- `src/services/cfdiBatchImportService.ts` y su prueba
+- `src/hooks/useImportFlow.ts`
+
+No cambian póliza, conciliación, Fiscal, panel, Anexo 24, Groq, org ni el Sprint 3.
+
+## 32. Sprint 3 — barra de avance al cargar XML (autorizado 2026-11-06)
+
+Al cargar varios XML, la validación del paquete no avisa archivo por archivo. La lectura y la clasificación sí. El contrato `CfdiBatchProgress` no cambia y no hay fase nueva.
+
+Alcance:
+
+- `parseCfdiXmlBatch` recibe un aviso opcional, sin `any`: `current`, `total`, `fileName` (el archivo en turno) y `message` (el texto del paso, por ejemplo «Leyendo 3/8»).
+- El único caller es `runCfdiBatchImport`. Traduce ese aviso a la fase `uploading` que ya existe.
+- Al guardar el lote, el texto pasa a «Guardando el lote…» con la fase `processing_ai`.
+- La barra del cuadro es `current / total`. 2 de 8 se ve como 25 % y muestra el nombre del archivo.
+- Un solo archivo usa la misma barra al leerlo y al guardarlo. No se trata como lote: al abrir la vista previa se quita el avance para que siga el botón de registrar.
+
+Archivos:
+
+- `src/services/cfdiBatchImportService.ts` y `src/services/cfdiBatchImportService.progress.test.ts`
+- `src/components/ImportModals.tsx` y `src/components/ImportModals.test.tsx`
+- `src/hooks/useImportFlow.ts` — solo asigna el avance del archivo suelto. La decisión no crece ahí.
+
+No cambian `src/types/cfdiBatch.ts`, póliza, conciliación, Fiscal, panel, Anexo 24, Groq ni org.
+
+## 33. Cargar carpeta de XML (autorizado 2026-11-12)
+
+El cuadro ya acepta varios archivos, pero no deja elegir la carpeta. En Windows, abrir la carpeta y pulsar Abrir entrega un solo XML.
+
+Alcance cerrado en cuatro rondas:
+
+- `handleCfdiFiles` sigue siendo `(fileList: FileList | null) => void`. El único cable es `App.tsx`. El filtro corre dentro del hook, antes de la bifurcación.
+- Un XML abre la vista previa. Dos o más van a `runCfdiBatch`, que pasa a recibir `SelectedCfdiFile[]`. Su único caller es `handleCfdiFiles`. Lee `f.file.text()` y guarda `f.displayName` en el aviso y en `inputs`.
+- `let inputs = []` se declara antes del `try`. El `finally` llama `releaseXmlTexts(inputs)`.
+- Los `File` de la carpeta no se guardan en el estado. La purga de prueba basta con dejar `xmlText` en blanco y el arreglo en cero.
+- Al cerrar el cuadro se vacían también los dos refs del XML suelto.
+- Tras el filtro, el cuadro muestra «Revisando carpeta…» y cede un turno antes de leer el primero.
+- Carpeta sin XML: «Esta carpeta no tiene XML. Elige la carpeta donde están los CFDI.»
+- Los que no son XML se cuentan en el aviso del cuadro y esa frase permanece hasta cerrar o elegir otra carga.
+- Mientras hay una carga, los dos botones quedan apagados: «Espera a que termine la carga actual.»
+- Sin `webkitdirectory`, o en táctil sin ratón, **Cargar carpeta** nace apagado: «Elegir carpeta no está disponible en este navegador. Usa Cargar archivo(s) XML y marca varios.»
+- El párrafo de Fiscal queda: «Abre la ventana y elige varios XML o la carpeta del mes. No valida timbrado.» El título y el botón no cambian.
+- El sufijo `.xml` vive en el lib. No es tasa, cuenta ni modelo.
+- No se crea `useImportFlow.test.ts`. La prueba del cuadro restaura `matchMedia` con `vi.unstubAllGlobals()` en `afterEach`.
+
+Archivos:
+
+- `src/lib/cfdiFileSelection.ts` y `src/lib/cfdiFileSelection.test.ts`
+- `src/components/ImportModals.tsx` y `src/components/ImportModals.test.tsx`
+- `src/hooks/useImportFlow.ts`
+- `src/components/sections/FiscalSection.tsx`
+
+No cambian póliza, conciliación, Anexo 24, Groq, org ni el manual. El servicio del lote no cambia de contrato.
+
+## 34. Ficha fiscal en la lista de facturas (autorizado 2026-11-12)
+
+La lista no enseña el comprobante como viene. El IVA se colapsa en `inferIvaTasaFromAmounts` (`src/lib/cfdiXml.ts`, líneas 137–144) y esa función no se toca. La ficha es otro dato: impuestos del nodo, folio, folio fiscal, descuento y clase del comprobante.
+
+Contrato del archivo suelto, tipos estrictos, sin `any` y sin `DocumentData` en el retorno:
+
+- `buildSingleCfdiCreatePayload` → `SingleCfdiCreatePayload`
+- `buildSingleCfdiReplacePayload` → `SingleCfdiReplacePayload`
+- `createTransaction` y `setTransaction` siguen recibiendo `DocumentData`. El tipado se pierde en esa frontera. Lo sostienen `tsc --noEmit` y las pruebas del helper y del lote.
+- `creado_en` se agrega en la llamada, no dentro del tipo.
+- `appendNominaIsr` es puro: devuelve un `CfdiFiscalFace` nuevo cuando agrega la línea y no muta el argumento.
+
+`IMPORT_CFDI` sigue con `{ id, uuid }`. La ficha no entra a Groq ni a `decideAccount`.
+
+Fuera de este plan: la nómina de un solo archivo (`createImportedNomina`) y el complemento de pago de un solo archivo (`createImportedTipoP`) no llevan ficha. Su guardado no se modificó. La nómina y el pago que entran en un lote sí la llevan, porque el ciclo del lote ya tiene el XML.
+
+Cierre forense, ronda 5, 12 nov 2026. Cinco rondas. `tsc --noEmit` en verde y 432 pruebas en verde, 8 omitidas, 18 de ellas de esta ficha. No hay commit. La nómina y el pago de un solo archivo, el previo de IVA, el CSV y las facturas ya guardadas quedan como deuda de otro plan.
+
+Pruebas: 16 %, 0 % y exento distintos; 0.106667 es «IVA 2/3»; ISR 10 %; descuento; nota de crédito; serie, folio y folio fiscal; nómina con serie, folio y descuento, y sin ellos; nómina sin nodo de ISR y con `isrRetenido` mayor que cero; `toEqual` de la ficha entre alta y reemplazo; el lote guarda la ficha solo si se le pasa.

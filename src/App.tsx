@@ -56,6 +56,7 @@ import {
   ChartOfAccountsSection,
 } from './components/settings/ChartOfAccountsSection';
 import { JournalLinesPanel } from './components/transactions/JournalLinesPanel';
+import { InvoiceFiscalFacts } from './components/transactions/InvoiceFiscalFacts';
 import { ReconciledReassignmentPanel } from './components/transactions/ReconciledReassignmentPanel';
 import { ApprovalThresholdSection } from './components/settings/ApprovalThresholdSection';
 import { AtajoPueSection } from './components/settings/AtajoPueSection';
@@ -93,6 +94,8 @@ import {
   filterTransactionsYtdThroughMonth,
   computeRiskRankings,
   buildMonthlyContextPack,
+  buildTransactionExportCsv,
+  transactionListEmptyMessage,
 } from './lib/monthlyAnalysis';
 import { buildFiscalSnapshot, parseIvaTasa } from './lib/fiscal';
 import { isPeriodClosed, isTransactionDateInClosedPeriod, periodKey } from './lib/periodClose';
@@ -571,53 +574,13 @@ export default function App() {
     }
   };
 
-  const exportToCSV = () => {
-    if (transactions.length === 0) return;
+  const monthTransactions = filterTransactionsByMonth(
+    transactions,
+    periodYear,
+    periodMonth
+  );
 
-    const headers = ['Fecha', 'Proveedor', 'Concepto', 'Tipo', 'Monto', 'Moneda', 'Estado', 'Cuenta', 'Confianza', 'Etiquetas', 'IVA tasa', 'Subtotal fiscal', 'IVA fiscal'];
-    const metaRows = [
-      ['Empresa', empresaNombre || '—'],
-      ['RFC', empresaRfc || '—'],
-      ['Exportado', formatDate(new Date().toISOString())],
-      [],
-    ];
-    const rows = transactions.map(tx => [
-      formatDate(tx.fecha),
-      tx.proveedor || 'S/P',
-      tx.concepto,
-      tx.tipo,
-      tx.monto,
-      tx.moneda,
-      tx.status,
-      tx.account_name || 'Sin clasificar',
-      tx.confidence_score ? `${(tx.confidence_score * 100).toFixed(1)}%` : 'N/A',
-      tx.tags ? tx.tags.join('; ') : '',
-      tx.iva_tasa ?? '',
-      tx.fiscal_subtotal ?? '',
-      tx.fiscal_iva ?? '',
-    ]);
-
-    const escapeRow = (row: ReadonlyArray<string | number | null | undefined>) =>
-      row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',');
-
-    const csvContent = [
-      ...metaRows.map((r) => (r.length === 0 ? '' : escapeRow(r))),
-      escapeRow(headers),
-      ...rows.map((row) => escapeRow(row)),
-    ].join('\n');
-
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `transacciones_ContAI_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const filteredTransactions = transactions.filter(tx => {
+  const filteredTransactions = monthTransactions.filter(tx => {
     const matchesType = filterType === 'all' || tx.tipo === filterType;
     const matchesStatus = filterStatus === 'all' || tx.status === filterStatus;
     const matchesProvider = !filterProvider || 
@@ -632,6 +595,26 @@ export default function App() {
 
     return matchesType && matchesStatus && matchesStartDate && matchesEndDate && matchesProvider && matchesTag;
   });
+
+  const exportToCSV = () => {
+    if (filteredTransactions.length === 0) return;
+
+    const csvContent = buildTransactionExportCsv(filteredTransactions, {
+      empresa: empresaNombre || '—',
+      rfc: empresaRfc || '—',
+      exportedAt: new Date().toISOString(),
+    });
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `transacciones_ContAI_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const enrichedFilteredTransactions: TransactionRow[] = useMemo(() => {
     const riskRfcs = fiscalRiskIndex?.rfcs;
@@ -1217,6 +1200,11 @@ export default function App() {
     return `${monthNames[periodMonth]} ${periodYear}`;
   }, [periodMonth, periodYear]);
 
+  const transactionEmptyMessage = transactionListEmptyMessage({
+    monthCount: monthTransactions.length,
+    periodLabel: reconciliationPeriodLabel,
+  });
+
   const riskRankings = useMemo(
     () => computeRiskRankings(transactionsInPeriod, HIGH_AMOUNT_REVIEW_THRESHOLD),
     [transactionsInPeriod]
@@ -1580,8 +1568,9 @@ export default function App() {
                   approvalThreshold={catalogApi.approvalThreshold}
                 />
                 <TransactionsSection
-                  transactionsCount={transactions.length}
+                  transactionsCount={filteredTransactions.length}
                   filteredTransactions={enrichedFilteredTransactions}
+                  emptyMessage={transactionEmptyMessage}
                   filters={{
                     filterType,
                     filterStatus,
@@ -2830,6 +2819,8 @@ export default function App() {
                     );
                   }}
                 />
+
+                <InvoiceFiscalFacts face={selectedTransaction.cfdi_fiscal_face} />
 
                 {(selectedTransaction.iva_tasa || selectedTransaction.fiscal_subtotal != null) && (
                   <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-2">

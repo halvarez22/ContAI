@@ -243,6 +243,8 @@ export type TransactionByCfdiUuid = {
   monto_original?: number;
   saldo_pendiente?: number;
   applied_payment_amount?: number;
+  /** Estado del movimiento. La consulta y el índice no cambian. */
+  status: string;
 };
 
 /** Resuelve facturas por UUID (chunks de 10 para query `in`). */
@@ -280,6 +282,7 @@ export async function findTransactionsByCfdiUuids(
           data.applied_payment_amount !== undefined
             ? Number(data.applied_payment_amount)
             : undefined,
+        status: typeof data.status === 'string' ? data.status : '',
       });
     }
   }

@@ -9,11 +9,15 @@ vi.mock('./auditService', () => ({
 import {
   chunkArray,
   buildCfdiTransactionDraft,
+  buildCfdiTransactionDraftExtended,
+  buildNominaTransactionDraft,
+  partitionDraftsByActiveDuplicate,
   partitionDraftsByClosedPeriod,
   BATCH_CHUNK,
 } from './cfdiBatchImportService';
-import type { CfdiExtracted } from '../lib/cfdiXml';
+import { duplicateCfdiMessage } from '../lib/cfdiDuplicates';
 import type { CfdiTransactionDraft } from '../types/cfdiBatch';
+import type { CfdiExtracted } from '../lib/cfdiXml';
 
 function sampleCfdi(overrides: Partial<CfdiExtracted> = {}): CfdiExtracted {
   return {
@@ -219,5 +223,115 @@ describe('clasificación del batch', () => {
     expect(processed.classified).toBe(1);
     expect(processed.patchUpdates[0]?.payload.account_code).toBe('401.01');
     expect(processed.results[0]?.ok).toBe(true);
+  });
+});
+
+function draftWithUuid(fileName: string, uuid: string): CfdiTransactionDraft {
+  const built = buildCfdiTransactionDraft('user1', 'org1', fileName, sampleCfdi({ uuid }));
+  if (!built.ok) throw new Error(built.error);
+  return built.draft;
+}
+
+describe('partitionDraftsByActiveDuplicate', () => {
+  const folio = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  const otro = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+  it.each(['pendiente', 'revisión', 'conciliado'])(
+    'un folio en %s no vuelve a entrar',
+    (status) => {
+      const row = draftWithUuid('factura.xml', folio);
+      const { accepted, skipped } = partitionDraftsByActiveDuplicate(
+        [row],
+        new Map([[folio, { status }]])
+      );
+      expect(accepted).toHaveLength(0);
+      expect(skipped).toEqual([
+        { fileName: 'factura.xml', ok: false, error: duplicateCfdiMessage('factura.xml') },
+      ]);
+    }
+  );
+
+  it('un folio rechazado sí se puede volver a cargar', () => {
+    const row = draftWithUuid('factura.xml', folio);
+    const { accepted, skipped } = partitionDraftsByActiveDuplicate(
+      [row],
+      new Map([[folio, { status: 'rechazado' }]])
+    );
+    expect(skipped).toHaveLength(0);
+    expect(accepted.map((item) => item.fileName)).toEqual(['factura.xml']);
+  });
+
+  it('otro folio del mismo lote sí entra y la segunda copia del mismo no', () => {
+    const repetido = draftWithUuid('uno.xml', folio);
+    const copia = draftWithUuid('dos.xml', folio);
+    const distinto = draftWithUuid('tres.xml', otro);
+    const { accepted, skipped } = partitionDraftsByActiveDuplicate(
+      [repetido, copia, distinto],
+      new Map()
+    );
+    expect(accepted.map((item) => item.fileName)).toEqual(['uno.xml', 'tres.xml']);
+    expect(skipped).toEqual([
+      { fileName: 'dos.xml', ok: false, error: duplicateCfdiMessage('dos.xml') },
+    ]);
+  });
+});
+
+describe('cfdi_fiscal_face en el borrador', () => {
+  const face = {
+    clase: 'ingreso' as const,
+    serie: 'A',
+    folio: '10',
+    folioFiscal: '12345678-1234-1234-1234-123456789012',
+    descuento: 0,
+    impuestos: [],
+  };
+
+  it('guarda la ficha cuando se le pasa y no agrega la llave si falta', () => {
+    const withFace = buildCfdiTransactionDraftExtended(
+      'u',
+      'org',
+      'a.xml',
+      { ...sampleCfdi(), pagos: [] },
+      face
+    );
+    const withoutFace = buildCfdiTransactionDraft('u', 'org', 'a.xml', sampleCfdi());
+    expect(withFace.ok).toBe(true);
+    expect(withoutFace.ok).toBe(true);
+    if (!withFace.ok || !withoutFace.ok) return;
+    expect(withFace.draft.payload.cfdi_fiscal_face).toEqual(face);
+    expect(withoutFace.draft.payload).not.toHaveProperty('cfdi_fiscal_face');
+  });
+
+  it('la nómina guarda la ficha solo si se le pasa', () => {
+    const nomina = {
+      total: 800,
+      subtotal: 1000,
+      moneda: 'MXN',
+      fecha: '2026-08-01T12:00:00',
+      fechaPago: '2026-08-01',
+      cfdiUuid: '12345678-1234-1234-1234-123456789012',
+      tipoComprobante: 'N',
+      emisorRfc: 'AAA010101AAA',
+      emisorNombre: 'Patron',
+      empleadoRfc: 'BBB010101BBB',
+      empleadoNombre: 'Empleado',
+      totalPercepciones: 1000,
+      totalDeducciones: 200,
+      totalOtrosPagos: 0,
+      isrRetenido: 80,
+      imssRetenido: 20,
+      tipoNomina: 'O',
+      warnings: [],
+    };
+    const withFace = buildNominaTransactionDraft('u', 'org', 'n.xml', nomina, {
+      ...face,
+      clase: 'nomina',
+    });
+    const withoutFace = buildNominaTransactionDraft('u', 'org', 'n.xml', nomina);
+    expect(withFace.ok).toBe(true);
+    expect(withoutFace.ok).toBe(true);
+    if (!withFace.ok || !withoutFace.ok) return;
+    expect(withFace.draft.payload.cfdi_fiscal_face?.clase).toBe('nomina');
+    expect(withoutFace.draft.payload).not.toHaveProperty('cfdi_fiscal_face');
   });
 });

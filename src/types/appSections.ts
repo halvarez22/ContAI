@@ -12,6 +12,7 @@ import type { PaymentLedgerItem } from '../hooks/usePaymentApplications';
 import type { FiscalRiskIndex } from './fiscalRisk';
 import type { AccountMappingRule, CatalogAccount } from './chartOfAccounts';
 import type { Anexo24Movement } from './anexo24Polizas';
+import type { CfdiFiscalFace } from './cfdiFiscalFace';
 
 /** Tabs extraídas a Section Views en E7.3 */
 export const MIGRATED_NAV_TAB_IDS = [
@@ -63,6 +64,7 @@ export type TransactionRow = {
   /** Derivado en memoria (O(1) Set); nunca persistido en Firestore por 69-B */
   fiscalRisk69b?: boolean;
   fiscalRiskTooltip?: string;
+  cfdi_fiscal_face?: CfdiFiscalFace | null;
 };
 
 export type PeriodChangeHandler = (year: number, month: number) => void;
@@ -113,6 +115,8 @@ export type TransactionFilters = {
 export type TransactionsSectionProps = {
   transactionsCount: number;
   filteredTransactions: TransactionRow[];
+  /** Vacío del mes o de los filtros. Si falta, el cuadro usa el texto de filtros. */
+  emptyMessage?: string;
   filters: TransactionFilters;
   onFilterChange: {
     setFilterType: (v: string) => void;

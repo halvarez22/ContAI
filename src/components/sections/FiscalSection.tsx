@@ -98,7 +98,7 @@ export function FiscalSection({
               Importar CFDI (XML)
             </p>
             <p className="text-xs text-ink-muted mt-1">
-              Archivo XML del comprobante. No valida timbrado; crea una transacción con datos del XML.
+              Abre la ventana y elige varios XML o la carpeta del mes. No valida timbrado.
             </p>
           </div>
           <Button variant="secondary" type="button" onClick={onOpenCfdiImport}>

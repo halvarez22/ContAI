@@ -4,6 +4,7 @@
  */
 
 import type { PagoExtracted } from '../lib/cfdiPagosParser';
+import type { CfdiFiscalFace } from './cfdiFiscalFace';
 import type { AccountClassifyPayload } from './chartOfAccounts';
 import type { TransactionSatPaymentFields } from './transactionSat';
 
@@ -71,6 +72,7 @@ export interface CfdiTransactionDraft {
     nomina_total_percepciones?: number;
     nomina_total_deducciones?: number;
     account_source?: string;
+    cfdi_fiscal_face?: CfdiFiscalFace;
   } & TransactionSatPaymentFields;
   classification: {
     tipo: string;

@@ -10,6 +10,7 @@ import { FISCAL_RISK_COPY } from '../../types/fiscalRisk';
 import { POLIZA_DEVENGO_DISABLED_HINT } from '../../types/journalEntry';
 import { POLIZA_EXPORT_DISABLED_HINT } from '../../types/polizaExport';
 import type { TransactionRow, TransactionsSectionProps } from '../../types/appSections';
+import { InvoiceFiscalFacts } from '../transactions/InvoiceFiscalFacts';
 
 function statusBadgeVariant(status: string | null | undefined) {
   if (status === 'conciliado') return 'success' as const;
@@ -28,6 +29,7 @@ function statusLabel(status: string | null | undefined): string {
 export function TransactionsSection({
   transactionsCount,
   filteredTransactions,
+  emptyMessage = 'No hay transacciones que coincidan con los filtros.',
   filters,
   onFilterChange,
   onGenerateMonthlyReport,
@@ -67,6 +69,7 @@ export function TransactionsSection({
             ) : null}
           </div>
           <p className="text-xs text-ink-muted truncate max-w-[200px]">{tx.concepto}</p>
+          <InvoiceFiscalFacts face={tx.cfdi_fiscal_face} />
           {tx.tags && tx.tags.length > 0 ? (
             <div className="flex flex-wrap gap-1 mt-1">
               {tx.tags.map((tag) => (
@@ -152,15 +155,24 @@ export function TransactionsSection({
               <FileText className="w-4 h-4" />
               Reporte Mensual
             </Button>
-            <Button
-              variant="secondary"
-              onClick={onExportCsv}
-              disabled={transactionsCount === 0}
-              className="flex-1 sm:flex-none"
+            <span
+              className="inline-flex flex-1 sm:flex-none"
+              title={
+                transactionsCount === 0
+                  ? 'No hay movimientos en el listado para exportar.'
+                  : undefined
+              }
             >
-              <Download className="w-4 h-4" />
-              Exportar CSV
-            </Button>
+              <Button
+                variant="secondary"
+                onClick={onExportCsv}
+                disabled={transactionsCount === 0}
+                className="w-full"
+              >
+                <Download className="w-4 h-4" />
+                Exportar CSV
+              </Button>
+            </span>
             <span
               className="inline-flex flex-1 sm:flex-none"
               title={
@@ -313,7 +325,7 @@ export function TransactionsSection({
         columns={columns}
         rows={filteredTransactions}
         rowKey={(tx) => tx.id}
-        emptyMessage="No hay transacciones que coincidan con los filtros."
+        emptyMessage={emptyMessage}
       />
     </div>
   );

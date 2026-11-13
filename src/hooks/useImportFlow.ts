@@ -1,10 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import type { CfdiExtracted } from '../lib/cfdiXml';
-import {
-  parseCfdiXml,
-  mapTipoComprobanteToTxTipo,
-  inferIvaTasaFromAmounts,
-} from '../lib/cfdiXml';
+import { parseCfdiXml, type CfdiExtracted } from '../lib/cfdiXml';
 import {
   isNominaXmlCandidate,
   nominaToCfdiPreviewShape,
@@ -21,9 +16,26 @@ import type { AccountMappingRule, CatalogAccount } from '../types/chartOfAccount
 import { isTransactionDateInClosedPeriod } from '../lib/periodClose';
 import {
   createTransaction,
+  findTransactionsByCfdiUuids,
   setTransaction,
   serverTimestamp,
 } from '../services/firestoreService';
+import { messageIfActiveCfdiDuplicate } from '../lib/cfdiDuplicates';
+import { readCfdiFiscalFace } from '../lib/cfdiFiscalFace';
+import {
+  buildSingleCfdiCreatePayload,
+  buildSingleCfdiReplacePayload,
+  singleCfdiLabels,
+} from '../lib/cfdiSingleImportPayload';
+import {
+  EMPTY_CFDI_FOLDER_MESSAGE,
+  REVIEWING_FOLDER_MESSAGE,
+  releaseXmlTexts,
+  routeCfdiSelection,
+  selectCfdiXmlFiles,
+  skippedNonXmlMessage,
+} from '../lib/cfdiFileSelection';
+import type { SelectedCfdiFile } from '../lib/cfdiFileSelection';
 import { logAuditEntry } from '../services/auditService';
 import { runCfdiBatchImport } from '../services/cfdiBatchImportService';
 import type { AgentDecision, AgentType } from '../types/agentDecision';
@@ -67,6 +79,7 @@ export function useImportFlow({
   organizationRfc,
 }: UseImportFlowParams) {
   const cfdiXmlTextRef = useRef('');
+  const cfdiSourceFileNameRef = useRef('');
   const [isCfdiImportOpen, setIsCfdiImportOpen] = useState(false);
   const [cfdiPreview, setCfdiPreview] = useState<CfdiExtracted | null>(null);
   const [cfdiNominaPreview, setCfdiNominaPreview] = useState<NominaExtracted | null>(
@@ -107,6 +120,8 @@ export function useImportFlow({
     setCfdiBatchResults([]);
     setCfdiImporting(false);
     setCfdiXsdValidating(false);
+    cfdiXmlTextRef.current = '';
+    cfdiSourceFileNameRef.current = '';
   }, []);
 
   const closeExcelImport = useCallback(() => {
@@ -115,11 +130,19 @@ export function useImportFlow({
 
   /** Flujo 1 archivo: preview (sin cambio de comportamiento). */
   const handleSingleCfdiFile = useCallback((file: File) => {
+    cfdiSourceFileNameRef.current = file.name;
     setCfdiImportError(null);
     setCfdiPreview(null);
     setCfdiNominaPreview(null);
     setCfdiXsdMode(null);
     setCfdiBatchResults([]);
+    setCfdiBatchProgress({
+      phase: 'uploading',
+      current: 1,
+      total: 1,
+      fileName: file.name,
+      message: 'Leyendo 1/1',
+    });
     setCfdiPhase('uploading');
     const reader = new FileReader();
     reader.onload = async () => {
@@ -147,6 +170,7 @@ export function useImportFlow({
           }
           setCfdiNominaPreview(nomina.data);
           setCfdiPreview(nominaToCfdiPreviewShape(nomina.data));
+          setCfdiBatchProgress(null);
           setCfdiPhase('idle');
           return;
         }
@@ -158,6 +182,7 @@ export function useImportFlow({
           return;
         }
         setCfdiPreview(r.data);
+        setCfdiBatchProgress(null);
         setCfdiPhase('idle');
       } finally {
         setCfdiXsdValidating(false);
@@ -167,8 +192,8 @@ export function useImportFlow({
   }, []);
 
   const runCfdiBatch = useCallback(
-    async (files: File[]) => {
-      if (!userId || files.length === 0) return;
+    async (selected: SelectedCfdiFile[], skippedNotice: string | null) => {
+      if (!userId || selected.length === 0) return;
       setCfdiPreview(null);
       setCfdiImportError(null);
       setCfdiXsdMode(null);
@@ -176,19 +201,29 @@ export function useImportFlow({
       setCfdiPhase('uploading');
       setCfdiBatchResults([]);
 
+      let inputs: Array<{ fileName: string; xmlText: string }> = [];
       try {
-        const inputs: Array<{ fileName: string; xmlText: string }> = [];
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i];
+        setCfdiBatchProgress({
+          phase: 'uploading',
+          current: 0,
+          total: selected.length,
+          message: REVIEWING_FOLDER_MESSAGE,
+        });
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        });
+        for (let i = 0; i < selected.length; i++) {
+          const item = selected[i];
+          if (!item) continue;
           setCfdiBatchProgress({
             phase: 'uploading',
             current: i + 1,
-            total: files.length,
-            fileName: f.name,
-            message: `Leyendo ${i + 1}/${files.length}…`,
+            total: selected.length,
+            fileName: item.displayName,
+            message: `Leyendo ${i + 1}/${selected.length}…`,
           });
-          const xmlText = await f.text();
-          inputs.push({ fileName: f.name, xmlText });
+          const xmlText = await item.file.text();
+          inputs.push({ fileName: item.displayName, xmlText });
         }
 
         setCfdiPhase('processing_ai');
@@ -215,20 +250,19 @@ export function useImportFlow({
         setCfdiBatchResults(summary.results);
         if (summary.committed === 0 && summary.failed > 0) {
           setCfdiPhase('error');
-          setCfdiImportError(
-            `Ningún CFDI se importó. Revisa los errores por archivo (${summary.failed} fallido(s)).`
-          );
+          const failedText = `Ningún CFDI se importó. Revisa los errores por archivo (${summary.failed} fallido(s)).`;
+          setCfdiImportError(skippedNotice ? `${failedText} ${skippedNotice}` : failedText);
         } else {
           setCfdiPhase('success');
-          setCfdiImportError(null);
+          setCfdiImportError(skippedNotice);
         }
       } catch (e) {
         console.error(e);
         setCfdiPhase('error');
-        setCfdiImportError(
-          e instanceof Error ? e.message : 'Error al importar el lote de CFDIs.'
-        );
+        const detail = e instanceof Error ? e.message : 'Error al importar el lote de CFDIs.';
+        setCfdiImportError(skippedNotice ? `${detail} ${skippedNotice}` : detail);
       } finally {
+        releaseXmlTexts(inputs);
         setCfdiImporting(false);
       }
     },
@@ -239,12 +273,23 @@ export function useImportFlow({
   const handleCfdiFiles = useCallback(
     (fileList: FileList | null) => {
       if (!fileList?.length) return;
-      const files = Array.from(fileList);
-      if (files.length === 1) {
-        handleSingleCfdiFile(files[0]);
+      const { selected, skippedNonXml } = selectCfdiXmlFiles(Array.from(fileList));
+      const skippedNotice =
+        skippedNonXml > 0 ? skippedNonXmlMessage(skippedNonXml) : null;
+      const route = routeCfdiSelection(selected.length);
+      if (route === 'empty') {
+        setCfdiImportError(EMPTY_CFDI_FOLDER_MESSAGE);
+        setCfdiPhase('error');
         return;
       }
-      void runCfdiBatch(files);
+      if (route === 'preview') {
+        const only = selected[0];
+        if (!only) return;
+        handleSingleCfdiFile(only.file);
+        if (skippedNotice) setCfdiImportError(skippedNotice);
+        return;
+      }
+      void runCfdiBatch(selected, skippedNotice);
     },
     [handleSingleCfdiFile, runCfdiBatch]
   );
@@ -348,6 +393,13 @@ export function useImportFlow({
       setCfdiImporting(true);
       setCfdiImportError(null);
       setCfdiPhase('processing_ai');
+      setCfdiBatchProgress({
+        phase: 'processing_ai',
+        current: 1,
+        total: 1,
+        fileName: cfdiSourceFileNameRef.current || undefined,
+        message: 'Guardando…',
+      });
       try {
         await createImportedNomina({
           organizationId,
@@ -386,6 +438,13 @@ export function useImportFlow({
     if (String(d.tipoComprobante || '').toUpperCase() === 'P') {
       setCfdiImporting(true);
       setCfdiPhase('processing_ai');
+      setCfdiBatchProgress({
+        phase: 'processing_ai',
+        current: 1,
+        total: 1,
+        fileName: cfdiSourceFileNameRef.current || undefined,
+        message: 'Guardando…',
+      });
       try {
         await createImportedTipoP({
           organizationId,
@@ -411,43 +470,38 @@ export function useImportFlow({
     setCfdiImporting(true);
     setCfdiImportError(null);
     setCfdiPhase('processing_ai');
+    setCfdiBatchProgress({
+      phase: 'processing_ai',
+      current: 1,
+      total: 1,
+      fileName: cfdiSourceFileNameRef.current || undefined,
+      message: 'Guardando…',
+    });
     try {
-      const tipo = mapTipoComprobanteToTxTipo(d.tipoComprobante);
-      const iva_tasa = inferIvaTasaFromAmounts(d.subtotal, d.totalIvaTrasladado);
-      const proveedor =
-        tipo === 'ingreso'
-          ? d.receptorNombre || d.receptorRfc || 'Cliente'
-          : d.emisorNombre || d.emisorRfc || 'Proveedor';
-      const concepto = d.descripcionPrimerConcepto
-        ? `CFDI: ${d.descripcionPrimerConcepto}`
-        : `CFDI importado${d.uuid ? ` · ${d.uuid.slice(0, 8)}…` : ''}`;
+      const { tipo, proveedor, concepto } = singleCfdiLabels(d);
 
-      const docRef = await createTransaction({
-        organization_id: organizationId,
-        usuario_id: userId,
-        tipo,
-        monto: d.total,
-        moneda: d.moneda || 'MXN',
-        concepto,
-        proveedor,
-        fecha: fechaIso,
-        status: 'pendiente',
-        account_name: '',
-        clave_prod_serv: d.claveProdServ || undefined,
-        tags: [],
-        iva_tasa,
-        egreso_acredita_iva: tipo === 'egreso',
-        deducible: tipo === 'egreso',
-        fiscal_subtotal: d.subtotal,
-        fiscal_iva: d.totalIvaTrasladado,
-        rfc_contraparte: tipo === 'ingreso' ? d.receptorRfc : d.emisorRfc,
-        uso_cfdi: d.receptorUsoCfdi || undefined,
-        forma_pago_sat: d.formaPago || undefined,
-        metodo_pago_sat: d.metodoPago || undefined,
-        cp_expedicion: d.lugarExpedicion || undefined,
-        cfdi_uuid: d.uuid || undefined,
-        importado_cfdi: true,
+      const duplicateMessage = await messageIfActiveCfdiDuplicate({
+        organizationId,
+        uuid: d.uuid || undefined,
+        fileName: cfdiSourceFileNameRef.current,
+        lookup: findTransactionsByCfdiUuids,
       });
+      if (duplicateMessage) {
+        setCfdiImportError(duplicateMessage);
+        setCfdiPhase('error');
+        return;
+      }
+
+      const face = readCfdiFiscalFace(cfdiXmlTextRef.current);
+      const docRef = await createTransaction(
+        buildSingleCfdiCreatePayload({
+          organizationId,
+          userId,
+          fechaIso,
+          extracted: d,
+          face,
+        })
+      );
 
       const assignment = await decideAccount(
         {
@@ -493,39 +547,15 @@ export function useImportFlow({
         total: d.total,
       });
       await setTransaction(docRef.id, {
-        tipo,
-        monto: d.total,
-        moneda: d.moneda || 'MXN',
-        concepto,
-        proveedor,
-        fecha: fechaIso,
-        status: persisted.status,
-        account_name: assignment.account_name,
-        account_code: assignment.account_code,
-        agente_ia_decision: assignment.decision,
-        confidence_score: assignment.confidence_score,
-        account_source: assignment.account_source,
-        policy_review_reason:
-          persisted.policy_review_reason ??
-          (assignment.confidence_score === 0 ? assignment.reason : null),
-        ...(persisted.asiento_devengo
-          ? { asiento_devengo: persisted.asiento_devengo }
-          : {}),
-        organization_id: organizationId,
-        usuario_id: userId,
-        iva_tasa,
-        egreso_acredita_iva: tipo === 'egreso',
-        deducible: tipo === 'egreso',
-        fiscal_subtotal: d.subtotal,
-        fiscal_iva: d.totalIvaTrasladado,
-        rfc_contraparte: tipo === 'ingreso' ? d.receptorRfc : d.emisorRfc,
-        uso_cfdi: d.receptorUsoCfdi || undefined,
-        forma_pago_sat: d.formaPago || undefined,
-        metodo_pago_sat: d.metodoPago || undefined,
-        cp_expedicion: d.lugarExpedicion || undefined,
-        cfdi_uuid: d.uuid || undefined,
-        clave_prod_serv: d.claveProdServ || undefined,
-        importado_cfdi: true,
+        ...buildSingleCfdiReplacePayload({
+          organizationId,
+          userId,
+          fechaIso,
+          extracted: d,
+          face,
+          assignment,
+          persisted,
+        }),
         creado_en: serverTimestamp(),
       });
 
