@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { ProductDraft, TransactionDraft } from '../lib/excelContaiImport';
+import { stripUndefinedDeep } from '../lib/firestoreSanitize';
 
 const BATCH_CHUNK = 400;
 
@@ -78,10 +79,13 @@ export async function createInventoryMovement(
 export async function createTransaction(
   payload: DocumentData
 ): Promise<{ id: string }> {
-  const docRef = await addDoc(collection(db, 'transactions'), {
-    ...payload,
-    creado_en: serverTimestamp(),
-  });
+  const docRef = await addDoc(
+    collection(db, 'transactions'),
+    stripUndefinedDeep({
+      ...payload,
+      creado_en: serverTimestamp(),
+    })
+  );
   return { id: docRef.id };
 }
 
@@ -89,7 +93,7 @@ export async function setTransaction(
   id: string,
   payload: DocumentData
 ): Promise<void> {
-  await setDoc(doc(db, 'transactions', id), payload);
+  await setDoc(doc(db, 'transactions', id), stripUndefinedDeep(payload));
 }
 
 export async function createRecurring(payload: DocumentData): Promise<void> {
@@ -196,10 +200,13 @@ export async function commitCfdiTransactionBatch(
     const chunk = drafts.slice(i, i + BATCH_CHUNK);
     const chunkRefs = chunk.map(() => doc(collection(db, 'transactions')));
     for (let j = 0; j < chunk.length; j++) {
-      batch.set(chunkRefs[j], {
-        ...chunk[j].payload,
-        creado_en: serverTimestamp(),
-      });
+      batch.set(
+        chunkRefs[j],
+        stripUndefinedDeep({
+          ...chunk[j].payload,
+          creado_en: serverTimestamp(),
+        })
+      );
       ids.push(chunkRefs[j].id);
     }
     await batch.commit();
@@ -214,7 +221,7 @@ export async function commitTransactionUpdatesBatch(
     const batch = writeBatch(db);
     const chunk = updates.slice(i, i + BATCH_CHUNK);
     for (const u of chunk) {
-      batch.set(doc(db, 'transactions', u.id), u.payload, { merge: true });
+      batch.set(doc(db, 'transactions', u.id), stripUndefinedDeep(u.payload), { merge: true });
     }
     await batch.commit();
   }

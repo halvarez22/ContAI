@@ -725,3 +725,26 @@ Fuera de este plan: la nómina de un solo archivo (`createImportedNomina`) y el 
 Cierre forense, ronda 5, 12 nov 2026. Cinco rondas. `tsc --noEmit` en verde y 432 pruebas en verde, 8 omitidas, 18 de ellas de esta ficha. No hay commit. La nómina y el pago de un solo archivo, el previo de IVA, el CSV y las facturas ya guardadas quedan como deuda de otro plan.
 
 Pruebas: 16 %, 0 % y exento distintos; 0.106667 es «IVA 2/3»; ISR 10 %; descuento; nota de crédito; serie, folio y folio fiscal; nómina con serie, folio y descuento, y sin ellos; nómina sin nodo de ISR y con `isrRetenido` mayor que cero; `toEqual` de la ficha entre alta y reemplazo; el lote guarda la ficha solo si se le pasa.
+
+## 35. Guarda de escritura contra `undefined` (autorizado 2026-11-23)
+
+Diagnóstico cerrado. Firestore rechaza `undefined` y aborta el `writeBatch` completo. El lote lo produce en `buildCfdiTransactionDraftExtended` (`|| undefined`), incluido `es_anticipo: false || undefined` en toda factura que no es anticipo. `getFirestore` no usa `ignoreUndefinedProperties`. Los cuatro escritores de `transactions` no limpian el payload.
+
+Decisión: no guardar `es_anticipo: false`. La ausencia del campo significa no-anticipo. No se cambia el constructor.
+
+Guarda `stripUndefinedDeep` en `src/lib/firestoreSanitize.ts`. Solo desciende en arrays y en objetos planos (`Object.prototype` o prototipo `null`). `serverTimestamp()`, `deleteField()`, `Date`, `Timestamp` y cualquier otra instancia se devuelven como la misma referencia. Conserva `false`, `0`, `''` y `null`.
+
+Se aplica inmediatamente antes de escribir, en `firestoreService.ts`:
+
+- `createTransaction` → `addDoc`
+- `setTransaction` → `setDoc`
+- `commitCfdiTransactionBatch` → `batch.set` del objeto `{ ...payload, creado_en }`
+- `commitTransactionUpdatesBatch` → `batch.set` del `payload`, con `merge: true`
+
+Notas, sin cambio de lógica: una línea junto a `es_anticipo` en `cfdiBatchImportService.ts`; un comentario junto a `getFirestore` en `src/firebase.ts`.
+
+T1–T10 y T13–T14 viven en `src/lib/firestoreSanitize.test.ts` y corren antes de cablear. T11 y T12 viven en `src/services/firestoreService.undefined.test.ts` porque deben simular el SDK sin sustituir los centinelas reales de T13 y T14. Corren después del cableado.
+
+Fuera de alcance: cálculo fiscal, póliza, conciliación, SAT, auditoría, organización, constructores de CFDI, nómina, tipo P, `buildGlobalSatFields`, ficha fiscal y asiento. No se toca `functions/`. No se activa `ignoreUndefinedProperties`.
+
+R1: otro escritor de `transactions` fuera de estos cuatro vuelve a abrir el fallo. La arquitectura prohíbe un segundo writer de la misma colección. R4: si un caso futuro necesita conservar `undefined`, se resuelve con otro plan.

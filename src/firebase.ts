@@ -20,6 +20,7 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+// No se activa `ignoreUndefinedProperties`: la corrección de `undefined` es la guarda de escritura en `firestoreService.ts`. Activar esta opción ocultaría el problema en lugar de corregirlo.
 export const db = firebaseConfig.firestoreDatabaseId
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : getFirestore(app);

@@ -162,6 +162,7 @@ export function buildCfdiTransactionDraftExtended(
       source_file_name: fileName,
       cfdi_tipo_comprobante: cfdiTipo,
       ...globalFields,
+      // La ausencia de `es_anticipo` significa no-anticipo. La guarda de escritura elimina `undefined`; no convertir a `false` sin plan aprobado.
       es_anticipo: esAnticipo || undefined,
       monto_original: invoicePayment.monto_original,
       saldo_pendiente: invoicePayment.saldo_pendiente,
